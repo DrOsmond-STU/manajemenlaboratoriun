@@ -14,9 +14,18 @@ DirectoryIndex index.html
 </IfModule>
 
 # --- Tutup akses ke berkas internal repositori --------------------------
+# Docroot diisi lewat `git reset --hard`, sehingga seluruh isi repositori
+# ikut terlayani. Berkas berikut bukan bagian dari aplikasi dan sengaja
+# ditutup: dokumentasi memuat daftar kelemahan purwarupa (SECURITY.md §8)
+# serta prosedur operasional yang tidak perlu terbuka untuk umum.
+# Dokumen tetap dapat dibaca di repositori Git.
 <IfModule mod_alias.c>
   RedirectMatch 404 /\.git
   RedirectMatch 404 /\.htaccess
+  RedirectMatch 404 ^/docs/
+  RedirectMatch 404 ^/tests/
+  RedirectMatch 404 ^/package(-lock)?\.json$
+  RedirectMatch 404 ^/README\.md$
 </IfModule>
 
 # --- Paksa HTTPS --------------------------------------------------------

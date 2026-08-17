@@ -32,6 +32,7 @@ Dokumen produk, teknis, dan operasional ada di **[`docs/`](docs/README.md)**:
 |---|---|
 | [PRD.md](docs/PRD.md) | Kebutuhan produk, pengguna, lingkup, kriteria penerimaan, rencana rilis |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arsitektur purwarupa & rancangan produksi, model data, alur kritis, ADR |
+| [BACKEND.md](docs/BACKEND.md) | Pemilihan tumpukan backend beserta buktinya, fondasi yang sudah berjalan, topologi penerapan |
 | [DESIGN.md](docs/DESIGN.md) | Token, komponen, pola antarmuka, aksesibilitas, bahasa |
 | [SECURITY.md](docs/SECURITY.md) | Model ancaman, autentikasi, RBAC, perlindungan data, daftar periksa |
 | [TESTING.md](docs/TESTING.md) | Strategi uji, suite yang ada, gerbang rilis |

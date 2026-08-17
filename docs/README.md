@@ -9,6 +9,7 @@ disusun sebagai kelengkapan sebelum pengembangan dan penerapan ke server produks
 |---|---|---|
 | **[PRD.md](PRD.md)** | Kebutuhan produk, pengguna, lingkup, kriteria penerimaan, rencana rilis | Menentukan apa yang dibangun dan mengapa |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | Arsitektur purwarupa dan rancangan produksi, model data, alur kritis, ADR | Membangun atau menilai sistemnya |
+| **[BACKEND.md](BACKEND.md)** | Pemilihan tumpukan backend beserta buktinya, fondasi yang sudah berjalan, topologi penerapan | Mengerjakan atau meninjau sisi server |
 | **[DESIGN.md](DESIGN.md)** | Token, komponen, pola antarmuka, aksesibilitas, bahasa | Menyentuh tampilan atau menambah layar |
 | **[SECURITY.md](SECURITY.md)** | Model ancaman, autentikasi, RBAC, perlindungan data, daftar periksa | Menangani keamanan atau meninjau kode |
 | **[TESTING.md](TESTING.md)** | Strategi uji, suite yang ada, gerbang rilis | Menulis atau menjalankan uji |
@@ -23,6 +24,9 @@ PRD → DESIGN → DEPLOYMENT §13 (rencana go-live)
 
 **Pengembang baru**
 TASK_INSTRUCTIONS → ARCHITECTURE → DESIGN → TESTING
+
+**Pengembang backend**
+BACKEND → ARCHITECTURE §8 (model data) → SECURITY §3–§4
 
 **Peninjau keamanan**
 SECURITY → ARCHITECTURE → TESTING §5 (yang belum diuji)

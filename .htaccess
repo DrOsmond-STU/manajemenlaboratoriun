@@ -26,6 +26,11 @@ DirectoryIndex index.html
   RedirectMatch 404 ^/tests/
   RedirectMatch 404 ^/package(-lock)?\.json$
   RedirectMatch 404 ^/README\.md$
+  # backend/ adalah aplikasi Laravel. Tempatnya yang benar DI LUAR docroot
+  # (lihat docs/BACKEND.md §6); blok ini hanya lapis kedua agar `.env`,
+  # storage, dan konfigurasi tidak pernah terlayani bila sewaktu-waktu
+  # direktorinya ikut tersalin ke dalam docroot.
+  RedirectMatch 404 ^/backend/
 </IfModule>
 
 # --- Paksa HTTPS --------------------------------------------------------

@@ -8,6 +8,8 @@
   const NAV = [
     { type: "item", id: "dashboard", label: "Dashboard", icon: "dashboard" },
     { type: "item", id: "exec", label: "Dashboard Manajemen", icon: "chart" },
+    { type: "item", id: "analytics", label: "Dashboard Analitik", icon: "grid" },
+    { type: "item", id: "bsc", label: "Balanced Scorecard", icon: "star" },
     {
       type: "group", label: "Operations", icon: "calendar", children: [
         { id: "calendar", label: "Kalender" },
@@ -15,6 +17,7 @@
         { id: "mybooking", label: "Booking Saya" },
         { id: "availability", label: "Room Availability" },
         { id: "eqbooking", label: "Reservasi Alat" },
+        { id: "mychecklist", label: "Checklist Saya", badge: 3 },
         { id: "approval", label: "Approval", badge: 6 }
       ]
     },
@@ -95,7 +98,9 @@
         { id: "masterdata", label: "Master Data" },
         { id: "workflow", label: "Workflow" },
         { id: "roles", label: "Role & Hak Akses" },
+        { id: "checklist", label: "Checklist" },
         { id: "notification", label: "Notifikasi" },
+        { id: "emailsched", label: "Notifikasi Email Jadwal" },
         { id: "audit", label: "Audit Trail" },
         { id: "settings", label: "Pengaturan Sistem" }
       ]

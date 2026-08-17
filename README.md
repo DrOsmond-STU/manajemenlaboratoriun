@@ -31,6 +31,8 @@ index.html                   Halaman masuk (login) + pemilih peran demo
 app.html                     Shell aplikasi (SPA, hash router)
 assets/css/app.css           Design system: token, komponen, mode gelap, responsif
 assets/js/data.js            Dataset dummy + referensi BMN (kodefikasi, satker, template label)
+assets/js/data-ext.js        Balanced Scorecard, checklist, dan aturan notifikasi email
+assets/js/dash.js            Mesin dashboard widget (sumber data, tipe visual, drag & resize)
 assets/js/barcode.js         Encoder Code 128 & QR Code (SVG, tanpa dependensi)
 assets/js/ui.js              UI kit: ikon SVG, formatter, tabel, chart, modal/drawer/toast
 assets/js/views-core.js      Dashboard, kalender, ketersediaan, wizard booking, reservasi alat
@@ -38,18 +40,21 @@ assets/js/views-facility.js  Laboratorium, alat, kalibrasi, maintenance, ruangan
 assets/js/views-business.js  Aset, rental & billing, event, people, dokumen, laporan
 assets/js/views-admin.js     Approval, workflow, role & hak akses, master data, audit trail, AI Assistant
 assets/js/views-bmn.js       Register BMN, registrasi peralatan + foto, studio label & barcode
+assets/js/views-dash.js      Dashboard operasional, manajemen, analitik kustom, Balanced Scorecard
+assets/js/views-checklist.js Template checklist, pembuat checklist, Checklist Saya, pelaksanaan
+assets/js/views-notif.js     Notifikasi email untuk seluruh jadwal + ringkasan harian per PIC
 assets/js/app.js             Navigasi, breadcrumb, router, notifikasi, tema, profil
 .htaccess                    Konfigurasi Apache untuk hosting statis
 ```
 
 ---
 
-## Cakupan layar (58 rute)
+## Cakupan layar (63 rute)
 
 | Kelompok | Layar |
 |---|---|
-| **Dashboard** | Dashboard Operasional, Dashboard Manajemen (KPI eksekutif) |
-| **Operations** | Kalender Terpadu, Daftar Booking, Booking Saya, Room Availability, Reservasi Alat, Approval |
+| **Dashboard** | Dashboard Operasional, Dashboard Manajemen, **Dashboard Analitik** (dikelola sendiri), **Balanced Scorecard** |
+| **Operations** | Kalender Terpadu, Daftar Booking, Booking Saya, Room Availability, Reservasi Alat, **Checklist Saya**, Approval |
 | **Laboratory** | Laboratorium, Alat Laboratorium, **Registrasi Alat (BMN)**, Booking Alat, Kalibrasi, Maintenance, Jadwal Laboratorium |
 | **Facility** | Ruangan, Ruang Rapat, Auditorium, Room Layout, Fasilitas & Add-on, Jadwal Fasilitas |
 | **Asset** | Asset Register, **Register BMN (KIB B)**, **Label & Barcode**, Asset Movement, Peminjaman & Pengembalian, Asset Maintenance, Audit Aset |
@@ -58,7 +63,7 @@ assets/js/app.js             Navigasi, breadcrumb, router, notifikasi, tema, pro
 | **People** | Pengguna, PIC, Teknisi & Operator, Pengunjung, Organisasi |
 | **Document** | Dokumen & Berita Acara (BAST, sertifikat, perjanjian) |
 | **Report** | Utilisasi, Ruangan, Alat, Aset, Penyewaan, Maintenance, Keuangan |
-| **Administration** | Master Data, Workflow, Role & Hak Akses, Notifikasi, Audit Trail, Pengaturan Sistem |
+| **Administration** | Master Data, Workflow, Role & Hak Akses, **Checklist**, Notifikasi, **Notifikasi Email Jadwal**, Audit Trail, Pengaturan Sistem |
 | **AI** | AI Assistant (percakapan bersimulasi) |
 
 ## Modul BMN, foto, dan barcode
@@ -119,6 +124,71 @@ Code 128 subset B, dan QR Code mode byte ECC level M versi 1–6. Keduanya diuji
 dengan cara membalik prosesnya — SVG dirender ke kanvas lalu dibaca ulang
 memakai decoder independen (ZXing untuk Code 128, jsQR untuk QR), termasuk
 barcode yang sudah tercetak di dalam label.
+
+## Dashboard yang dapat disunting, BSC, checklist, dan notifikasi email
+
+### Dashboard dapat disunting sepenuhnya
+Klik **Sunting Dashboard** pada Dashboard Operasional, Dashboard Manajemen,
+Dashboard Analitik, maupun Balanced Scorecard, lalu:
+
+- **Ubah isi konten** — judul, keterangan, metrik atau sumber data, ikon, warna,
+  jumlah baris yang ditampilkan, akhiran nilai, dan catatan kaki.
+- **Ubah penampilan data** — 15 bentuk tampilan: kartu KPI, grafik garis/area,
+  grafik batang, donat + legenda, batang mendatar, daftar peringkat, tabel,
+  daftar ringkas, heatmap, panel peringatan, teks, dan empat widget khusus BSC.
+  Sumber data yang cocok menyesuaikan otomatis saat tipe diganti.
+- **Ubah ukuran** — lebar 2–12 kolom (dengan preset seperempat/sepertiga/setengah)
+  dan tinggi 110–620 px, lewat penggeser di formulir **atau** dengan menyeret
+  sudut kanan bawah widget langsung di dashboard.
+- **Ubah susunan** — seret ikon kisi untuk memindahkan widget ke posisi mana pun.
+- Tambah, duplikat, dan hapus widget; kembalikan susunan bawaan kapan saja.
+
+Susunan disimpan di `localStorage` sehingga bertahan setelah halaman dimuat ulang.
+
+Sumber data yang tersedia mencakup 25 dataset (utilisasi, pendapatan, biaya
+maintenance, status alat, kondisi BMN, agenda, approval, kalibrasi, work order,
+tugas checklist, antrean email, dan lainnya) serta 21 metrik untuk kartu KPI.
+
+### Dashboard analitik yang dikelola sendiri
+`#/analytics` — buat dashboard baru dari halaman kosong, beri nama dan ikon,
+isi dengan widget pilihan sendiri, ganti nama, duplikat, atau hapus. Berpindah
+antar dashboard lewat pemilih di bagian atas.
+
+### Balanced Scorecard
+`#/bsc` — empat perspektif Kaplan & Norton (Finansial; Pelanggan & Pengguna
+Layanan; Proses Bisnis Internal; Pembelajaran & Pertumbuhan) dengan bobot,
+sasaran strategis, dan 18 indikator kinerja. Skor KPI memperhatikan polaritas
+(semakin besar/kecil semakin baik); skor perspektif adalah rata-rata tertimbang
+KPI, dan skor keseluruhan rata-rata tertimbang perspektif. Dilengkapi peta
+strategi sebab-akibat, tren enam bulan, serta panel **Kelola Sasaran & KPI**
+untuk mengubah bobot, target, dan realisasi — seluruh widget langsung ikut
+diperbarui.
+
+### Checklist
+`#/checklist` — enam jenis: **Pengecekan & Verifikasi, Perawatan, Persiapan
+Penyewaan, Kebersihan, Kerapian, dan Kelayakan**. Seluruh template dibuat dan
+dikelola pengguna melalui pembuat checklist: nama, jenis, sasaran (ruangan /
+peralatan / keduanya), frekuensi, estimasi waktu, tindakan bila ada butir tidak
+sesuai (kirim notifikasi, buat work order, atau blokir resource), daftar
+resource yang dicek, penanggung jawab, serta butir pemeriksaan dengan enam
+jenis isian (OK/Tidak/NA, skala 1–5, angka, teks, foto, tanda tangan), lengkap
+dengan pengaturan wajib/opsional dan pengurutan.
+
+Checklist **melekat pada pengguna**: `#/mychecklist` menampilkan tugas milik
+pengguna yang sedang masuk. Saat dikerjakan, butir wajib divalidasi, temuan
+menuntut uraian, dan hasilnya tersimpan sebagai riwayat berskor dengan tindak
+lanjut otomatis. Checklist yang melekat pada sebuah resource juga tampil pada
+drawer detail ruangan, laboratorium, dan alat.
+
+### Notifikasi email seluruh jadwal
+`#/emailsched` — setiap jadwal dari **delapan sumber** (booking ruangan,
+reservasi alat, work order maintenance, jatuh tempo kalibrasi, pengembalian
+pinjaman, tugas checklist, event, dan agenda) dipetakan ke email penanggung
+jawabnya, lengkap dengan tembusan dan waktu pengiriman (H-90 hingga H+1).
+Tersedia pengaturan aturan per peristiwa, pratinjau email HTML yang sebenarnya,
+**ringkasan harian per penanggung jawab** pukul 06.30, antrean & riwayat kirim
+dengan status buka, preferensi email tiap PIC, editor template bertoken, dan
+pengaturan SMTP.
 
 ## Alur interaktif yang dapat dicoba
 

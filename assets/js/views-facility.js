@@ -79,6 +79,7 @@
         ${U.table([{ t: "Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${e.code} • ${e.brand}</div>` },
                    { t: "Status", render: (e) => U.badge(e.status) },
                    { t: "Kalibrasi", cls: "right", render: (e) => { const od = e.calDue < D.shift(0); return `<span class="badge ${od ? "red" : "green"}">${U.fdate(e.calDue, "short")}</span>`; } }], eqs)}
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">${ckForResource(l.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(l.code)}
           <div class="small muted">Scan QR di pintu laboratorium untuk melihat status, PIC, jadwal penggunaan, dan riwayat maintenance.</div>
@@ -202,6 +203,8 @@
              { t: "Status", render: (m) => U.badge(m.status) }], mt)
             : U.emptyState("Belum ada riwayat", ""), { bodyCls: "flush" })}
         </div>
+
+        <div class="mb-16">${ckForResource(e.id)}</div>
 
         ${U.card("Riwayat Penggunaan", use.length ? U.table(
           [{ t: "ID", render: (b) => `<span class="mono small">${b.id}</span>` },
@@ -485,6 +488,7 @@
           { t: "Agenda", render: (b) => U.esc(b.agenda) },
           { t: "Tanggal", render: (b) => U.fdate(b.date, "short") },
           { t: "Status", render: (b) => U.badge(b.status) }], bk) : U.emptyState("Belum ada booking", "")}
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">${ckForResource(r.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(r.code)}<div class="small muted">QR di pintu ruangan menampilkan jadwal hari ini, PIC, status, dan tombol check-in cepat.</div></div>`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>

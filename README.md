@@ -24,6 +24,43 @@ navigasi hash berperilaku sama seperti di produksi.
 
 ---
 
+## Dokumentasi
+
+Dokumen produk, teknis, dan operasional ada di **[`docs/`](docs/README.md)**:
+
+| Dokumen | Isi |
+|---|---|
+| [PRD.md](docs/PRD.md) | Kebutuhan produk, pengguna, lingkup, kriteria penerimaan, rencana rilis |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arsitektur purwarupa & rancangan produksi, model data, alur kritis, ADR |
+| [DESIGN.md](docs/DESIGN.md) | Token, komponen, pola antarmuka, aksesibilitas, bahasa |
+| [SECURITY.md](docs/SECURITY.md) | Model ancaman, autentikasi, RBAC, perlindungan data, daftar periksa |
+| [TESTING.md](docs/TESTING.md) | Strategi uji, suite yang ada, gerbang rilis |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Prosedur rilis purwarupa & rancangan pipeline produksi |
+| [TASK_INSTRUCTIONS.md](docs/TASK_INSTRUCTIONS.md) | Konvensi kerja, resep menambah fitur, backlog menuju produksi |
+| [RUNBOOK.md](docs/RUNBOOK.md) | Pemantauan, playbook insiden, pencadangan, rotasi rahasia |
+
+> **Penting.** Yang berjalan hari ini adalah purwarupa antarmuka, bukan sistem produksi:
+> tanpa backend, autentikasi, maupun basis data. Purwarupa **tidak boleh diisi data nyata**.
+> Kelemahan yang diketahui didaftar apa adanya pada [SECURITY.md §8](docs/SECURITY.md).
+
+---
+
+## Pengujian
+
+Uji otomatis memakai Playwright (Chromium headless). Detail pada [docs/TESTING.md](docs/TESTING.md).
+
+```bash
+npm install
+npm test
+```
+
+`npm test` menjalankan server statis sendiri bila belum ada, lalu menjalankan tujuh suite:
+asap (63 rute), overflow responsif, BMN, template label, label BMN, fitur dashboard/BSC/checklist/email,
+serta uji barcode yang **memindai ulang** SVG Code 128 dan QR hasil render dan membandingkan
+hasil dekode dengan data masukan.
+
+---
+
 ## Struktur berkas
 
 ```

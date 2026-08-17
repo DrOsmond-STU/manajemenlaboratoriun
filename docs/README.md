@@ -16,6 +16,7 @@ disusun sebagai kelengkapan sebelum pengembangan dan penerapan ke server produks
 | **[DEPLOYMENT.md](DEPLOYMENT.md)** | Prosedur rilis purwarupa dan rancangan pipeline produksi | Menerapkan perubahan ke server |
 | **[TASK_INSTRUCTIONS.md](TASK_INSTRUCTIONS.md)** | Konvensi kerja, resep menambah fitur, backlog menuju produksi | Mulai menulis kode |
 | **[RUNBOOK.md](RUNBOOK.md)** | Pemantauan, playbook insiden, pencadangan, rotasi rahasia | Bertugas piket atau menangani gangguan |
+| **[IMPOR-BMN.md](IMPOR-BMN.md)** | Cara memperoleh dan mengimpor master kode barang BMN resmi | Menyiapkan modul aset untuk data nyata |
 
 ## Urutan Baca yang Disarankan
 
@@ -55,7 +56,7 @@ Tiga hal yang memengaruhi cara membaca seluruh dokumen ini:
 Tugas yang **harus** selesai sebelum data nyata masuk sistem:
 
 - [ ] Autentikasi dan otorisasi sisi server — [SECURITY.md §3–§4](SECURITY.md)
-- [ ] Impor master kode barang BMN resmi — [PRD.md §8](PRD.md)
+- [ ] Impor master kode barang BMN resmi — [IMPOR-BMN.md](IMPOR-BMN.md)
 - [ ] Penjadwal dan worker notifikasi email — [ARCHITECTURE.md §10.3](ARCHITECTURE.md)
 - [ ] Content-Security-Policy dan header keamanan lengkap — [SECURITY.md §6.2](SECURITY.md)
 - [ ] Cadangan berjalan dan pemulihannya pernah diuji — [RUNBOOK.md §7](RUNBOOK.md)

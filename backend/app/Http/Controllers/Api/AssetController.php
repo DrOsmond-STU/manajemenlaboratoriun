@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\MutasiAssetRequest;
 use App\Http\Requests\StoreAssetRequest;
+use App\Http\Requests\UpdateAssetRequest;
+use App\Http\Resources\AssetMutationResource;
 use App\Http\Resources\AssetResource;
 use App\Models\Asset;
 use App\Services\AssetService;
@@ -60,5 +63,54 @@ class AssetController extends Controller
         return AssetResource::make(
             $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
         );
+    }
+
+    public function update(UpdateAssetRequest $request, Asset $asset): AssetResource
+    {
+        $data = $request->validated();
+        $catatan = $data['catatan_perubahan'] ?? null;
+        unset($data['catatan_perubahan']);
+
+        $asset = $this->assets->ubah($asset, $data, $request->user(), $catatan);
+
+        return AssetResource::make(
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
+        );
+    }
+
+    /** Perpindahan ruangan, terpisah dari penyuntingan data teknis alat. */
+    public function mutasi(MutasiAssetRequest $request, Asset $asset): AssetResource
+    {
+        $asset = $this->assets->mutasi(
+            $asset,
+            $request->integer('room_id') ?: null,
+            $request->user(),
+            $request->string('catatan')->toString() ?: null,
+        );
+
+        return AssetResource::make($asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama']));
+    }
+
+    /** Riwayat perubahan, terbaru lebih dahulu. */
+    public function riwayat(Asset $asset): AnonymousResourceCollection
+    {
+        return AssetMutationResource::collection(
+            $asset->mutations()->with('user:id,name')->latest('id')->paginate(50)
+        );
+    }
+
+    public function destroy(Request $request, Asset $asset): JsonResponse
+    {
+        $this->assets->hapus(
+            $asset,
+            $request->user(),
+            $request->string('alasan')->toString() ?: null,
+        );
+
+        // 200 dengan penjelasan, bukan 204 kosong: penghapusannya lunak, dan
+        // pemanggil perlu tahu bahwa NUP-nya tetap tertahan.
+        return response()->json([
+            'pesan' => 'Aset dihapus. NUP '.$asset->nup_fmt.' tetap tertahan dan tidak dipakai ulang.',
+        ]);
     }
 }

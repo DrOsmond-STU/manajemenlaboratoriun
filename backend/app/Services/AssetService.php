@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Asset;
 use App\Models\BmnKodeBarang;
 use App\Models\Room;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -22,9 +23,13 @@ class AssetService
     /** SQLSTATE PostgreSQL untuk pelanggaran indeks unik. */
     private const SQLSTATE_UNIQUE_VIOLATION = '23505';
 
+    /** SQLSTATE PostgreSQL untuk pelanggaran CHECK — dipakai pemicu identitas BMN. */
+    private const SQLSTATE_CHECK_VIOLATION = '23514';
+
     public function __construct(
         private readonly NupAllocator $nup,
         private readonly KodeInternalGenerator $kodeInternal,
+        private readonly AssetMutationRecorder $riwayat,
     ) {}
 
     /**
@@ -73,6 +78,79 @@ class AssetService
     }
 
     /**
+     * Ubah data aset.
+     *
+     * Identitas BMN sengaja tidak dapat diubah dari sini — bukan karena
+     * diabaikan, tetapi karena pemicu basis data menolaknya. Lihat migrasi
+     * `kunci_identitas_bmn_pada_assets`.
+     *
+     * @param  array<string,mixed>  $data
+     *
+     * @throws ValidationException bila kode internal kembar atau identitas BMN diubah
+     */
+    public function ubah(Asset $asset, array $data, ?User $pelaku = null, ?string $catatan = null): Asset
+    {
+        // Direkam sebelum diubah; setelah `update()` nilai lamanya sudah hilang.
+        $sebelum = $asset->only(['room_id', 'kondisi', 'penanggung_jawab_id', 'status_penggunaan']);
+
+        try {
+            return DB::transaction(function () use ($asset, $data, $sebelum, $pelaku, $catatan) {
+                $asset->update($data);
+                $asset->refresh();
+
+                $this->riwayat->catat($asset, $sebelum, $pelaku, $catatan);
+
+                return $asset;
+            });
+        } catch (QueryException $e) {
+            throw $this->terjemahkanKembar($e);
+        }
+    }
+
+    /**
+     * Pindahkan aset ke ruangan lain.
+     *
+     * Dipisahkan dari `ubah()` karena perpindahan barang adalah tindakan
+     * tersendiri dalam penatausahaan BMN — perlu alasan, dan lazimnya
+     * dilakukan orang yang berbeda dari yang menyunting data teknis alat.
+     *
+     * @throws ValidationException bila ruangan tujuan sama dengan asal
+     */
+    public function mutasi(Asset $asset, ?int $roomTujuan, ?User $pelaku = null, ?string $catatan = null): Asset
+    {
+        if ((string) $asset->room_id === (string) $roomTujuan) {
+            throw ValidationException::withMessages([
+                'room_id' => 'Aset sudah berada di ruangan tersebut.',
+            ]);
+        }
+
+        return $this->ubah($asset, ['room_id' => $roomTujuan], $pelaku, $catatan);
+    }
+
+    /**
+     * Hapus aset (hapus lunak).
+     *
+     * Sengaja hapus lunak, bukan hapus permanen: NUP yang sudah diberikan tidak
+     * boleh dipakai ulang oleh barang lain, karena nomor itu sudah beredar pada
+     * label dan dokumen. Baris yang tertinggal itulah yang menahannya —
+     * indeks unik identitas BMN tetap melihatnya.
+     */
+    public function hapus(Asset $asset, ?User $pelaku = null, ?string $alasan = null): void
+    {
+        DB::transaction(function () use ($asset, $pelaku, $alasan) {
+            if ($alasan !== null && $asset->status_penggunaan !== 'Dihapuskan') {
+                $sebelum = $asset->only(['room_id', 'kondisi', 'penanggung_jawab_id', 'status_penggunaan']);
+                $asset->status_penggunaan = 'Dihapuskan';
+                $asset->save();
+
+                $this->riwayat->catat($asset, $sebelum, $pelaku, $alasan);
+            }
+
+            $asset->delete();
+        });
+    }
+
+    /**
      * @param  array<string,mixed>  $data
      * @return array<string,string|int|null>
      */
@@ -101,6 +179,17 @@ class AssetService
      */
     private function terjemahkanKembar(QueryException $e): \Throwable
     {
+        // Pemicu identitas BMN melempar CHECK violation. Diterjemahkan agar
+        // pengguna membaca aturannya, bukan pesan pemicu basis data.
+        if ($e->getCode() === self::SQLSTATE_CHECK_VIOLATION
+            && str_contains($e->getMessage(), 'Identitas BMN tidak boleh diubah')) {
+            return ValidationException::withMessages([
+                'kode_barang' => 'Identitas BMN (kode lokasi, kode barang, NUP) tidak dapat diubah '
+                    .'setelah aset terdaftar, karena nomornya sudah beredar pada label dan dokumen. '
+                    .'Bila kode barang salah pilih, hapus aset ini lalu daftarkan ulang.',
+            ]);
+        }
+
         if ($e->getCode() !== self::SQLSTATE_UNIQUE_VIOLATION) {
             return $e;
         }

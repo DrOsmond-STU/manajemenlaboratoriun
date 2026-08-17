@@ -183,13 +183,14 @@ supaya jaminan intinya terbukti lebih dulu.
 ```
 backend/
 ├── app/
-│   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang}.php
+│   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang,AssetMutation}.php
 │   ├── Services/
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
 │   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
 │   │   ├── KodeInternalGenerator.php        penomoran kedua, berbasis pola
 │   │   ├── EkstraksiKodeBarangPdf.php       pembaca lampiran PMK berbentuk PDF
+│   │   ├── AssetMutationRecorder.php        riwayat dari selisih keadaan
 │   │   └── Penyusutan.php                   garis lurus PMK 65/2017
 │   ├── Support/Satker.php                   perakit kode lokasi 15 digit
 │   ├── Http/Requests/{StoreBookingRequest,StoreAssetRequest}.php
@@ -198,7 +199,8 @@ backend/
 ├── app/Console/Commands/                     impor master + penyelarasan NUP
 ├── config/bmn.php                            identitas satker & pola penomoran
 ├── database/migrations/                      btree_gist, rooms, bookings,
-│                                             bmn_kode_barang, bmn_nup_counters, assets
+│                                             bmn_kode_barang, bmn_nup_counters, assets,
+│                                             asset_mutations, pemicu identitas BMN
 ├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
 ├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
 ├── routes/api.php
@@ -211,7 +213,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-71 uji lulus, 187 asersi, 0 gagal — dijalankan di PostgreSQL 16
+92 uji lulus, 260 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -249,6 +251,19 @@ Modul aset BMN — irisan kedua:
 | Masa manfaat ikut master | penyusutan tidak bergantung ketelitian pengisian |
 | Tapis berjenjang | `?kode_barang=3.08` menjaring seluruh alat laboratorium |
 | Penyusutan (8 uji) | garis lurus, nilai buku berhenti di nol, masa manfaat nol aman |
+
+Perubahan, mutasi, riwayat, dan penghapusan aset:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Identitas BMN terkunci** | pemicu basis data menolak ubah `kode_barang`/`nup`/`kode_lokasi`, bahkan lewat `psql` |
+| Riwayat dari selisih keadaan | bukan dari niat pemanggil, sehingga tidak ada perubahan yang lolos tanpa jejak |
+| Riwayat menyimpan nama, bukan id | tetap terbaca setelah ruangannya dihapus |
+| Perubahan semu tidak dicatat | `'B'` → `'B'` bukan perubahan |
+| Mutasi ke ruangan yang sama | ditolak `422`, riwayat tidak terkotori |
+| Mutasi tanpa `room_id` | ditolak — tidak diartikan "keluarkan dari ruangan" |
+| Penghapusan bersifat lunak | **NUP tidak dipakai ulang** walau asetnya sudah dihapus |
+| Alasan penghapusan | ikut tercatat pada riwayat |
 
 **Cacat yang ditangkap uji ini.** `bmn_id` sempat terbaca `null` pada tanggapan
 API: kolomnya dibentuk basis data, sehingga instance hasil `create()` belum

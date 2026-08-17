@@ -68,7 +68,10 @@ return new class extends Migration
             $table->unsignedSmallInteger('masa_manfaat')->default(0);
 
             // --- Status & penatausahaan (PMK 181/PMK.06/2016) ----------------
-            $table->char('kondisi', 2)->default('B');
+            // varchar, bukan char: CHAR memberi imbuhan spasi sampai panjang
+            // penuh, sehingga 'B' terbaca kembali sebagai 'B ' dan tidak lagi
+            // cocok dengan kunci pada Asset::KONDISI.
+            $table->string('kondisi', 2)->default('B');
             $table->string('status_penggunaan')->default('Digunakan untuk Operasional Satker');
             $table->string('no_psp')->nullable();
             $table->date('tgl_psp')->nullable();

@@ -51,7 +51,11 @@ class AssetApiTest extends TestCase
             ->postJson('/api/assets', $this->isian())
             ->assertCreated()
             ->assertJsonPath('data.nama', 'HPLC Shimadzu LC-2050')
-            ->assertJsonPath('data.bmn.kode_barang', '3.08.01.03.001');
+            ->assertJsonPath('data.bmn.kode_barang', '3.08.01.03.001')
+            // Kondisi harus terbaca sebagai namanya, bukan kodenya. Sempat
+            // gagal karena kolomnya CHAR sehingga 'B' terbaca 'B '.
+            ->assertJsonPath('data.kondisi.kode', 'B')
+            ->assertJsonPath('data.kondisi.nama', 'Baik');
 
         $this->assertDatabaseCount('assets', 1);
     }

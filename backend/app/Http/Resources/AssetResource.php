@@ -1,0 +1,74 @@
+<?php
+
+namespace App\Http\Resources;
+
+use App\Models\Asset;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/** @mixin Asset */
+class AssetResource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+
+            // Dua penomoran, dikelompokkan agar antarmuka tidak perlu tahu
+            // unsur mana milik BMN dan mana milik internal.
+            'bmn' => [
+                'id' => $this->bmn_id,
+                'kode_lokasi' => $this->kode_lokasi,
+                'kode_barang' => $this->kode_barang,
+                'uraian_barang' => $this->whenLoaded('kodeBarang', fn () => $this->kodeBarang->uraian),
+                'nup' => $this->nup,
+                'nup_fmt' => $this->nup_fmt,
+                'kib' => $this->kib,
+            ],
+            'kode_internal' => $this->kode_internal,
+
+            'nama' => $this->nama,
+            'merk' => $this->merk,
+            'tipe' => $this->tipe,
+            'serial_number' => $this->serial_number,
+            'spesifikasi' => $this->spesifikasi,
+
+            'perolehan' => [
+                'cara' => $this->cara_perolehan,
+                'tanggal' => $this->tgl_perolehan?->toDateString(),
+                'sumber_dana' => $this->sumber_dana,
+                'no_bukti' => $this->no_bukti,
+                'no_kontrak' => $this->no_kontrak,
+                'kuantitas' => $this->kuantitas,
+                'satuan' => $this->satuan,
+            ],
+
+            'penyusutan' => $this->penyusutan->toArray(),
+
+            'kondisi' => [
+                'kode' => $this->kondisi,
+                'nama' => Asset::KONDISI[$this->kondisi] ?? $this->kondisi,
+            ],
+            'status_penggunaan' => $this->status_penggunaan,
+            'psp' => [
+                'nomor' => $this->no_psp,
+                'tanggal' => $this->tgl_psp?->toDateString(),
+            ],
+
+            'ruangan' => $this->whenLoaded('room', fn () => $this->room ? [
+                'id' => $this->room->id,
+                'kode' => $this->room->kode,
+                'nama' => $this->room->nama,
+            ] : null),
+            'penanggung_jawab' => $this->whenLoaded('penanggungJawab', fn () => $this->penanggungJawab ? [
+                'id' => $this->penanggungJawab->id,
+                'nama' => $this->penanggungJawab->name,
+            ] : null),
+
+            'keterangan' => $this->keterangan,
+        ];
+    }
+}

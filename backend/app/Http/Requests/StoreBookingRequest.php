@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Booking;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -35,7 +36,7 @@ class StoreBookingRequest extends FormRequest
                     return;
                 }
 
-                $bentrok = \App\Models\Booking::query()
+                $bentrok = Booking::query()
                     ->where('room_id', $this->integer('room_id'))
                     ->aktif()
                     ->bersinggungan($this->string('mulai'), $this->string('selesai'))

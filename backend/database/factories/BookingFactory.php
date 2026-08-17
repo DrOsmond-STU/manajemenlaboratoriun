@@ -2,12 +2,13 @@
 
 namespace Database\Factories;
 
+use App\Models\Booking;
 use App\Models\Room;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Carbon;
 
-/** @extends Factory<\App\Models\Booking> */
+/** @extends Factory<Booking> */
 class BookingFactory extends Factory
 {
     /**

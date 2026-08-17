@@ -15,7 +15,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Master kode barang harus lebih dulu: aset merujuk ke sana lewat
+        // kunci asing, jadi urutannya tidak boleh dibalik.
+        $this->call(BmnKodeBarangSeeder::class);
 
         User::factory()->create([
             'name' => 'Test User',

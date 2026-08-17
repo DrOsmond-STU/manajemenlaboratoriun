@@ -176,28 +176,40 @@ terpengaruh.
 
 ## 4. Yang Sudah Dibangun
 
-Fondasi berjalan, bukan rancangan di atas kertas. Satu irisan tegak lurus
+Fondasi berjalan, bukan rancangan di atas kertas. Dua irisan tegak lurus
 dikerjakan penuh — dari migrasi sampai HTTP — justru pada bagian tersulitnya,
 supaya jaminan intinya terbukti lebih dulu.
 
 ```
 backend/
 ├── app/
-│   ├── Models/{Room,Booking,User}.php
-│   ├── Services/BookingService.php          menerjemahkan galat basis data → pesan pengguna
-│   ├── Http/Requests/StoreBookingRequest.php
-│   ├── Http/Resources/BookingResource.php
-│   └── Http/Controllers/Api/BookingController.php
-├── database/migrations/                      btree_gist, rooms, bookings + batasan
-├── database/factories/{RoomFactory,BookingFactory}.php
+│   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang}.php
+│   ├── Services/
+│   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
+│   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
+│   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
+│   │   ├── KodeInternalGenerator.php        penomoran kedua, berbasis pola
+│   │   └── Penyusutan.php                   garis lurus PMK 65/2017
+│   ├── Support/Satker.php                   perakit kode lokasi 15 digit
+│   ├── Http/Requests/{StoreBookingRequest,StoreAssetRequest}.php
+│   ├── Http/Resources/{BookingResource,AssetResource}.php
+│   └── Http/Controllers/Api/{Booking,Asset,BmnKodeBarang}Controller.php
+├── config/bmn.php                            identitas satker & pola penomoran
+├── database/migrations/                      btree_gist, rooms, bookings,
+│                                             bmn_kode_barang, bmn_nup_counters, assets
+├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
+├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
 ├── routes/api.php
-└── tests/Feature/{BookingConflictTest,BookingApiTest,BookingRaceConditionTest}.php
+└── tests/
+    ├── Feature/{BookingConflict,BookingApi,BookingRaceCondition}Test.php
+    ├── Feature/{AssetApi,NupRaceCondition}Test.php
+    └── Unit/PenyusutanTest.php
 ```
 
 ### 4.1 Hasil uji
 
 ```
-16 uji lulus, 37 asersi, 0 gagal — dijalankan di PostgreSQL 16
+41 uji lulus, 106 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -218,6 +230,28 @@ Yang dijamin oleh uji tersebut:
 | **Dua penulisan bersamaan** | hanya satu bertahan, walau keduanya lolos pemeriksaan |
 | API: tamu ditolak | `401`, tidak ada baris tersimpan |
 | API: bentrok | `422` dengan pesan berbahasa Indonesia |
+
+Modul aset BMN — irisan kedua:
+
+| Uji | Yang dijaga |
+|---|---|
+| Identitas BMN dirangkai basis data | `bmn_id` = kode lokasi + kode barang + NUP, kolom `GENERATED` |
+| **NUP berjalan per kode barang** | dua kode barang berbeda sama-sama mulai dari NUP 1 |
+| **Dua pendaftaran bersamaan** | tidak mendapat NUP kembar (pernyataan atomik) |
+| Identitas BMN kembar | ditolak indeks unik, walau kode internalnya berbeda |
+| Penyelarasan setelah impor | pencatat menyusul NUP tertinggi data lama |
+| NUP tidak dapat dikarang | `nup` dan `kode_lokasi` dari permintaan diabaikan |
+| Kode barang berpola salah | `422`, pola `X.XX.XX.XX.XXX` dijaga aplikasi **dan** `CHECK` |
+| Kode internal kembar | `422`, bukan galat basis data mentah |
+| Kode internal otomatis | terbentuk dari pola satker bila dikosongkan |
+| Masa manfaat ikut master | penyusutan tidak bergantung ketelitian pengisian |
+| Tapis berjenjang | `?kode_barang=3.08` menjaring seluruh alat laboratorium |
+| Penyusutan (8 uji) | garis lurus, nilai buku berhenti di nol, masa manfaat nol aman |
+
+**Cacat yang ditangkap uji ini.** `bmn_id` sempat terbaca `null` pada tanggapan
+API: kolomnya dibentuk basis data, sehingga instance hasil `create()` belum
+memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
+`201` — cacat ini akan lolos sampai ada yang mencetak barcode kosong.
 
 ### 4.2 Catatan rancangan
 
@@ -309,16 +343,33 @@ Anda.
 
 Berurutan, masing-masing menghasilkan sesuatu yang dapat diuji:
 
-1. **Autentikasi lengkap** — masuk, keluar, ganti sandi, batas percobaan gagal
-2. **Peran & izin** — 12 peran diisi, `Policy` per modul, uji per peran
-3. **Master data** — ruangan, laboratorium, peralatan, aset BMN (impor kode barang resmi)
-4. **Modul jadwal sisanya** — peminjaman alat, maintenance, kalibrasi, agenda; semuanya memakai pola anti-bentrok yang sama
-5. **Notifikasi surel** — antrean, templat, ringkasan harian, preferensi per pengguna
-6. **Checklist** — templat, penugasan, pelaksanaan, riwayat
-7. **Dashboard & BSC** — penyimpanan tata letak, snapshot KPI
-8. **SPA disambungkan** — `data.js` fiktif diganti panggilan API sesungguhnya
-9. **Penerapan** — subdomain API, cron, pencadangan `pg_dump`, pemantauan
+1. **Impor master kode barang BMN resmi** — menggantikan cuplikan contoh pada
+   `BmnKodeBarangSeeder`; perintah impor + penyelarasan NUP data lama
+2. **Melengkapi modul aset** — ubah/hapus, mutasi antarruangan, unggah foto,
+   riwayat kondisi, cetak barcode dari sisi server
+3. **Autentikasi lengkap** — masuk, keluar, ganti sandi, batas percobaan gagal
+4. **Peran & izin** — 12 peran diisi, `Policy` per modul, uji per peran
+5. **Master data sisanya** — ruangan, laboratorium, pengguna, satuan kerja
+6. **Modul jadwal sisanya** — peminjaman alat, maintenance, kalibrasi, agenda;
+   semuanya memakai pola anti-bentrok yang sama
+7. **Notifikasi surel** — antrean, templat, ringkasan harian, preferensi per pengguna
+8. **Checklist** — templat, penugasan, pelaksanaan, riwayat
+9. **Dashboard & BSC** — penyimpanan tata letak, snapshot KPI
+10. **SPA disambungkan** — `data.js` fiktif diganti panggilan API sesungguhnya
+11. **Penerapan** — subdomain API, cron, pencadangan `pg_dump`, pemantauan
 
 Penghalang rilis di [README dokumentasi](README.md) tetap berlaku. Yang sudah
-teratasi oleh pekerjaan ini hanyalah fondasi anti-bentrok jadwal; sembilan
-langkah di atas belum.
+teratasi oleh pekerjaan ini baru dua fondasi — anti-bentrok jadwal dan
+identitas BMN yang tidak bisa kembar; sebelas langkah di atas belum.
+
+### 8.1 Yang perlu dipastikan ke satuan kerja
+
+Dua hal sengaja tidak saya putuskan sendiri karena bergantung praktik
+akuntansi satuan kerja Anda:
+
+- **Periode penyusutan.** `Penyusutan` menghitung per tahun penuh, mengikuti
+  purwarupa. PMK 65/2017 melaporkan per **semester**. Seluruh perhitungan
+  dikurung di satu kelas agar penyesuaiannya cukup di satu tempat.
+- **Nilai bawaan identitas satker.** `config/bmn.php` masih berisi contoh
+  (BA 024, satker 652431). Wajib diganti lewat `.env` sebelum data nyata
+  masuk — bila dibiarkan, seluruh identitas BMN yang terbentuk akan salah.

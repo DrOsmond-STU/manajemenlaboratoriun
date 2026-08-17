@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreBookingRequest;
+use App\Http\Resources\BookingResource;
 use App\Models\Booking;
 use App\Services\BookingService;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +27,7 @@ class BookingController extends Controller
             $query->aktif();
         }
 
-        return \App\Http\Resources\BookingResource::collection($query->paginate(25));
+        return BookingResource::collection($query->paginate(25));
     }
 
     public function store(StoreBookingRequest $request): JsonResponse
@@ -37,14 +38,14 @@ class BookingController extends Controller
             'status' => 'menunggu',
         ]);
 
-        return \App\Http\Resources\BookingResource::make($booking->load('room:id,kode,nama'))
+        return BookingResource::make($booking->load('room:id,kode,nama'))
             ->response()
             ->setStatusCode(201);
     }
 
-    public function show(Booking $booking): \App\Http\Resources\BookingResource
+    public function show(Booking $booking): BookingResource
     {
-        return \App\Http\Resources\BookingResource::make(
+        return BookingResource::make(
             $booking->load(['room:id,kode,nama', 'user:id,name'])
         );
     }

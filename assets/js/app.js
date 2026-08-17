@@ -22,6 +22,7 @@
       type: "group", label: "Laboratory", icon: "flask", children: [
         { id: "lab", label: "Laboratorium" },
         { id: "equipment", label: "Alat Laboratorium" },
+        { id: "equipment/new", label: "Registrasi Alat (BMN)" },
         { id: "eqbooking", label: "Booking Alat" },
         { id: "calibration", label: "Kalibrasi" },
         { id: "maintenance", label: "Maintenance" },
@@ -41,6 +42,8 @@
     {
       type: "group", label: "Asset", icon: "box", children: [
         { id: "assets", label: "Asset Register" },
+        { id: "bmn", label: "Register BMN (KIB B)" },
+        { id: "barcode", label: "Label & Barcode" },
         { id: "assetmovement", label: "Asset Movement" },
         { id: "assetloan", label: "Peminjaman & Pengembalian" },
         { id: "maintenance", label: "Asset Maintenance" },

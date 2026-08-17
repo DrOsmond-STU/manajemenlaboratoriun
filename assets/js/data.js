@@ -399,10 +399,324 @@ window.DB = (function () {
   const resName = (id) =>
     (byId(rooms, id) || byId(labs, id) || byId(equipment, id) || { name: id }).name;
 
+  /* =======================================================================
+     BMN — Barang Milik Negara
+     Struktur mengacu pada:
+     • PMK 29/PMK.06/2010 — Penggolongan dan Kodefikasi BMN
+       Kode barang 10 digit: X.XX.XX.XX.XXX
+       (Golongan . Bidang . Kelompok . Sub Kelompok . Sub-sub Kelompok)
+       NUP = Nomor Urut Pendaftaran, berurut per sub-sub kelompok
+       menurut urutan perolehan.
+     • PMK 181/PMK.06/2016 — Penatausahaan BMN (pembukuan, inventarisasi,
+       pelaporan; KIB / DBR / DBL).
+     • PMK 65/PMK.06/2017 — Penyusutan BMN berupa Aset Tetap.
+
+     CATATAN PURWARUPA: pohon kode barang di bawah ini adalah CUPLIKAN
+     CONTOH untuk memperagakan mekanisme pemilihan kode. Master kode barang
+     yang sebenarnya wajib diimpor utuh dari referensi resmi Kementerian
+     Keuangan/SAKTI milik satuan kerja terkait.
+     ======================================================================= */
+
+  const satker = {
+    kodeBA: "024",            // Kode Bagian Anggaran / Kementerian
+    namaBA: "Kementerian Riset dan Teknologi",
+    kodeEs1: "05",            // Kode Eselon I
+    namaEs1: "Direktorat Jenderal Riset Terapan",
+    kodeWilayah: "0100",      // Kode Wilayah
+    namaWilayah: "DKI Jakarta",
+    kodeSatker: "652431",     // Kode Satuan Kerja (UAKPB)
+    namaSatker: "Balai Besar Laboratorium Pengujian Semesta",
+    kodeKewenangan: "KD",     // KP / KD / DK / TP / UB
+    get kodeLokasi() {
+      return `${this.kodeBA}.${this.kodeEs1}.${this.kodeWilayah}.${this.kodeSatker}.000`;
+    }
+  };
+
+  const bmnRef = {
+    golongan: [
+      { k: "1", n: "Persediaan" },
+      { k: "2", n: "Tanah" },
+      { k: "3", n: "Peralatan dan Mesin" },
+      { k: "4", n: "Gedung dan Bangunan" },
+      { k: "5", n: "Jalan, Irigasi, dan Jaringan" },
+      { k: "6", n: "Aset Tetap Lainnya" },
+      { k: "7", n: "Konstruksi Dalam Pengerjaan" },
+      { k: "8", n: "Aset Tak Berwujud" }
+    ],
+    // Bidang di bawah Golongan 3 — Peralatan dan Mesin
+    bidang: [
+      { k: "3.01", n: "Alat Besar" },
+      { k: "3.02", n: "Alat Angkutan" },
+      { k: "3.03", n: "Alat Bengkel dan Alat Ukur" },
+      { k: "3.04", n: "Alat Pertanian" },
+      { k: "3.05", n: "Alat Kantor dan Rumah Tangga" },
+      { k: "3.06", n: "Alat Studio, Komunikasi dan Pemancar" },
+      { k: "3.07", n: "Alat Kedokteran dan Kesehatan" },
+      { k: "3.08", n: "Alat Laboratorium" },
+      { k: "3.09", n: "Alat Persenjataan" },
+      { k: "3.10", n: "Komputer" },
+      { k: "3.15", n: "Alat Keselamatan Kerja" },
+      { k: "3.16", n: "Alat Peraga" },
+      { k: "3.17", n: "Peralatan Proses / Produksi" }
+    ],
+    // Kelompok di bawah Bidang 3.08 — Alat Laboratorium, dan 3.10 — Komputer
+    kelompok: [
+      { k: "3.08.01", n: "Unit Alat Laboratorium" },
+      { k: "3.08.02", n: "Unit Alat Laboratorium Kimia Nuklir" },
+      { k: "3.08.03", n: "Alat Peraga Praktek Sekolah" },
+      { k: "3.08.04", n: "Unit Alat Laboratorium Fisika Nuklir / Elektronika" },
+      { k: "3.08.05", n: "Alat Proteksi Radiasi / Proteksi Lingkungan" },
+      { k: "3.08.06", n: "Radiation Application and Non Destructive Testing Laboratory" },
+      { k: "3.08.07", n: "Alat Laboratorium Lingkungan Hidup" },
+      { k: "3.08.08", n: "Peralatan Laboratorium Hydrodinamica" },
+      { k: "3.08.09", n: "Alat Laboratorium Standarisasi Kalibrasi & Instrumentasi" },
+      { k: "3.10.01", n: "Komputer Unit" },
+      { k: "3.10.02", n: "Peralatan Komputer" }
+    ],
+    // Cuplikan sub-sub kelompok (kode barang lengkap 10 digit)
+    kodeBarang: [
+      { k: "3.08.01.03.001", n: "Alat Kromatografi (Chromatography Unit)", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.03.004", n: "Spektrofotometer / Spectrophotometer", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.05.011", n: "Alat Analisis Unsur (Elemental Analyzer)", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.06.002", n: "Mikroskop", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.08.003", n: "Autoclave / Alat Sterilisasi", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.09.005", n: "Biosafety Cabinet", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.12.007", n: "Centrifuge", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.14.002", n: "Timbangan / Neraca Analitik", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.16.004", n: "Oven / Incubator / Climatic Chamber", kel: "3.08.01", mm: 8 },
+      { k: "3.08.01.21.009", n: "Alat Uji Mekanik (Universal Testing Machine)", kel: "3.08.01", mm: 10 },
+      { k: "3.08.01.24.006", n: "Alat Difraksi Sinar-X (X-Ray Diffractometer)", kel: "3.08.01", mm: 10 },
+      { k: "3.08.07.02.003", n: "Alat Sampling Udara Ambien", kel: "3.08.07", mm: 8 },
+      { k: "3.08.07.04.001", n: "Alat Analisis Kualitas Air", kel: "3.08.07", mm: 8 },
+      { k: "3.08.09.01.002", n: "Alat Kalibrasi Tekanan", kel: "3.08.09", mm: 10 },
+      { k: "3.08.09.03.005", n: "Kalibrator Multifungsi", kel: "3.08.09", mm: 10 },
+      { k: "3.08.01.30.001", n: "Alat Elektrokimia (pH / Konduktivitas)", kel: "3.08.01", mm: 8 },
+      { k: "3.10.01.02.001", n: "P.C Unit", kel: "3.10.01", mm: 4 },
+      { k: "3.10.01.02.003", n: "Lap Top", kel: "3.10.01", mm: 4 },
+      { k: "3.10.02.03.003", n: "Printer (Peralatan Personal Komputer)", kel: "3.10.02", mm: 4 },
+      { k: "3.05.02.01.003", n: "Air Conditioner (AC) Split", kel: "3.05.02", mm: 5 },
+      { k: "3.06.01.05.048", n: "Proyektor / LCD Projector", kel: "3.06.01", mm: 5 },
+      { k: "3.05.01.05.012", n: "Meja Kerja / Meja Rapat", kel: "3.05.01", mm: 5 }
+    ],
+    kondisi: [
+      { k: "B", n: "Baik" },
+      { k: "RR", n: "Rusak Ringan" },
+      { k: "RB", n: "Rusak Berat" }
+    ],
+    caraPerolehan: [
+      "Pembelian", "Hibah Masuk", "Transfer Masuk", "Rampasan",
+      "Penyelesaian Pembangunan", "Pertukaran", "Reklasifikasi Masuk",
+      "Pembatalan Penghapusan", "Hibah Langsung"
+    ],
+    statusPenggunaan: [
+      "Digunakan untuk Operasional Satker",
+      "Digunakan Sementara oleh Pihak Lain",
+      "Dioperasikan oleh Pihak Lain",
+      "Dimanfaatkan (Sewa / Pinjam Pakai / KSP)",
+      "Belum Ditetapkan Status Penggunaannya",
+      "Idle / Tidak Digunakan",
+      "Dihentikan dari Penggunaan Operasional"
+    ],
+    sumberDana: [
+      "APBN — Rupiah Murni", "APBN — PNBP", "APBN — BLU",
+      "Pinjaman Luar Negeri (PHLN)", "Hibah Dalam Negeri",
+      "Hibah Luar Negeri", "SBSN"
+    ],
+    satuan: ["Unit", "Buah", "Set", "Paket", "Pasang", "Batang", "Lembar", "Meter"],
+    kib: [
+      { k: "A", n: "KIB A — Tanah" },
+      { k: "B", n: "KIB B — Peralatan dan Mesin" },
+      { k: "C", n: "KIB C — Gedung dan Bangunan" },
+      { k: "D", n: "KIB D — Jalan, Irigasi dan Jaringan" },
+      { k: "E", n: "KIB E — Aset Tetap Lainnya" },
+      { k: "F", n: "KIB F — Konstruksi Dalam Pengerjaan" }
+    ]
+  };
+
+  /* --- Pemetaan kategori alat purwarupa → kode barang BMN ---------------- */
+  const KAT2KODE = {
+    "Kromatografi": "3.08.01.03.001",
+    "Spektroskopi": "3.08.01.03.004",
+    "Sterilisasi": "3.08.01.08.003",
+    "Safety": "3.08.01.09.005",
+    "Optik": "3.08.01.06.002",
+    "Analisis Material": "3.08.01.24.006",
+    "Mekanik": "3.08.01.21.009",
+    "Analisis Air": "3.08.07.04.001",
+    "Sampling": "3.08.07.02.003",
+    "Kalibrasi": "3.08.09.03.005",
+    "Pengkondisian": "3.08.01.16.004",
+    "Elektrokimia": "3.08.01.30.001",
+    "Timbangan": "3.08.01.14.002",
+    "Preparasi": "3.08.01.12.007",
+    "IT Equipment": "3.10.01.02.003",
+    "Audio Visual": "3.06.01.05.048",
+    "HVAC": "3.05.02.01.003",
+    "Furniture": "3.05.01.05.012",
+    "Lab Furniture": "3.08.01.09.005",
+    "Kendaraan": "3.02.01.01.003",
+    "Lab Equipment": "3.08.01.03.001"
+  };
+
+  const KOND2BMN = {
+    "Baik": "B", "Perlu Perawatan": "RR", "Perlu Perbaikan": "RR",
+    "Rusak Ringan": "RR", "Rusak": "RB", "Rusak Berat": "RB"
+  };
+
+  /* --- Lengkapi alat & aset dengan data BMN ------------------------------ */
+  const nupCounter = {};
+  const nextNup = (kode) => (nupCounter[kode] = (nupCounter[kode] || 0) + 1);
+  const kbInfo = (k) => bmnRef.kodeBarang.find((x) => x.k === k) || { n: "—", mm: 5 };
+
+  function attachBmn(item, opts) {
+    const o = opts || {};
+    const kode = KAT2KODE[item.cat] || "3.08.01.03.001";
+    const info = kbInfo(kode);
+    const nup = nextNup(kode);
+    const thn = item.year || 2022;
+    const tgl = `${thn}-${String(((nup * 3) % 12) + 1).padStart(2, "0")}-${String(((nup * 7) % 27) + 1).padStart(2, "0")}`;
+    const umur = Math.max(0, new Date().getFullYear() - thn);
+    const nilai = item.price || 0;
+    const mm = info.mm || 8;
+    const susutTahunan = Math.round(nilai / mm);
+    const akum = Math.min(nilai, susutTahunan * Math.min(umur, mm));
+
+    item.bmn = {
+      kodeLokasi: satker.kodeLokasi,
+      kodeSatker: satker.kodeSatker,
+      namaSatker: satker.namaSatker,
+      kodeBarang: kode,
+      uraianBarang: info.n,
+      nup: nup,
+      nupFmt: String(nup).padStart(5, "0"),
+      kib: "B",
+      caraPerolehan: o.cara || "Pembelian",
+      tglPerolehan: tgl,
+      thnPerolehan: thn,
+      sumberDana: o.dana || "APBN — Rupiah Murni",
+      noBukti: `SP2D-${thn}-${String(1200 + nup * 7).padStart(6, "0")}`,
+      noKontrak: `${String(400 + nup)}/KONTRAK/${satker.kodeSatker}/${thn}`,
+      kuantitas: 1,
+      satuan: "Unit",
+      kondisi: KOND2BMN[item.cond] || "B",
+      statusPenggunaan: o.status || "Digunakan untuk Operasional Satker",
+      noPsp: `KEP-${String(180 + nup)}/MK.6/${thn}`,
+      tglPsp: `${thn}-12-15`,
+      nilaiPerolehan: nilai,
+      masaManfaat: mm,
+      susutTahunan: susutTahunan,
+      akumPenyusutan: akum,
+      nilaiBuku: Math.max(0, nilai - akum),
+      keterangan: o.ket || ""
+    };
+    // Identitas BMN sebagai kunci utama: kode lokasi + kode barang + NUP
+    item.bmnId = `${satker.kodeLokasi}.${kode}.${item.bmn.nupFmt}`;
+    item.foto = item.foto || [];
+    return item;
+  }
+
+  equipment.forEach((e) => {
+    attachBmn(e);
+    // Kode internal: <satker>/<lab>/<kategori>/<tahun>/<urut>
+    const lab = (byId(labs, e.lab) || { code: "LAB" }).code.replace("LAB-", "");
+    e.kodeInternal = `STU/${lab}/${e.code}`;
+  });
+
+  assets.forEach((a) => {
+    a.year = a.year || 2022;
+    attachBmn(a, { ket: "Aset penunjang fasilitas" });
+    a.kodeInternal = a.code;
+  });
+
+  /* Pola penomoran internal — dapat diubah pengguna pada Pengaturan Sistem */
+  const internalPattern = {
+    pattern: "STU/{LAB}/{KATEGORI}/{TAHUN}/{URUT}",
+    tokens: [
+      { t: "{SATKER}", d: "Singkatan satuan kerja", c: "STU" },
+      { t: "{LAB}", d: "Kode laboratorium/ruangan", c: "KIM-01" },
+      { t: "{KATEGORI}", d: "Singkatan kategori alat", c: "KROM" },
+      { t: "{GEDUNG}", d: "Kode gedung", c: "GA" },
+      { t: "{TAHUN}", d: "Tahun perolehan", c: "2022" },
+      { t: "{BULAN}", d: "Bulan perolehan", c: "07" },
+      { t: "{URUT}", d: "Nomor urut internal", c: "0012" },
+      { t: "{NUP}", d: "NUP dari BMN", c: "00003" }
+    ],
+    contoh: "STU/KIM-01/KROM/2022/0012"
+  };
+
+  /* Template label internal bawaan (dapat diubah & ditambah pengguna) */
+  const labelTemplates = [
+    {
+      id: "TPL-01", name: "Label Alat Lab 50 × 25 mm", w: 50, h: 25, pad: 2,
+      border: true, header: "BALAI BESAR LAB SEMESTA", headerSize: 2.6,
+      code: "code128", codeH: 6, qrSize: 14, codeText: false, codePos: "bawah",
+      payload: "{KODE_INTERNAL}",
+      fields: [
+        { k: "kodeInternal", on: true, size: 3.6, bold: true },
+        { k: "name", on: true, size: 2.8, bold: false },
+        { k: "ruangan", on: true, size: 2.4, bold: false },
+        { k: "bmnId", on: false, size: 3.4, bold: false },
+        { k: "nup", on: false, size: 3.6, bold: false },
+        { k: "merk", on: false, size: 3.6, bold: false },
+        { k: "sn", on: false, size: 3.4, bold: false },
+        { k: "pic", on: false, size: 3.4, bold: false },
+        { k: "thn", on: false, size: 3.6, bold: false },
+        { k: "kondisi", on: false, size: 3.6, bold: false },
+        { k: "nilai", on: false, size: 3.4, bold: false }
+      ]
+    },
+    {
+      id: "TPL-02", name: "Label Ringkas QR 50 × 20 mm", w: 50, h: 20, pad: 1.5,
+      border: true, header: "", headerSize: 4,
+      code: "qr", codeH: 8, qrSize: 13, codeText: false, codePos: "kanan",
+      payload: "{KODE_INTERNAL}",
+      fields: [
+        { k: "kodeInternal", on: true, size: 2.8, bold: true },
+        { k: "name", on: true, size: 2.2, bold: false },
+        { k: "ruangan", on: false, size: 3, bold: false },
+        { k: "bmnId", on: false, size: 3, bold: false },
+        { k: "nup", on: false, size: 3, bold: false },
+        { k: "merk", on: false, size: 3, bold: false },
+        { k: "sn", on: false, size: 3, bold: false },
+        { k: "pic", on: false, size: 3, bold: false },
+        { k: "thn", on: false, size: 3, bold: false },
+        { k: "kondisi", on: false, size: 3, bold: false },
+        { k: "nilai", on: false, size: 3, bold: false }
+      ]
+    },
+    {
+      id: "TPL-03", name: "Label Inventaris Lengkap 70 × 35 mm", w: 70, h: 35, pad: 3,
+      border: true, header: "INVENTARIS LABORATORIUM — STU", headerSize: 3.4,
+      code: "qr", codeH: 9, qrSize: 18, codeText: false, codePos: "kanan",
+      payload: "{BMN_ID}",
+      fields: [
+        { k: "kodeInternal", on: true, size: 3.7, bold: true },
+        { k: "name", on: true, size: 3.1, bold: false },
+        { k: "merk", on: true, size: 3, bold: false },
+        { k: "sn", on: true, size: 2.8, bold: false },
+        { k: "ruangan", on: true, size: 2.8, bold: false },
+        { k: "pic", on: false, size: 3.6, bold: false },
+        { k: "bmnId", on: false, size: 3.4, bold: false },
+        { k: "nup", on: false, size: 3.6, bold: false },
+        { k: "thn", on: true, size: 2.8, bold: false },
+        { k: "kondisi", on: false, size: 3, bold: false },
+        { k: "nilai", on: false, size: 3, bold: false }
+      ]
+    }
+  ];
+
+  const FIELD_LABEL = {
+    kodeInternal: "Kode Internal", name: "Nama Barang", merk: "Merk / Tipe",
+    sn: "Nomor Seri", ruangan: "Ruangan / Lokasi", pic: "Penanggung Jawab",
+    bmnId: "Kode BMN Lengkap", nup: "Kode Barang + NUP", thn: "Tahun Perolehan",
+    kondisi: "Kondisi", nilai: "Nilai Perolehan"
+  };
+
   return {
     TODAY, iso, shift, org, people, rooms, labs, equipment, assets, bookings, eqBookings,
     loans, maintenance, calibration, approvals, priceList, packages, addons, quotations,
     invoices, payments, events, vendors, visitors, documents, audit, notifications,
-    analytics, roles, permMatrix, workflows, agendas, byId, personName, resName
+    analytics, roles, permMatrix, workflows, agendas, byId, personName, resName,
+    satker, bmnRef, KAT2KODE, internalPattern, labelTemplates, FIELD_LABEL, attachBmn
   };
 })();

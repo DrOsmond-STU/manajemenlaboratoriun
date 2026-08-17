@@ -747,3 +747,75 @@ html[data-theme="dark"] .badge.red,
 html[data-theme="dark"] .alert.err,
 html[data-theme="dark"] .ev-red      { color: #ff8b8b; }
 html[data-theme="dark"] .badge.outline { color: var(--text-muted); }
+
+/* ==========================================================================
+   Label & barcode studio
+   ========================================================================== */
+.lbl {
+  background: #fff; color: #000; box-sizing: border-box; overflow: hidden;
+  display: flex; font-family: Arial, Helvetica, sans-serif;
+}
+.lbl * { box-sizing: border-box; }
+.lbl-body { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; gap: 1.5mm; }
+.lbl-txt { min-width: 0; min-height: 0; flex: 1 1 auto; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: center; }
+.lbl-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.18; }
+.lbl-hdr { flex: 0 0 auto; font-weight: 700; letter-spacing: .02em; text-align: center;
+  border-bottom: .25mm solid #000; padding-bottom: .5mm; margin-bottom: .8mm;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Ruang barcode tidak boleh terdesak keluar oleh teks yang terlalu banyak. */
+.lbl-code { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
+.lbl-bordered { border: .3mm solid #000; }
+
+.lbl-page { display: grid; gap: 16px; align-items: start;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr); }
+@media (max-width: 1100px) { .lbl-page { grid-template-columns: minmax(0, 1fr); } }
+
+.lbl-stage {
+  overflow: auto;
+  background: repeating-conic-gradient(var(--surface-3) 0% 25%, var(--surface) 0% 50%) 50% / 16px 16px;
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 22px; display: grid; place-items: center; min-height: 190px;
+}
+.lbl-shadow { box-shadow: 0 4px 18px rgba(16,26,46,.22); }
+
+.sheet-wrap { overflow: auto; background: var(--surface-3); border-radius: 10px; padding: 14px; }
+.sheet {
+  background: #fff; width: 210mm; min-height: 297mm; padding: 8mm;
+  display: flex; flex-wrap: wrap; align-content: flex-start;
+  box-shadow: 0 4px 18px rgba(16,26,46,.18);
+}
+.sheet-scale { transform-origin: top left; }
+
+.print-root { display: none; }
+@media print {
+  body > *:not(.print-root) { display: none !important; }
+  .print-root { display: block !important; }
+  .print-root .sheet { width: auto; min-height: 0; padding: 0; box-shadow: none; }
+  @page { size: A4; margin: 8mm; }
+}
+
+/* Galeri foto peralatan */
+.ph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.ph {
+  position: relative; aspect-ratio: 4/3; border-radius: 9px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.ph img { width: 100%; height: 100%; object-fit: cover; }
+.ph .ph-tools { position: absolute; inset: auto 0 0 0; display: flex; gap: 4px; padding: 5px; background: linear-gradient(transparent, rgba(0,0,0,.62)); opacity: 0; transition: opacity .14s; }
+.ph:hover .ph-tools { opacity: 1; }
+.ph .ph-tools button { border: 0; background: rgba(255,255,255,.92); border-radius: 5px; padding: 2px 7px; font-size: 10.5px; cursor: pointer; color: #101a2e; }
+.ph .ph-main { position: absolute; top: 5px; left: 5px; background: var(--brand-600); color: #fff; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 20px; }
+.ph-drop {
+  border: 1.5px dashed var(--border-strong); border-radius: 10px; padding: 22px;
+  text-align: center; cursor: pointer; color: var(--text-muted); background: var(--surface-2);
+}
+.ph-drop:hover, .ph-drop.over { border-color: var(--brand-500); background: var(--brand-50); color: var(--brand-700); }
+
+/* Baris pengaturan elemen label */
+.fld-row { display: grid; grid-template-columns: 26px 1fr 74px 34px 46px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.fld-row:last-child { border-bottom: 0; }
+.fld-row .mv { display: flex; flex-direction: column; gap: 1px; }
+.fld-row .mv button { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 4px; cursor: pointer; line-height: 1; padding: 0 3px; font-size: 9px; color: var(--text-muted); }
+.fld-row .mv button:hover { border-color: var(--brand-400); color: var(--brand-600); }
+@media (max-width: 560px) { .fld-row { grid-template-columns: 24px 1fr 64px 30px 40px; gap: 5px; } }

@@ -300,21 +300,11 @@ window.UI = (function () {
       stroke="${color || "var(--brand-500)"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
-  function qrBox(text) {
-    // Pola QR dekoratif deterministik (purwarupa — bukan encoder QR sungguhan)
-    let seed = 0; for (let i = 0; i < String(text).length; i++) seed = (seed * 31 + text.charCodeAt(i)) >>> 0;
-    const N = 21; let cells = "";
-    const rnd = () => { seed = (seed * 1103515245 + 12345) >>> 0; return (seed >>> 16) & 1; };
-    const finder = (x, y) => (x < 7 && y < 7) || (x > 13 && y < 7) || (x < 7 && y > 13);
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      let on;
-      if (finder(x, y)) {
-        const fx = x > 13 ? x - 14 : x, fy = y > 13 ? y - 14 : y;
-        on = (fx === 0 || fx === 6 || fy === 0 || fy === 6) || (fx >= 2 && fx <= 4 && fy >= 2 && fy <= 4);
-      } else on = rnd();
-      if (on) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
-    }
-    return `<svg class="qr" viewBox="0 0 ${N} ${N}" shape-rendering="crispEdges" fill="var(--text)">${cells}</svg>`;
+  /** QR sungguhan (dapat dipindai) — didelegasikan ke encoder Barcode. */
+  function qrBox(text, size) {
+    const svg = window.Barcode && window.Barcode.qr(String(text), { size: size || 96 });
+    return `<div class="qr" style="padding:4px">${svg ||
+      `<div class="tiny faint center">muatan<br>terlalu panjang</div>`}</div>`;
   }
 
   function seatMap(rows, cols, vipRows) {

@@ -114,9 +114,9 @@
   V["equipment"] = {
     title: "Manajemen Alat Laboratorium",
     sub: "Registrasi, status, kondisi, kalibrasi, dan riwayat penggunaan seluruh alat.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Cetak label QR massal')">${U.icon("qr")} Cetak QR</button>
+    actions: `<button class="btn btn-sm" onclick="location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>
               <button class="btn btn-sm" onclick="UI.demo('Ekspor ke Excel')">${U.icon("download")} Ekspor</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form tambah alat')">${U.icon("plus")} Tambah Alat</button>`,
+              <button class="btn btn-primary btn-sm" onclick="location.hash='#/equipment/new'">${U.icon("plus")} Registrasi Alat (BMN)</button>`,
     render() {
       const totalVal = D.equipment.reduce((a, e) => a + e.price, 0);
       return `
@@ -132,7 +132,8 @@
           filters: [["Semua Lab"].concat(D.labs.map((l) => l.name)), ["Semua Kategori"].concat([...new Set(D.equipment.map((e) => e.cat))]), ["Semua Status", "Available", "In Use", "Borrowed", "Maintenance", "Calibration", "Broken"]],
           right: `<div class="seg"><button class="active">${U.icon("list", 13)}</button><button onclick="UI.demo('Tampilan kartu')">${U.icon("grid", 13)}</button></div>`
         }) + U.table([
-          { t: "Kode", w: "110px", render: (e) => `<span class="lnk mono" onclick="showEq('${e.id}')">${e.code}</span>` },
+          { t: "Kode BMN / Internal", w: "215px", render: (e) => `<span class="lnk mono" style="font-size:11px" onclick="showBmnDetail('${e.id}')">${e.bmnId}</span>
+              <div class="tiny faint mono">${U.esc(e.kodeInternal)}</div>` },
           { t: "Nama Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${U.esc(e.brand)} ${U.esc(e.model)} • SN ${U.esc(e.sn)}</div>` },
           { t: "Kategori", render: (e) => `<span class="badge outline">${U.esc(e.cat)}</span>` },
           { t: "Laboratorium", render: (e) => `<span class="small">${U.esc(D.resName(e.lab))}</span>` },
@@ -174,7 +175,17 @@
               <dt>Jatuh Tempo Kal.</dt><dd><span class="badge ${overdue ? "red" : "green"}">${U.fdate(e.calDue, "long")}</span></dd>
             </div>
           </div>
-          <div class="center">${U.qrBox(e.code)}<div class="tiny faint mt-4">Scan untuk status</div></div>
+          <div class="center">${Barcode.qr(e.kodeInternal, { size: 96 }) || ""}
+            <div class="tiny faint mt-4">QR kode internal</div></div>
+        </div>
+
+        <div class="grid g2 mb-16" style="gap:10px">
+          <div class="card" style="border-color:var(--brand-300)"><div class="card-body tight">
+            <div class="tiny faint">PENOMORAN 1 — BMN (KUNCI UTAMA)</div>
+            <div class="mono bold" style="font-size:11.5px;word-break:break-all">${e.bmnId}</div></div></div>
+          <div class="card"><div class="card-body tight">
+            <div class="tiny faint">PENOMORAN 2 — INTERNAL</div>
+            <div class="mono bold" style="font-size:11.5px">${U.esc(e.kodeInternal)}</div></div></div>
         </div>
 
         <div class="grid g2 mb-16">
@@ -200,8 +211,8 @@
            { t: "Status", render: (b) => U.badge(b.status) }], use)
           : U.emptyState("Belum ada penggunaan tercatat", ""), { bodyCls: "flush" })}`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
-             <button class="btn" onclick="UI.demo('Form edit alat')">${U.icon("edit")} Edit</button>
-             <button class="btn" onclick="UI.demo('Jadwalkan kalibrasi')">${U.icon("shield")} Jadwalkan Kalibrasi</button>
+             <button class="btn" onclick="UI.closeDrawer();showBmnDetail('${e.id}')">${U.icon("box")} Data BMN</button>
+             <button class="btn" onclick="UI.closeDrawer();lblOpenFor('${e.id}')">${U.icon("qr")} Cetak Label</button>
              <div class="spacer"></div>
              <button class="btn btn-primary" ${overdue ? "disabled" : ""} onclick="UI.closeDrawer();eqNew()">Reservasi Alat</button>`
     });

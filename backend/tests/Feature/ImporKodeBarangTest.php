@@ -7,6 +7,7 @@ use App\Models\BmnKodeBarang;
 use App\Support\Satker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\PdfContoh;
 use Tests\TestCase;
 
 /**
@@ -194,6 +195,81 @@ class ImporKodeBarangTest extends TestCase
         $this->artisan('bmn:impor-kode-barang', ['berkas' => '/tidak/ada/berkas.csv'])
             ->expectsOutputToContain('tidak dapat dibaca')
             ->assertFailed();
+    }
+
+    public function test_impor_dari_pdf_lampiran(): void
+    {
+        $pdf = PdfContoh::buat([
+            'MENTERI KEUANGAN',
+            'KODE BARANG    URAIAN',
+            '3.08.01.03.001    Chromatography Set',
+            '3.08.01.08.003    Autoclave',
+            '- 157 -',
+        ]);
+
+        try {
+            $this->artisan('bmn:impor-kode-barang', ['berkas' => $pdf])
+                ->expectsOutputToContain('dikenali sebagai')
+                ->assertSuccessful();
+
+            $this->assertDatabaseCount('bmn_kode_barang', 2);
+            $this->assertDatabaseHas('bmn_kode_barang', [
+                'kode' => '3.08.01.08.003',
+                'uraian' => 'Autoclave',
+            ]);
+        } finally {
+            @unlink($pdf);
+        }
+    }
+
+    public function test_pdf_dikenali_dari_isinya_bukan_akhiran_nama(): void
+    {
+        $pdf = PdfContoh::buat(['3.08.01.03.001    Chromatography Set']);
+        $tanpaAkhiran = $pdf.'.berkas';
+        rename($pdf, $tanpaAkhiran);
+
+        try {
+            $this->artisan('bmn:impor-kode-barang', ['berkas' => $tanpaAkhiran])
+                ->expectsOutputToContain('dikenali sebagai')
+                ->assertSuccessful();
+
+            $this->assertDatabaseCount('bmn_kode_barang', 1);
+        } finally {
+            @unlink($tanpaAkhiran);
+        }
+    }
+
+    public function test_pdf_tanpa_kode_barang_ditolak_dengan_penjelasan(): void
+    {
+        $pdf = PdfContoh::buat([
+            'Menimbang bahwa dalam rangka tertib administrasi',
+            'Pasal 1',
+        ]);
+
+        try {
+            $this->artisan('bmn:impor-kode-barang', ['berkas' => $pdf])
+                ->expectsOutputToContain('Tidak ada kode barang yang dikenali')
+                ->assertFailed();
+
+            $this->assertDatabaseCount('bmn_kode_barang', 0);
+        } finally {
+            @unlink($pdf);
+        }
+    }
+
+    public function test_pdf_uji_coba_tidak_menulis(): void
+    {
+        $pdf = PdfContoh::buat(['3.08.01.03.001    Chromatography Set']);
+
+        try {
+            $this->artisan('bmn:impor-kode-barang', ['berkas' => $pdf, '--uji-coba' => true])
+                ->expectsOutputToContain('Uji coba')
+                ->assertSuccessful();
+
+            $this->assertDatabaseCount('bmn_kode_barang', 0);
+        } finally {
+            @unlink($pdf);
+        }
     }
 
     public function test_selaraskan_nup_menyusul_data_impor(): void

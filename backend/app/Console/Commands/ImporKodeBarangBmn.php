@@ -3,11 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Models\BmnKodeBarang;
+use App\Services\EkstraksiKodeBarangPdf;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Impor master kode barang BMN dari berkas CSV.
+ * Impor master kode barang BMN dari berkas CSV atau lampiran PDF.
  *
  * Perintah ini sengaja permisif terhadap BENTUK berkas dan ketat terhadap ISI.
  * Alasannya: berkas referensi datang dari banyak sumber — hasil ekspor SAKTI,
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 class ImporKodeBarangBmn extends Command
 {
     protected $signature = 'bmn:impor-kode-barang
-        {berkas : Lokasi berkas CSV yang akan diimpor}
+        {berkas : Lokasi berkas CSV atau PDF lampiran yang akan diimpor}
         {--pemisah= : Pemisah kolom (otomatis bila tidak diisi)}
         {--kolom-kode= : Nama atau nomor kolom kode barang}
         {--kolom-uraian= : Nama atau nomor kolom uraian barang}
@@ -30,7 +31,7 @@ class ImporKodeBarangBmn extends Command
         {--tanpa-header : Berkas tidak memiliki baris judul}
         {--uji-coba : Hanya melaporkan, tidak menulis apa pun}';
 
-    protected $description = 'Impor master kode barang BMN dari berkas CSV referensi resmi';
+    protected $description = 'Impor master kode barang BMN dari berkas CSV atau PDF lampiran resmi';
 
     /** Nama kolom yang dikenali, huruf kecil tanpa spasi ganda. */
     private const ALIAS = [
@@ -47,6 +48,13 @@ class ImporKodeBarangBmn extends Command
             $this->error("Berkas tidak dapat dibaca: {$berkas}");
 
             return self::FAILURE;
+        }
+
+        // Lampiran PMK beredar sebagai PDF, sementara ekspor SAKTI berupa CSV.
+        // Keduanya diterima agar tidak ada tahap konversi manual di tengah —
+        // tahap itulah yang paling sering menyisipkan salah ketik.
+        if ($this->berkasPdf($berkas)) {
+            return $this->imporDariPdf($berkas);
         }
 
         $baris = $this->bacaCsv($berkas);
@@ -94,6 +102,70 @@ class ImporKodeBarangBmn extends Command
         }
 
         return $this->laporkanDanSimpan($sah, $galat, $kembarDiBerkas);
+    }
+
+    /** Dikenali dari tanda tangan berkas, bukan dari akhiran namanya. */
+    private function berkasPdf(string $berkas): bool
+    {
+        $awal = (string) file_get_contents($berkas, length: 5);
+
+        return str_starts_with($awal, '%PDF-');
+    }
+
+    /**
+     * Impor dari lampiran PDF.
+     *
+     * Hasil ekstraksi PDF selalu perlu diperiksa manusia — tata letak tabel
+     * yang rumit dapat membuat baris terbaca sebagian. Karena itu perintah
+     * menampilkan cuplikan hasil dan meminta konfirmasi sebelum menulis,
+     * kecuali dijalankan dengan --uji-coba.
+     */
+    private function imporDariPdf(string $berkas): int
+    {
+        $this->line('Berkas dikenali sebagai <comment>PDF</comment>, mengurai isinya…');
+
+        try {
+            $hasil = app(EkstraksiKodeBarangPdf::class)->dariBerkas($berkas);
+        } catch (\Throwable $e) {
+            $this->error('PDF gagal diurai: '.$e->getMessage());
+            $this->line('');
+            $this->line('PDF hasil pindaian (gambar) tidak memuat teks sehingga tidak dapat dibaca.');
+            $this->line('Ubah dahulu ke CSV, lalu impor berkas CSV-nya.');
+
+            return self::FAILURE;
+        }
+
+        $sah = $hasil['kode'];
+
+        $this->line(sprintf(
+            '%d halaman, %d baris terbaca, <info>%d kode barang</info> dikenali.',
+            $hasil['halaman'], $hasil['baris_terbaca'], count($sah),
+        ));
+
+        if ($sah === []) {
+            $this->error('Tidak ada kode barang yang dikenali di dalam PDF ini.');
+            $this->line('Pastikan berkasnya memuat lampiran daftar kode, bukan batang tubuh peraturan saja.');
+
+            return self::FAILURE;
+        }
+
+        // Cuplikan awal dan akhir: bila penguraiannya meleset, biasanya terlihat
+        // langsung di sini tanpa perlu memeriksa ribuan baris.
+        $this->newLine();
+        $this->line('<comment>Periksa cuplikan berikut sebelum melanjutkan:</comment>');
+        $cuplikan = array_values($sah);
+        $this->table(
+            ['Kode', 'Uraian'],
+            array_map(
+                fn ($k) => [$k['kode'], mb_strimwidth($k['uraian'], 0, 70, '…')],
+                array_merge(array_slice($cuplikan, 0, 5), array_slice($cuplikan, -5)),
+            ),
+        );
+
+        $this->warn('Masa manfaat tidak tersedia di lampiran kodefikasi dan diisi 0.');
+        $this->line('Lengkapi dari PMK 65/PMK.06/2017 atau dari ekspor SAKTI satuan kerja Anda.');
+
+        return $this->laporkanDanSimpan($sah, [], []);
     }
 
     /**

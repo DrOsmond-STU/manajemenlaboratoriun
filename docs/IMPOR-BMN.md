@@ -65,10 +65,29 @@ kode lengkap. Tersedia di:
 > memakai lampiran versi terakhir — jangan langsung memakai PDF pertama yang
 > ditemukan mesin pencari.
 
-Lampiran berbentuk PDF, sehingga perlu diubah ke CSV lebih dulu. Bila ditabelkan
-rapi, `tabula`, `camelot`, atau fitur "Get Data from PDF" di Excel biasanya cukup.
-**Periksa hasil konversinya** — pemisah ribuan dan kolom yang bergeser adalah
-sumber kesalahan paling umum di tahap ini.
+**Lampiran PDF dapat diimpor langsung** — tidak perlu diubah ke CSV lebih dulu:
+
+```bash
+php artisan bmn:impor-kode-barang PMK-29-2010-Lampiran.pdf --uji-coba
+```
+
+Perintahnya mengenali PDF dari isi berkas (bukan akhiran namanya), mengurai
+teksnya dengan PHP murni sehingga tetap jalan di hosting cPanel tanpa
+`pdftotext`, lalu mencari baris berpola kode 10 digit. Judul kolom yang
+berulang tiap halaman, nomor halaman, kop surat, dan kalimat batang tubuh
+peraturan diabaikan sendiri.
+
+Sebelum menulis, perintah menampilkan cuplikan lima baris pertama dan lima
+terakhir. **Periksa cuplikan itu** — bila tata letak tabelnya rumit, kesalahan
+penguraian hampir selalu terlihat di situ tanpa perlu memeriksa ribuan baris.
+
+Dua batasannya:
+
+- **PDF hasil pindaian (gambar) tidak dapat dibaca**, karena memang tidak
+  memuat teks. Perintahnya akan mengatakan demikian, bukan diam-diam
+  menghasilkan nol baris. Untuk kasus ini perlu OCR lebih dulu.
+- **Masa manfaat tidak ada di lampiran kodefikasi** dan akan terisi `0`.
+  Lengkapi dari PMK 65/PMK.06/2017 atau dari ekspor SAKTI.
 
 ### 2.3 Yang sebaiknya dihindari
 
@@ -79,7 +98,14 @@ bertanggal, dan tidak dapat ditelusuri versinya.
 
 ## 3. Bentuk Berkas yang Diterima
 
-CSV dengan minimal dua kolom: **kode barang** dan **uraian barang**. Kolom masa
+Dua-duanya diterima langsung:
+
+| Bentuk | Sumber lazimnya | Masa manfaat |
+|---|---|---|
+| **CSV** | ekspor SAKTI, salinan Excel | biasanya ikut |
+| **PDF** | lampiran PMK | tidak ada, terisi `0` |
+
+Untuk CSV, minimal dua kolom: **kode barang** dan **uraian barang**. Kolom masa
 manfaat bersifat opsional tetapi sangat dianjurkan — tanpa itu, penyusutan
 harus diisi per barang.
 

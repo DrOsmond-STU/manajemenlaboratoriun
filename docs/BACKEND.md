@@ -189,11 +189,13 @@ backend/
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
 │   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
 │   │   ├── KodeInternalGenerator.php        penomoran kedua, berbasis pola
+│   │   ├── EkstraksiKodeBarangPdf.php       pembaca lampiran PMK berbentuk PDF
 │   │   └── Penyusutan.php                   garis lurus PMK 65/2017
 │   ├── Support/Satker.php                   perakit kode lokasi 15 digit
 │   ├── Http/Requests/{StoreBookingRequest,StoreAssetRequest}.php
 │   ├── Http/Resources/{BookingResource,AssetResource}.php
 │   └── Http/Controllers/Api/{Booking,Asset,BmnKodeBarang}Controller.php
+├── app/Console/Commands/                     impor master + penyelarasan NUP
 ├── config/bmn.php                            identitas satker & pola penomoran
 ├── database/migrations/                      btree_gist, rooms, bookings,
 │                                             bmn_kode_barang, bmn_nup_counters, assets
@@ -209,7 +211,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-41 uji lulus, 106 asersi, 0 gagal — dijalankan di PostgreSQL 16
+71 uji lulus, 187 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan

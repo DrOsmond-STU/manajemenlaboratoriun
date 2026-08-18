@@ -84,4 +84,71 @@ class BookingRaceConditionTest extends TestCase
         $a->table('rooms')->where('id', $room->id)->delete();
         $a->table('users')->where('id', $user->id)->delete();
     }
+
+    /**
+     * Pemicu harus melihat baris yang di-commit transaksi lain, walau
+     * transaksi pemeriksa sudah dibuka lebih dulu.
+     *
+     * Ini separuh dari jaminan anti-bentrok. Separuh lainnya — B menunggu
+     * kunci penasihat, A commit di tengah penantian, lalu B tetap menolak —
+     * dibuktikan dengan dua sesi psql sungguhan; hasilnya dicatat di
+     * docs/BACKEND.md §3.3 karena butuh dua proses yang benar-benar berjalan
+     * bersamaan, di luar jangkauan satu proses PHPUnit.
+     */
+    public function test_pemicu_melihat_commit_transaksi_lain(): void
+    {
+        $room = Room::factory()->create();
+        $user = User::factory()->create();
+
+        DB::commit();
+        DB::beginTransaction();
+
+        config([
+            'database.connections.uji_c' => config('database.connections.pgsql'),
+            'database.connections.uji_d' => config('database.connections.pgsql'),
+        ]);
+
+        $baris = fn (string $mulai, string $selesai) => [
+            'room_id' => $room->id,
+            'user_id' => $user->id,
+            'keperluan' => 'Uji urutan commit',
+            'jumlah_peserta' => 5,
+            'mulai' => $mulai,
+            'selesai' => $selesai,
+            'status' => 'menunggu',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        $c = DB::connection('uji_c');
+        $d = DB::connection('uji_d');
+
+        // D membuka transaksi LEBIH DULU, sebelum C menulis apa pun.
+        $d->beginTransaction();
+        $d->select('SELECT 1');          // memantapkan transaksinya
+
+        // C menulis lalu commit.
+        $c->beginTransaction();
+        $c->table('bookings')->insert($baris('2026-11-01 09:00:00+00', '2026-11-01 11:00:00+00'));
+        $c->commit();
+
+        // D kini menulis yang tumpang tindih. Snapshot per-pernyataan pada
+        // READ COMMITTED membuat pemicu tetap melihat baris milik C.
+        $dGagal = false;
+        try {
+            $d->table('bookings')->insert($baris('2026-11-01 10:00:00+00', '2026-11-01 12:00:00+00'));
+            $d->commit();
+        } catch (\Throwable $e) {
+            $dGagal = true;
+            $d->rollBack();
+            $this->assertStringContainsString('bookings_no_overlap', $e->getMessage());
+        }
+
+        $this->assertTrue($dGagal, 'Transaksi kedua seharusnya ditolak pemicu.');
+        $this->assertSame(1, $c->table('bookings')->where('room_id', $room->id)->count());
+
+        $c->table('bookings')->where('room_id', $room->id)->delete();
+        $c->table('rooms')->where('id', $room->id)->delete();
+        $c->table('users')->where('id', $user->id)->delete();
+    }
 }

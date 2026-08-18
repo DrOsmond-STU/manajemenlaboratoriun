@@ -49,13 +49,59 @@ return new class extends Migration
 
         DB::statement('ALTER TABLE bookings ADD CONSTRAINT bookings_selesai_after_mulai CHECK (selesai > mulai)');
 
-        // Pemesanan yang dibatalkan/ditolak tidak lagi memblokir slot.
+        // Anti-bentrok. Idealnya ini satu batasan eksklusi:
+        //
+        //     EXCLUDE USING gist (room_id WITH =, periode WITH &&)
+        //
+        // tetapi bentuk itu menuntut ekstensi btree_gist, dan server tujuan
+        // tidak memasang satu pun ekstensi contrib PostgreSQL — hanya plpgsql
+        // yang tersedia. Karena itu jaminannya diwujudkan sebagai pemicu.
+        //
+        // Kunci penasihat diambil LEBIH DULU, dan itu bukan hiasan: tanpa
+        // kunci, dua transaksi dapat sama-sama memeriksa slot yang sama
+        // sebelum salah satunya menulis. Kunci berlaku sampai transaksi
+        // selesai, sehingga pemeriksaan untuk satu ruangan berurutan.
+        //
+        // Yang tetap dipertahankan dari bentuk aslinya: aturannya hidup DI
+        // DALAM basis data, sehingga berlaku untuk semua jalur tulis —
+        // termasuk impor massal dan perbaikan manual lewat psql.
         DB::statement("
-            ALTER TABLE bookings
-            ADD CONSTRAINT bookings_no_overlap
-            EXCLUDE USING gist (room_id WITH =, periode WITH &&)
-            WHERE (status NOT IN ('dibatalkan', 'ditolak'))
+            CREATE OR REPLACE FUNCTION bookings_tolak_bentrok()
+            RETURNS trigger AS \$\$
+            BEGIN
+                IF NEW.status IN ('dibatalkan', 'ditolak') THEN
+                    RETURN NEW;
+                END IF;
+
+                PERFORM pg_advisory_xact_lock(hashtext('flms:booking_room'), NEW.room_id::int);
+
+                IF EXISTS (
+                    SELECT 1 FROM bookings b
+                    WHERE b.room_id = NEW.room_id
+                      AND b.id IS DISTINCT FROM NEW.id
+                      AND b.status NOT IN ('dibatalkan', 'ditolak')
+                      AND b.mulai  < NEW.selesai
+                      AND b.selesai > NEW.mulai
+                ) THEN
+                    -- Kode galat dan penyebutan nama disamakan dengan batasan
+                    -- eksklusi aslinya, supaya BookingService tetap mengenali
+                    -- bentrok tanpa perlu tahu mekanisme mana yang dipakai.
+                    RAISE EXCEPTION
+                        'bookings_no_overlap: ruangan sudah dipakai pada rentang waktu tersebut'
+                        USING ERRCODE = '23P01';
+                END IF;
+
+                RETURN NEW;
+            END;
+            \$\$ LANGUAGE plpgsql;
         ");
+
+        DB::statement('
+            CREATE TRIGGER bookings_no_overlap
+            BEFORE INSERT OR UPDATE ON bookings
+            FOR EACH ROW
+            EXECUTE FUNCTION bookings_tolak_bentrok();
+        ');
     }
 
     public function down(): void

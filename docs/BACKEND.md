@@ -130,6 +130,8 @@ memang tertembus. Yang menyelamatkan adalah batasan di basis data.
 
 ### 3.3 Bagaimana PostgreSQL menutupnya
 
+Bentuk paling ringkas adalah satu batasan eksklusi:
+
 ```sql
 ALTER TABLE bookings
 ADD CONSTRAINT bookings_no_overlap
@@ -137,9 +139,58 @@ EXCLUDE USING gist (room_id WITH =, periode WITH &&)
 WHERE (status NOT IN ('dibatalkan', 'ditolak'));
 ```
 
-Satu baris, dijaga di titik penulisan, tidak bisa dilewati oleh kode aplikasi
-mana pun — termasuk impor data, skrip perbaikan manual, dan pengembang baru yang
-belum tahu aturannya.
+**Tetapi bentuk itu tidak dapat dipakai di server Anda,** dan itu baru
+ketahuan saat menyiapkan basis datanya:
+
+```
+SELECT name FROM pg_available_extensions;
+→ plpgsql        ← hanya itu
+```
+
+PostgreSQL 16.14 di hosting ini tidak memasang satu pun ekstensi *contrib*.
+`btree_gist` tidak tersedia, sehingga `room_id WITH =` tidak dapat digabung
+dengan `periode WITH &&` di dalam satu indeks GiST.
+
+**Penggantinya: pemicu plpgsql** yang mengambil kunci penasihat per ruangan
+lebih dulu, lalu memeriksa tumpang tindih:
+
+```sql
+PERFORM pg_advisory_xact_lock(hashtext('flms:booking_room'), NEW.room_id::int);
+
+IF EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = NEW.room_id
+             AND b.status NOT IN ('dibatalkan','ditolak')
+             AND b.mulai < NEW.selesai AND b.selesai > NEW.mulai)
+THEN RAISE EXCEPTION 'bookings_no_overlap: …' USING ERRCODE = '23P01';
+END IF;
+```
+
+Yang dipertahankan dari bentuk aslinya adalah sifat yang paling penting:
+aturannya hidup **di dalam basis data**, sehingga berlaku untuk semua jalur
+tulis — impor massal, perintah artisan, maupun perbaikan manual lewat `psql`.
+Kode galat dan penyebutan namanya disamakan, sehingga lapisan aplikasi tidak
+perlu tahu mekanisme mana yang sedang dipakai.
+
+Mekanisme ini dipakai di **semua** lingkungan, termasuk lingkungan
+pengembangan yang sebenarnya punya `btree_gist`. Memakai dua mekanisme
+berbeda antara tempat menguji dan tempat menjalankan berarti yang diuji
+bukan yang dijalankan.
+
+**Dibuktikan, bukan diasumsikan.** Pertanyaan yang menentukan: apakah
+pemeriksaan di dalam pemicu melihat baris yang di-commit transaksi lain
+*selagi* pemicu menunggu kunci? Bila tidak, celahnya tetap terbuka. Diuji
+dengan dua sesi `psql` sungguhan — A menulis lalu menahan tiga detik, B
+menulis yang tumpang tindih selagi A memegang kunci, A commit di tengah
+penantian B:
+
+```
+ERROR:  bookings_no_overlap: ruangan sudah dipakai pada rentang waktu tersebut
+CONTEXT:  PL/pgSQL function bookings_tolak_bentrok() line 20 at RAISE
+baris tersimpan: 1
+```
+
+B menunggu, lalu setelah mendapat kunci benar-benar melihat baris A yang baru
+commit, dan menolak. Snapshot per-pernyataan pada READ COMMITTED bekerja
+seperti yang dibutuhkan.
 
 **MariaDB tidak memiliki batasan eksklusi.** Padanan yang harus ditulis sendiri
 adalah mengunci baris ruangan (`SELECT … FOR UPDATE`) di setiap jalur yang
@@ -152,7 +203,7 @@ manual — hanya saat aplikasi ramai.
 
 | Kebutuhan aplikasi | PostgreSQL | MariaDB 11.4 |
 |---|---|---|
-| Anti-bentrok jadwal di basis data | `EXCLUDE USING gist` | tidak ada padanannya |
+| Anti-bentrok jadwal di basis data | pemicu + kunci penasihat (`EXCLUDE` bila ada contrib) | pemicu juga mungkin, tanpa kunci penasihat setara |
 | Tata letak dashboard & template label (JSON) | `jsonb`, dapat diindeks GIN | JSON = alias LONGTEXT |
 | Pencarian global | pencarian teks penuh bawaan | lebih terbatas |
 | Kolom turunan yang mustahil menyimpang | `GENERATED … STORED` | ada, lebih terbatas |
@@ -167,6 +218,10 @@ Supaya jujur, ini biayanya:
   hampir seluruh perbedaannya; yang khas PostgreSQL hanya tiga migrasi.
 - Prosedur pencadangan berbeda (`pg_dump`, bukan `mysqldump`) — sudah dicatat
   untuk dimasukkan ke RUNBOOK saat penerapan.
+- **Tidak ada ekstensi contrib di hosting ini.** Selain `btree_gist`, ini juga
+  menutup `pg_trgm` (pencarian mirip) dan `unaccent`. Bila kelak diperlukan,
+  mintalah Domainesia memasang paket `postgresql16-contrib`; setelah itu
+  batasan eksklusi dapat menggantikan pemicu tanpa mengubah kode aplikasi.
 
 Bila di kemudian hari Anda tetap memilih MariaDB, yang perlu diganti hanya
 migrasi anti-bentrok dan kode yang mengurus penguncian. Sisa aplikasinya tidak

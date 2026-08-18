@@ -4,8 +4,10 @@
 Dokumen keputusan: tumpukan teknologi backend, alasannya, bukti yang mendasarinya,
 dan fondasi yang sudah berjalan.
 
-> **Status.** Fondasi sudah dibangun dan lulus uji di lingkungan pengembangan.
-> Belum diterapkan ke server produksi — lihat §6 dan §8.
+> **Status.** Sudah **berjalan di server** pada
+> `https://api.lab.semestateknologiutama.com` — lihat §6. Yang berjalan
+> barulah tiga modul (pemesanan ruangan, aset BMN, impor master); belum ada
+> autentikasi pengguna, sehingga **belum boleh diisi data nyata**. Lihat §8.
 
 ---
 
@@ -354,36 +356,79 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
 
 ---
 
-## 6. Topologi Penerapan yang Direncanakan
+## 6. Topologi Penerapan — Sudah Berjalan
 
-Ini bagian yang **wajib** benar sejak awal, karena satu kesalahan di sini
-membocorkan seluruh konfigurasi.
+Bagian ini **wajib** benar sejak awal, karena satu kesalahan di sini
+membocorkan seluruh konfigurasi. Docroot diisi `git reset --hard` dari akar
+repositori; bila aplikasi Laravel diletakkan di dalam docroot, `.env` — berisi
+kunci aplikasi dan sandi basis data — akan berada di wilayah yang dilayani web.
 
-Docroot subdomain sekarang diisi `git reset --hard` dari akar repositori.
-Bila aplikasi Laravel diletakkan di dalam docroot, maka `.env` — berisi kunci
-aplikasi, sandi basis data, dan kredensial SMTP — akan berada di dalam wilayah
-yang dilayani web.
-
-Rencananya mengikuti pola `koperasi-app` yang sudah terbukti di akun ini:
+Yang terpasang sekarang:
 
 ```
-/home/semestat/lab.semestateknologiutama.com/    docroot  → SPA statis (seperti sekarang)
-/home/semestat/lab-api/                          DI LUAR docroot → aplikasi Laravel
-   ├── .env                                      tidak pernah terlayani web
-   ├── storage/                                  unggahan privat
-   └── public/                                   ← docroot api.lab.semestateknologiutama.com
+/home/semestat/lab.semestateknologiutama.com/   docroot → SPA statis purwarupa
+/home/semestat/api.lab/                         repositori, DI LUAR docroot
+   └── backend/
+       ├── .env                                 tidak pernah terlayani web
+       ├── storage/                             berkas privat
+       └── public/   ← docroot api.lab.semestateknologiutama.com
 ```
 
-- API memakai subdomain sendiri `api.lab.semestateknologiutama.com` yang
-  docroot-nya diarahkan ke `lab-api/public`.
-- Sanctum memakai cookie sesi, jadi `SESSION_DOMAIN` disetel
-  `.lab.semestateknologiutama.com` agar SPA dan API dianggap satu situs dan
-  tidak terkena pembatasan cookie pihak ketiga.
-- Antrean dan penjadwal memakai dua baris cron, meniru `koperasi-app`.
+| Butir | Nilai terpasang |
+|---|---|
+| Subdomain API | `api.lab.semestateknologiutama.com` |
+| Docroot | `/home/semestat/api.lab/backend/public` |
+| Basis data | `semestat_flms` (PostgreSQL 16.14) |
+| Pengguna basis data | `semestat_flmsapp` |
+| PHP | 8.3.32, penangan `lsapi` |
+| TLS | Let's Encrypt, HTTP/2, `ssl_verify: 0` |
+| Deploy Git | id `165f52f7`, cabang `claude/lab-management-ui-design-rc2lfn` |
 
-Sebagai lapis kedua, `.htaccess` di docroot sudah menutup `^/backend/`,
-sehingga andaikan direktori itu suatu saat ikut tersalin ke docroot, isinya
-tetap tidak terlayani.
+Dua baris cron, meniru `koperasi-app`:
+
+```
+*/6 * * * * cd /home/semestat/api.lab/backend && php83 artisan schedule:run
+*/7 * * * * cd /home/semestat/api.lab/backend && php83 artisan queue:work --stop-when-empty --tries=3 --max-time=280
+```
+
+Sanctum memakai cookie sesi, sehingga `SESSION_DOMAIN` disetel
+`.semestateknologiutama.com` agar SPA dan API dianggap satu situs.
+
+Sebagai lapis kedua, `.htaccess` docroot purwarupa menutup `^/backend/`.
+
+### 6.1 Yang perlu diketahui saat merawat
+
+- **Tidak ada akses shell.** Hosting ini hanya menyediakan cron sebagai jalur
+  eksekusi. Pemasangan awal karena itu dijalankan lewat cron berpenanda; lihat
+  `/home/semestat/flms-setup.sh` dan lognya di `flms-setup.log`.
+- **`composer install` bisa terbunuh di tengah.** Proses cron dibatasi lamanya,
+  dan 504 dari `api.github.com` memaksa composer beralih ke `git clone` per
+  paket yang jauh lebih lambat. Skrip pemasangannya dibuat agar dapat
+  **diulang**: setiap pemanggilan melanjutkan, bukan mengulang dari nol.
+- **Setelah mengubah `.env`, wajib** `php artisan config:cache` ulang —
+  konfigurasi di-cache, sehingga perubahan `.env` saja tidak berpengaruh.
+- **Sandi basis data hanya ada di `.env` pada server.** Tidak pernah masuk
+  repositori. Bila perlu diputar, ubah di cPanel lalu perbarui `.env` dan
+  jalankan `config:cache`.
+
+### 6.2 Verifikasi pasca-penerapan
+
+Lingkungan kerja pengembang tidak dapat menjangkau domain ini (diblokir proksi
+egress), sehingga verifikasinya dijalankan **dari dalam server**. Hasil
+terakhir:
+
+```
+LULUS  /api/user            → HTTP 401 {"message":"Unauthenticated."}
+LULUS  /api/assets          → HTTP 401 application/json
+LULUS  /api/bookings        → HTTP 401 application/json
+LULUS  /api/bmn/kode-barang → HTTP 401 application/json
+LULUS  /api/tidak-ada       → HTTP 404 application/json
+LULUS  /up                  → HTTP 200
+       ssl_verify: 0 | http_version: 2
+```
+
+Anti-bentrok juga diuji langsung pada basis data server: pemesanan yang
+tumpang tindih ditolak pemicu, sedangkan pemakaian berurutan tetap diterima.
 
 ---
 

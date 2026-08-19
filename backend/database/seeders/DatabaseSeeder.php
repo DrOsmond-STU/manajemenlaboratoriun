@@ -19,6 +19,10 @@ class DatabaseSeeder extends Seeder
         // kunci asing, jadi urutannya tidak boleh dibalik.
         $this->call(BmnKodeBarangSeeder::class);
 
+        // Peran dan izin harus ada sebelum pengguna dibuat, karena pengguna
+        // langsung diberi peran saat dibuat.
+        $this->call(PeranIzinSeeder::class);
+
         User::factory()->create([
             'name' => 'Test User',
             'email' => 'test@example.com',

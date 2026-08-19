@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Asset;
 use App\Models\BmnKodeBarang;
 use App\Models\Room;
-use App\Models\User;
 use App\Support\Satker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -47,7 +46,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian())
             ->assertCreated()
             ->assertJsonPath('data.nama', 'HPLC Shimadzu LC-2050')
@@ -64,7 +63,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $data = $this->actingAs(User::factory()->create())
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian())
             ->assertCreated()
             ->json('data');
@@ -78,7 +77,7 @@ class AssetApiTest extends TestCase
         $this->kodeBarang('3.08.01.03.001');
         $this->kodeBarang('3.08.01.08.003');
 
-        $user = User::factory()->create();
+        $user = $this->penggunaBerperan('asset-manager');
 
         $a1 = $this->actingAs($user)->postJson('/api/assets', $this->isian())->json('data.bmn.nup');
         $a2 = $this->actingAs($user)->postJson('/api/assets', $this->isian())->json('data.bmn.nup');
@@ -98,7 +97,7 @@ class AssetApiTest extends TestCase
         $this->kodeBarang();
         $room = Room::factory()->create(['kode' => 'KIM-01']);
 
-        $kode = $this->actingAs(User::factory()->create())
+        $kode = $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['room_id' => $room->id]))
             ->assertCreated()
             ->json('data.kode_internal');
@@ -112,7 +111,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['kode_internal' => 'STU/KIM-01/KROM/2022/0012']))
             ->assertCreated()
             ->assertJsonPath('data.kode_internal', 'STU/KIM-01/KROM/2022/0012');
@@ -123,7 +122,7 @@ class AssetApiTest extends TestCase
         $this->kodeBarang();
         Asset::factory()->kodeBarang('3.08.01.03.001')->create(['kode_internal' => 'STU/DUP/0001']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['kode_internal' => 'STU/DUP/0001']))
             ->assertStatus(422)
             ->assertJsonValidationErrors('kode_internal');
@@ -133,7 +132,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang('3.08.01.03.001');
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['kode_barang' => '3.08.99.99.999']))
             ->assertStatus(422)
             ->assertJsonValidationErrors('kode_barang');
@@ -143,7 +142,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['kode_barang' => '30801031']))
             ->assertStatus(422)
             ->assertJsonValidationErrors('kode_barang');
@@ -153,7 +152,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['tgl_perolehan' => now()->addYear()->toDateString()]))
             ->assertStatus(422)
             ->assertJsonValidationErrors('tgl_perolehan');
@@ -163,7 +162,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang();
 
-        $data = $this->actingAs(User::factory()->create())
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian(['nup' => 9999, 'kode_lokasi' => '999.99.9999.999999.999']))
             ->assertCreated()
             ->json('data');
@@ -176,7 +175,7 @@ class AssetApiTest extends TestCase
     {
         $this->kodeBarang('3.08.01.03.001', masaManfaat: 8);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->postJson('/api/assets', $this->isian())
             ->assertCreated()
             ->assertJsonPath('data.penyusutan.masa_manfaat', 8);
@@ -190,7 +189,7 @@ class AssetApiTest extends TestCase
         Asset::factory()->kodeBarang('3.08.01.03.001')->create(['nama' => 'HPLC Shimadzu', 'nup' => 1]);
         Asset::factory()->kodeBarang('3.05.02.01.003')->rusakBerat()->create(['nama' => 'AC Daikin', 'nup' => 1]);
 
-        $user = User::factory()->create();
+        $user = $this->penggunaBerperan('asset-manager');
 
         $this->actingAs($user)->getJson('/api/assets?cari=HPLC')
             ->assertOk()->assertJsonCount(1, 'data');
@@ -210,7 +209,7 @@ class AssetApiTest extends TestCase
         $this->kodeBarang('3.08.01.03.001');
         $this->kodeBarang('3.05.02.01.003');
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->getJson('/api/bmn/kode-barang?awalan=3.08')
             ->assertOk()
             ->assertJsonCount(1, 'data');

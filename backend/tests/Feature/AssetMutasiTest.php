@@ -41,7 +41,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset(['nama' => 'Nama Lama']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}", ['nama' => 'Nama Baru', 'merk' => 'Shimadzu'])
             ->assertOk()
             ->assertJsonPath('data.nama', 'Nama Baru')
@@ -53,7 +53,7 @@ class AssetMutasiTest extends TestCase
         $aset = $this->aset();
         BmnKodeBarang::factory()->kode('3.08.01.08.003')->create();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}", [
                 'kode_barang' => '3.08.01.08.003',
                 'nup' => 999,
@@ -95,7 +95,7 @@ class AssetMutasiTest extends TestCase
         $a = $this->aset(['kode_internal' => 'STU/A/0001']);
         $b = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['kode_internal' => 'STU/B/0002']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$b->id}", ['kode_internal' => 'STU/A/0001'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('kode_internal');
@@ -107,7 +107,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset(['kode_internal' => 'STU/A/0001']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}", ['kode_internal' => 'STU/A/0001', 'nama' => 'Berubah'])
             ->assertOk();
     }
@@ -117,7 +117,7 @@ class AssetMutasiTest extends TestCase
     public function test_perubahan_kondisi_tercatat_di_riwayat(): void
     {
         $aset = $this->aset(['kondisi' => 'B']);
-        $user = User::factory()->create();
+        $user = $this->penggunaBerperan('asset-manager');
 
         $this->actingAs($user)
             ->patchJson("/api/assets/{$aset->id}", [
@@ -139,7 +139,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset(['kondisi' => 'B']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}", ['kondisi' => 'B', 'nama' => 'Nama Baru'])
             ->assertOk();
 
@@ -153,7 +153,7 @@ class AssetMutasiTest extends TestCase
         $room = Room::factory()->create();
         $pj = User::factory()->create();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}", [
                 'kondisi' => 'RR',
                 'room_id' => $room->id,
@@ -173,7 +173,7 @@ class AssetMutasiTest extends TestCase
         $aset = $this->aset(['room_id' => null]);
         $room = Room::factory()->create(['nama' => 'Laboratorium Kimia 1']);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", ['room_id' => $room->id])
             ->assertOk();
 
@@ -188,7 +188,7 @@ class AssetMutasiTest extends TestCase
     public function test_riwayat_dapat_dibaca_lewat_api(): void
     {
         $aset = $this->aset(['kondisi' => 'B']);
-        $user = User::factory()->create();
+        $user = $this->penggunaBerperan('asset-manager');
 
         $this->actingAs($user)->patchJson("/api/assets/{$aset->id}", ['kondisi' => 'RR'])->assertOk();
         $this->actingAs($user)->patchJson("/api/assets/{$aset->id}", ['kondisi' => 'RB'])->assertOk();
@@ -211,7 +211,7 @@ class AssetMutasiTest extends TestCase
         $tujuan = Room::factory()->create(['nama' => 'Lab B']);
         $aset = $this->aset(['room_id' => $asal->id]);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", [
                 'room_id' => $tujuan->id,
                 'catatan' => 'Penataan ulang laboratorium',
@@ -231,7 +231,7 @@ class AssetMutasiTest extends TestCase
         $room = Room::factory()->create();
         $aset = $this->aset(['room_id' => $room->id]);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", ['room_id' => $room->id])
             ->assertStatus(422)
             ->assertJsonValidationErrors('room_id');
@@ -244,7 +244,7 @@ class AssetMutasiTest extends TestCase
         $room = Room::factory()->create(['nama' => 'Lab A']);
         $aset = $this->aset(['room_id' => $room->id]);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", ['room_id' => null, 'catatan' => 'Dibawa ke bengkel'])
             ->assertOk();
 
@@ -258,7 +258,7 @@ class AssetMutasiTest extends TestCase
 
         // Tidak mengirim `room_id` sama sekali tidak boleh diartikan sebagai
         // "keluarkan dari ruangan".
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", ['catatan' => 'lupa isi'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('room_id');
@@ -268,7 +268,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->patchJson("/api/assets/{$aset->id}/mutasi", ['room_id' => 99999])
             ->assertStatus(422)
             ->assertJsonValidationErrors('room_id');
@@ -280,7 +280,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->deleteJson("/api/assets/{$aset->id}", ['alasan' => 'Penghapusan sesuai SK'])
             ->assertOk()
             ->assertJsonFragment(['pesan' => 'Aset dihapus. NUP '.$aset->nup_fmt.' tetap tertahan dan tidak dipakai ulang.']);
@@ -292,7 +292,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset(['nup' => 5]);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->deleteJson("/api/assets/{$aset->id}")
             ->assertOk();
 
@@ -319,7 +319,7 @@ class AssetMutasiTest extends TestCase
     public function test_aset_terhapus_tidak_muncul_di_daftar(): void
     {
         $aset = $this->aset();
-        $user = User::factory()->create();
+        $user = $this->penggunaBerperan('asset-manager');
 
         $this->actingAs($user)->deleteJson("/api/assets/{$aset->id}")->assertOk();
 
@@ -332,7 +332,7 @@ class AssetMutasiTest extends TestCase
     {
         $aset = $this->aset();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
             ->deleteJson("/api/assets/{$aset->id}", ['alasan' => 'Rusak berat, SK penghapusan 12/2026'])
             ->assertOk();
 

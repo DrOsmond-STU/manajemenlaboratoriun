@@ -13,6 +13,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Sanctum memakai sesi berbasis cookie, bukan token bearer. Grup rute
+        // `api` bawaan Laravel TIDAK memuat middleware sesi, sehingga tanpa
+        // baris ini setiap upaya masuk gagal dengan "Session store not set on
+        // request" — dan cookie HttpOnly yang menjadi alasan memilih Sanctum
+        // tidak pernah terbentuk.
+        $middleware->statefulApi();
+
         // Aplikasi ini melayani API, bukan halaman. Bawaan Laravel mengalihkan
         // tamu ke rute bernama `login`, yang tidak ada di sini — dan upaya
         // pengalihan itu sendiri melempar RouteNotFoundException, sehingga

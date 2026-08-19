@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Booking;
 use App\Models\Room;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -29,7 +28,7 @@ class BookingApiTest extends TestCase
 
     public function test_pengguna_terautentikasi_dapat_membuat_pemesanan(): void
     {
-        Sanctum::actingAs(User::factory()->create());
+        Sanctum::actingAs($this->penggunaBerperan('employee'));
         $room = Room::factory()->create();
 
         $this->postJson('/api/bookings', [
@@ -47,7 +46,7 @@ class BookingApiTest extends TestCase
 
     public function test_bentrok_dikembalikan_sebagai_422_berbahasa_indonesia(): void
     {
-        Sanctum::actingAs($user = User::factory()->create());
+        Sanctum::actingAs($user = $this->penggunaBerperan('employee'));
         $room = Room::factory()->create();
 
         Booking::factory()->for($room)->for($user)
@@ -68,7 +67,7 @@ class BookingApiTest extends TestCase
 
     public function test_selesai_harus_setelah_mulai(): void
     {
-        Sanctum::actingAs(User::factory()->create());
+        Sanctum::actingAs($this->penggunaBerperan('employee'));
         $room = Room::factory()->create();
 
         $this->postJson('/api/bookings', [
@@ -81,7 +80,7 @@ class BookingApiTest extends TestCase
 
     public function test_ruangan_harus_ada(): void
     {
-        Sanctum::actingAs(User::factory()->create());
+        Sanctum::actingAs($this->penggunaBerperan('employee'));
 
         $this->postJson('/api/bookings', [
             'room_id' => 999999,
@@ -93,7 +92,7 @@ class BookingApiTest extends TestCase
 
     public function test_daftar_pemesanan_dapat_disaring_per_ruangan(): void
     {
-        Sanctum::actingAs($user = User::factory()->create());
+        Sanctum::actingAs($user = $this->penggunaBerperan('employee'));
         [$a, $b] = Room::factory()->count(2)->create();
 
         Booking::factory()->for($a)->for($user)->pada('2026-09-01 08:00:00', '2026-09-01 10:00:00')->create();

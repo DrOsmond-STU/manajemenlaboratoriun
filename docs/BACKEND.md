@@ -6,9 +6,9 @@ dan fondasi yang sudah berjalan.
 
 > **Status.** Sudah **berjalan di server** pada
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
-> dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah empat modul
-> — pemesanan ruangan, aset BMN, impor master, autentikasi — sehingga
-> **belum boleh diisi data nyata**. Lihat §8.
+> dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
+> — autentikasi, master data ruangan, pemesanan ruangan, aset BMN, impor
+> master — sehingga **belum boleh diisi data nyata**. Lihat §8.
 
 ---
 
@@ -242,6 +242,8 @@ supaya jaminan intinya terbukti lebih dulu.
 backend/
 ├── app/
 │   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang,AssetMutation}.php
+│   ├── Policies/RoomPolicy.php               izin gabungan: master-data ATAU booking
+│   ├── Support/MatriksAkses.php              matriks peran × modul, sumber kebenaran
 │   ├── Services/
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
@@ -258,7 +260,8 @@ backend/
 ├── config/bmn.php                            identitas satker & pola penomoran
 ├── database/migrations/                      btree_gist, rooms, bookings,
 │                                             bmn_kode_barang, bmn_nup_counters, assets,
-│                                             asset_mutations, pemicu identitas BMN
+│                                             asset_mutations, pemicu identitas BMN,
+│                                             peran & izin, indeks kode ruangan parsial
 ├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
 ├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
 ├── routes/api.php
@@ -271,7 +274,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-92 uji lulus, 260 asersi, 0 gagal — dijalankan di PostgreSQL 16
+156 uji lulus, 437 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -322,6 +325,17 @@ Perubahan, mutasi, riwayat, dan penghapusan aset:
 | Mutasi tanpa `room_id` | ditolak — tidak diartikan "keluarkan dari ruangan" |
 | Penghapusan bersifat lunak | **NUP tidak dipakai ulang** walau asetnya sudah dihapus |
 | Alasan penghapusan | ikut tercatat pada riwayat |
+
+Master data ruangan:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Ruangan berjadwal tidak dapat dihapus** | hapus lunak tidak memicu kunci asing `restrict`, jadi penjaganya harus di aplikasi |
+| Jadwal lampau & dibatalkan | tidak menahan penghapusan — master data tetap bisa dirapikan |
+| Employee boleh melihat ruangan | lewat izin booking, walau tanpa izin master-data sama sekali |
+| Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
+| Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
+| Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
 
 **Cacat yang ditangkap uji ini.** `bmn_id` sempat terbaca `null` pada tanggapan
 API: kolomnya dibentuk basis data, sehingga instance hasil `create()` belum

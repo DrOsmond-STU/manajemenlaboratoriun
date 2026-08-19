@@ -5,9 +5,10 @@ Dokumen keputusan: tumpukan teknologi backend, alasannya, bukti yang mendasariny
 dan fondasi yang sudah berjalan.
 
 > **Status.** Sudah **berjalan di server** pada
-> `https://api.lab.semestateknologiutama.com` — lihat §6. Yang berjalan
-> barulah tiga modul (pemesanan ruangan, aset BMN, impor master); belum ada
-> autentikasi pengguna, sehingga **belum boleh diisi data nyata**. Lihat §8.
+> `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
+> dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah empat modul
+> — pemesanan ruangan, aset BMN, impor master, autentikasi — sehingga
+> **belum boleh diisi data nyata**. Lihat §8.
 
 ---
 
@@ -411,7 +412,47 @@ Sebagai lapis kedua, `.htaccess` docroot purwarupa menutup `^/backend/`.
   repositori. Bila perlu diputar, ubah di cPanel lalu perbarui `.env` dan
   jalankan `config:cache`.
 
-### 6.2 Verifikasi pasca-penerapan
+### 6.2 Membuat akun pertama
+
+Tanpa satu pun akun, seluruh API menolak semua orang dan sistem terkunci dari
+dirinya sendiri. Akun pertama dibuat lewat cron (hosting ini tanpa akses
+shell) atau lewat SSH bila Anda memilikinya:
+
+```bash
+cd /home/semestat/api.lab/backend
+php83 artisan flms:buat-pengguna anda@instansi.go.id \
+    --nama="Nama Anda" --peran=super-admin --sandi-acak
+```
+
+Sandi acak ditampilkan **sekali** pada keluaran perintah. Salin, lalu segera
+ganti lewat `POST /api/ubah-sandi`.
+
+Sandi sengaja tidak dapat diberikan sebagai argumen: argumen tercatat di
+riwayat shell dan terlihat pada daftar proses. Bila ingin mengetiknya sendiri,
+hilangkan `--sandi-acak` dan perintahnya akan menanyakannya secara
+tersembunyi.
+
+Peran yang tersedia: `super-admin`, `facility-manager`, `lab-manager`,
+`asset-manager`, `finance`, `employee`, `lab-technician`,
+`room-administrator`, `event-manager`, `pic`, `external-user`, `management`.
+
+### 6.3 Alur masuk dari antarmuka
+
+Sanctum memakai sesi cookie, sehingga SPA harus mengambil cookie CSRF lebih
+dahulu:
+
+```
+1. GET  /sanctum/csrf-cookie          → 204, menanam cookie XSRF-TOKEN
+2. POST /api/masuk                     → sertakan header X-XSRF-TOKEN
+     {"email": "...", "password": "..."}
+3. Permintaan berikutnya cukup membawa cookie sesi.
+4. POST /api/keluar                    → mengakhiri sesi
+```
+
+Melewatkan langkah 1 menghasilkan **419 CSRF token mismatch** — itu perilaku
+yang benar, bukan gangguan.
+
+### 6.4 Verifikasi pasca-penerapan
 
 Lingkungan kerja pengembang tidak dapat menjangkau domain ini (diblokir proksi
 egress), sehingga verifikasinya dijalankan **dari dalam server**. Hasil
@@ -429,6 +470,25 @@ LULUS  /up                  → HTTP 200
 
 Anti-bentrok juga diuji langsung pada basis data server: pemesanan yang
 tumpang tindih ditolak pemicu, sedangkan pemakaian berurutan tetap diterima.
+
+Peran dan izin diperiksa langsung di basis data server, dan cocok dengan
+matriks:
+
+| Peran | Izin `aset.*` di server |
+|---|---|
+| `asset-manager` | buat, hapus, kelola, lihat, ubah — sesuai PENUH |
+| `facility-manager` | buat, lihat, ubah — sesuai UBAH, tanpa hapus |
+| `employee` | tidak ada — sesuai `—` |
+
+Total 12 peran, 60 izin, 245 pemetaan peran-izin.
+
+**Yang belum diverifikasi di server:** satu kali masuk yang BERHASIL dengan
+kredensial benar. Lapisannya sudah terbukti masing-masing — cookie CSRF terbit
+(204), token CSRF diterima (permintaan tidak lagi 419 melainkan 422 pada
+kredensial salah), rute terlindung menolak tamu (401) — tetapi rangkaian
+utuhnya belum pernah dijalankan di sana karena membutuhkan akun sungguhan.
+Alur lengkapnya tercakup 14 uji otomatis di `AuthTest`. Buat akun pertama
+seperti pada §6.2, lalu masuk sekali untuk menutup celah verifikasi ini.
 
 ---
 
@@ -460,12 +520,15 @@ Anda.
 
 Berurutan, masing-masing menghasilkan sesuatu yang dapat diuji:
 
-1. **Impor master kode barang BMN resmi** — menggantikan cuplikan contoh pada
+1. **Melengkapi autentikasi** — lupa sandi lewat surel, verifikasi surel,
+   dan audit percobaan masuk
+2. **Impor master kode barang BMN resmi** — menggantikan cuplikan contoh pada
    `BmnKodeBarangSeeder`; perintah impor + penyelarasan NUP data lama
-2. **Melengkapi modul aset** — ubah/hapus, mutasi antarruangan, unggah foto,
+3. **Melengkapi modul aset** — ubah/hapus, mutasi antarruangan, unggah foto,
    riwayat kondisi, cetak barcode dari sisi server
-3. **Autentikasi lengkap** — masuk, keluar, ganti sandi, batas percobaan gagal
-4. **Peran & izin** — 12 peran diisi, `Policy` per modul, uji per peran
+4. **Cakupan data** — SECURITY.md §4.2 (per gedung, per unit kerja, per
+   resource yang diampu) belum diterapkan sama sekali; otorisasi yang ada
+   baru sumbu peran, belum sumbu cakupan data
 5. **Master data sisanya** — ruangan, laboratorium, pengguna, satuan kerja
 6. **Modul jadwal sisanya** — peminjaman alat, maintenance, kalibrasi, agenda;
    semuanya memakai pola anti-bentrok yang sama
@@ -476,13 +539,20 @@ Berurutan, masing-masing menghasilkan sesuatu yang dapat diuji:
 11. **Penerapan** — subdomain API, cron, pencadangan `pg_dump`, pemantauan
 
 Penghalang rilis di [README dokumentasi](README.md) tetap berlaku. Yang sudah
-teratasi oleh pekerjaan ini baru dua fondasi — anti-bentrok jadwal dan
-identitas BMN yang tidak bisa kembar; sebelas langkah di atas belum.
+teratasi oleh pekerjaan ini baru tiga fondasi — anti-bentrok jadwal,
+identitas BMN yang tidak bisa kembar, dan autentikasi berbasis peran;
+langkah-langkah di atas belum.
 
 ### 8.1 Yang perlu dipastikan ke satuan kerja
 
-Dua hal sengaja tidak saya putuskan sendiri karena bergantung praktik
-akuntansi satuan kerja Anda:
+Tiga hal sengaja tidak diputuskan sendiri karena bergantung kebijakan
+satuan kerja Anda:
+
+- **Tingkat akses enam peran.** SECURITY.md §4.1 hanya memuat matriks untuk
+  enam peran. Enam sisanya — Lab Technician, Room Administrator, Event
+  Manager, PIC, External User, Management — tingkatnya disimpulkan dari
+  uraian PRD §4 dan ditandai `PERLU_DIKONFIRMASI` di
+  `App\Support\MatriksAkses`. Perlu ditinjau pemilik produk sebelum dipakai.
 
 - **Periode penyusutan.** `Penyusutan` menghitung per tahun penuh, mengikuti
   purwarupa. PMK 65/2017 melaporkan per **semester**. Seluruh perhitungan

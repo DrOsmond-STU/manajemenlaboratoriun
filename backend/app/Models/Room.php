@@ -27,4 +27,19 @@ class Room extends Model
     {
         return $this->hasMany(Booking::class);
     }
+
+    /**
+     * Pemesanan yang masih memblokir ruangan ini pada masa depan.
+     *
+     * Dipakai untuk menolak penghapusan ruangan yang masih terjadwal.
+     * Pemesanan yang sudah lewat sengaja tidak dihitung: menahan penghapusan
+     * ruangan gara-gara jadwal tahun lalu hanya membuat master data tidak
+     * pernah bisa dirapikan.
+     */
+    public function bookingsAktif(): HasMany
+    {
+        return $this->bookings()
+            ->whereNotIn('status', Booking::STATUS_TIDAK_MEMBLOKIR)
+            ->where('selesai', '>', now());
+    }
 }

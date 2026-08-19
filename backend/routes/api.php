@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
 
 // --- Tanpa autentikasi ---------------------------------------------------
@@ -31,6 +32,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:booking-ruangan.buat');
     Route::get('bookings/{booking}', [BookingController::class, 'show'])
         ->middleware('can:booking-ruangan.lihat');
+
+    // --- Master data: ruangan --------------------------------------------
+    // Izinnya diatur RoomPolicy, bukan middleware `can:`, karena membaca
+    // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
+    // harus dapat melihat ruangan yang hendak dipesannya.
+    Route::apiResource('rooms', RoomController::class);
 
     // --- Aset & BMN ------------------------------------------------------
     Route::get('assets', [AssetController::class, 'index'])

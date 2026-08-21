@@ -253,7 +253,10 @@ backend/
 │   ├── Support/MatriksAkses.php              matriks peran × modul, sumber kebenaran
 │   ├── Support/CakupanData.php               sumbu kedua: objek mana yang terlihat
 │   ├── Models/Concerns/DapatDibatasiCakupan.php  scope ->dalamCakupan()
+│   ├── Models/Concerns/Diaudit.php          jejak audit otomatis lewat peristiwa model
+│   ├── Listeners/CatatPerubahanHakAkses.php pemberian & pencabutan peran/izin
 │   ├── Services/
+│   │   ├── AuditService.php                 pencatatan di luar penyuntingan kolom
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
 │   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
@@ -270,6 +273,7 @@ backend/
 ├── database/migrations/                      btree_gist, rooms, bookings,
 │                                             bmn_kode_barang, bmn_nup_counters, assets,
 │                                             asset_mutations, pemicu identitas BMN,
+│                                             audit_logs + pemicu hanya-tambah,
 │                                             peran & izin, indeks kode ruangan parsial
 ├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
 ├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
@@ -277,13 +281,14 @@ backend/
 └── tests/
     ├── Feature/{BookingConflict,BookingApi,BookingRaceCondition}Test.php
     ├── Feature/{AssetApi,NupRaceCondition}Test.php
+    ├── Feature/AuditTrailTest.php
     └── Unit/PenyusutanTest.php
 ```
 
 ### 4.1 Hasil uji
 
 ```
-293 uji lulus, 838 asersi, 0 gagal — dijalankan di PostgreSQL 16
+306 uji lulus, 881 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -489,6 +494,33 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Jejak audit hanya bisa ditambah, dan itu ditegakkan basis data.**
+  Pemicu pada `audit_logs` menolak setiap UPDATE dan DELETE. Jejak audit yang
+  dapat disunting bukan jejak audit: yang dirugikan ketiadaannya hanya
+  pemeriksa, sementara pihak yang ingin menutupi sesuatu justru terbantu,
+  karena catatan yang tampak lengkap lebih meyakinkan daripada catatan yang
+  jelas-jelas tidak ada. Konsekuensinya diterima: baris yang salah tidak dapat
+  diperbaiki, hanya diikuti baris koreksi.
+- **`audit_logs` sengaja tanpa kunci asing.** Tabel yang hanya bisa ditambah
+  tidak dapat memiliki kunci asing ke tabel yang barisnya bisa hilang —
+  `ON DELETE SET NULL` adalah UPDATE dan `ON DELETE CASCADE` adalah DELETE,
+  dan pemicu menolak keduanya. Yang gagal bukan jejaknya, melainkan
+  penghapusan penggunanya, di tempat yang sama sekali tidak diduga. Terbukti
+  saat pengembangan: uji penghapusan pengguna langsung tumbang. Arti barisnya
+  dipikul `nama_pelaku`, yang disalin saat peristiwa terjadi — sehingga
+  jejaknya tetap terbaca setelah penggunanya tidak ada.
+- **Nilai sensitif tidak pernah masuk jejak audit.** Pergantian kata sandi
+  tercatat sebagai peristiwa, nilainya — bahkan yang sudah di-hash — diganti
+  `[disamarkan]`. Jejak audit adalah tempat yang paling banyak dibaca saat
+  pemeriksaan, dan menaruh rahasia di sana sama saja menyebarkannya.
+- **Perubahan hak akses dicatat lewat peristiwa paket izin,** bukan dari
+  endpoint tertentu. Memberi peran tidak mengubah satu kolom pun pada tabel
+  `users`, sehingga peristiwa model biasa tidak pernah menyala — perubahan
+  paling sensitif dalam sistem justru yang paling mudah luput. Karena itu
+  `permission.events_enabled` dinyalakan dan `CatatPerubahanHakAkses`
+  mendengarkannya, sehingga jalur apa pun tercakup, termasuk perintah artisan
+  dan seeder.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada
@@ -497,7 +529,7 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
 |---|---|
 | Notifikasi surel seluruh jadwal | `Mailable` berantre + `schedule:run` lewat cron |
 | Persetujuan berjenjang | mesin status + `spatie/laravel-permission` |
-| Jejak audit | `spatie/laravel-activitylog` (belum dipasang) |
+| Jejak audit | tabel `audit_logs` sendiri, hanya-tambah di tingkat basis data |
 | Unggah foto peralatan | `Storage` + disk privat di luar docroot |
 | 12 peran, matriks izin | peran & izin basis data, `Policy` per modul |
 | Ekspor PDF/Excel | pekerjaan berantre, hasil disimpan ke disk privat |

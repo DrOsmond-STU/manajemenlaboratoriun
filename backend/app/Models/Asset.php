@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\DapatDibatasiCakupan;
+use App\Models\Concerns\Diaudit;
 use App\Services\Penyusutan;
 use App\Support\CakupanData;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class Asset extends Model
 {
-    use DapatDibatasiCakupan, HasFactory, SoftDeletes;
+    use DapatDibatasiCakupan, Diaudit, HasFactory, SoftDeletes;
 
     /** Kondisi barang menurut penatausahaan BMN. */
     public const KONDISI = [
@@ -51,6 +52,39 @@ class Asset extends Model
             'masa_manfaat' => 'integer',
             'wajib_kalibrasi' => 'boolean',
         ];
+    }
+
+    /**
+     * Yang diaudit hanyalah yang bernilai uang atau bernilai hukum.
+     *
+     * Aset sudah punya riwayat mutasi sendiri untuk perpindahan ruangan dan
+     * penyuntingan biasa. Jejak audit dipakai untuk hal yang berbeda: nilai
+     * perolehan dan masa manfaat menentukan angka penyusutan yang masuk
+     * laporan keuangan, kondisi dan status penggunaan menentukan perlakuan
+     * penatausahaan BMN, dan identitas BMN adalah kunci rekonsiliasi dengan
+     * SIMAK-BMN.
+     *
+     * Menyalin seluruh kolom ke sini akan membuat penggantian satu angka
+     * rupiah tenggelam di antara puluhan perubahan keterangan dan spesifikasi
+     * — dan yang dicari pemeriksa justru angka rupiahnya.
+     *
+     * @return list<string>
+     */
+    public function kolomDiaudit(): array
+    {
+        return [
+            'nilai_perolehan', 'masa_manfaat',
+            'kondisi', 'status_penggunaan',
+            'kode_lokasi', 'kode_barang', 'nup',
+            'cara_perolehan', 'tgl_perolehan', 'sumber_dana',
+            'no_psp', 'tgl_psp',
+            'deleted_at',
+        ];
+    }
+
+    public function labelAudit(): ?string
+    {
+        return $this->nama;
     }
 
     public function kodeBarang(): BelongsTo

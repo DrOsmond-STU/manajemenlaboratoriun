@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Concerns\Diaudit;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -19,7 +20,30 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, HasRoles, Notifiable;
+    use Diaudit, HasApiTokens, HasFactory, HasRoles, Notifiable;
+
+    /**
+     * Kolom pengguna yang berdampak pada akses atau identitas.
+     *
+     * `unit_kerja` ikut diaudit meski terdengar administratif: ia menentukan
+     * cakupan data yang terlihat pengguna (lihat CakupanData), sehingga
+     * mengubahnya adalah perubahan hak akses dengan nama lain.
+     *
+     * `password` sengaja ADA di daftar ini supaya peristiwanya tercatat,
+     * tetapi nilainya disamarkan trait — pemeriksa perlu tahu kapan sandi
+     * berganti, bukan apa isinya.
+     *
+     * @return list<string>
+     */
+    public function kolomDiaudit(): array
+    {
+        return ['name', 'email', 'unit_kerja', 'password', 'email_verified_at'];
+    }
+
+    public function labelAudit(): ?string
+    {
+        return $this->name;
+    }
 
     /**
      * Get the attributes that should be cast.

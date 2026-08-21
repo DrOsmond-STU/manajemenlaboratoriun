@@ -2,9 +2,15 @@
 
 namespace App\Providers;
 
+use App\Listeners\CatatPerubahanHakAkses;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Spatie\Permission\Events\PermissionAttachedEvent;
+use Spatie\Permission\Events\PermissionDetachedEvent;
+use Spatie\Permission\Events\RoleAttachedEvent;
+use Spatie\Permission\Events\RoleDetachedEvent;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -17,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->aturanSandi();
         $this->superAdminSerbaBisa();
+        $this->auditHakAkses();
     }
 
     /**
@@ -49,5 +56,23 @@ class AppServiceProvider extends ServiceProvider
     private function superAdminSerbaBisa(): void
     {
         Gate::before(fn ($pengguna) => $pengguna->hasRole('super-admin') ? true : null);
+    }
+
+    /**
+     * Perubahan peran dan izin dicatat ke jejak audit.
+     *
+     * Didaftarkan di sini, bukan lewat penemuan otomatis, karena paket izin
+     * hanya melepas peristiwanya bila `permission.events_enabled` bernilai
+     * true — dan kaitan antara sakelar konfigurasi itu dengan tuntutan
+     * SECURITY.md §4.3 tidak terbaca dari mana pun kecuali dari sini.
+     */
+    private function auditHakAkses(): void
+    {
+        Event::listen([
+            RoleAttachedEvent::class,
+            RoleDetachedEvent::class,
+            PermissionAttachedEvent::class,
+            PermissionDetachedEvent::class,
+        ], CatatPerubahanHakAkses::class);
     }
 }

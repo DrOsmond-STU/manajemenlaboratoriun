@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AssetController;
+use App\Http\Controllers\Api\AuditController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
@@ -151,6 +152,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:aset.ubah')->name('assets.mutasi');
     Route::get('assets/{asset}/riwayat', [AssetController::class, 'riwayat'])
         ->middleware('can:aset.lihat')->name('assets.riwayat');
+
+    // --- Jejak audit -------------------------------------------------------
+    // Hanya baca. Tidak ada rute tulis karena tidak boleh ada: basis data
+    // menolak UPDATE dan DELETE pada tabelnya lewat pemicu.
+    Route::get('audit', [AuditController::class, 'index'])
+        ->middleware('can:audit.lihat')->name('audit.index');
 
     // --- Master kode barang ----------------------------------------------
     // Hanya baca; diperlukan pemilih kode saat mendaftarkan aset, sehingga

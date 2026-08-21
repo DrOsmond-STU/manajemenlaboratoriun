@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
+use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +43,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Persetujuan --------------------------------------------------------
+    // Izin diperiksa di dalam controller karena bergantung pada jenis antrean
+    // yang diminta: pemesanan ruangan atau peminjaman alat.
+    Route::get('persetujuan/antrean', [PersetujuanController::class, 'antrean'])
+        ->name('persetujuan.antrean');
+
+    Route::post('persetujuan/booking/{booking}/setujui', [PersetujuanController::class, 'setujuiBooking']);
+    Route::post('persetujuan/booking/{booking}/tolak', [PersetujuanController::class, 'tolakBooking']);
+    Route::post('persetujuan/peminjaman/{peminjaman}/setujui', [PersetujuanController::class, 'setujuiPeminjaman']);
+    Route::post('persetujuan/peminjaman/{peminjaman}/tolak', [PersetujuanController::class, 'tolakPeminjaman']);
 
     // --- Checklist ---------------------------------------------------------
     // Templat dibuat dan dikelola pengguna; penugasan melekatkannya pada

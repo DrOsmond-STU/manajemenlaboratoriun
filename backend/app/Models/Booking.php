@@ -19,6 +19,7 @@ class Booking extends Model
     protected $fillable = [
         'room_id', 'user_id', 'keperluan', 'unit_kerja', 'jumlah_peserta',
         'mulai', 'selesai', 'status', 'catatan',
+        'disetujui_oleh', 'disetujui_pada', 'alasan_penolakan',
     ];
 
     /**
@@ -32,6 +33,7 @@ class Booking extends Model
             'mulai' => 'immutable_datetime',
             'selesai' => 'immutable_datetime',
             'jumlah_peserta' => 'integer',
+            'disetujui_pada' => 'immutable_datetime',
         ];
     }
 
@@ -43,6 +45,11 @@ class Booking extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function penyetuju(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'disetujui_oleh');
     }
 
     /** Hanya pemesanan yang masih memblokir slot. */

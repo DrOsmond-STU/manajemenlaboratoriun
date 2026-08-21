@@ -39,6 +39,7 @@ class EquipmentLoan extends Model
         'asset_id', 'user_id', 'keperluan', 'unit_kerja', 'lokasi_pemakaian',
         'mulai', 'selesai', 'diambil_pada', 'dikembalikan_pada',
         'status', 'kondisi_saat_kembali', 'catatan',
+        'disetujui_oleh', 'disetujui_pada', 'alasan_penolakan',
     ];
 
     protected function casts(): array
@@ -48,6 +49,7 @@ class EquipmentLoan extends Model
             'selesai' => 'immutable_datetime',
             'diambil_pada' => 'immutable_datetime',
             'dikembalikan_pada' => 'immutable_datetime',
+            'disetujui_pada' => 'immutable_datetime',
         ];
     }
 
@@ -59,6 +61,11 @@ class EquipmentLoan extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function penyetuju(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'disetujui_oleh');
     }
 
     /** Peminjaman yang masih menahan alat. */

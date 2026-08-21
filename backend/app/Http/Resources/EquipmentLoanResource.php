@@ -50,6 +50,10 @@ class EquipmentLoanResource extends JsonResource
                 'nama' => $this->user->name,
             ]),
             'catatan' => $this->catatan,
+            'persetujuan' => [
+                'disetujui_pada' => $this->disetujui_pada?->toIso8601String(),
+                'alasan_penolakan' => $this->alasan_penolakan,
+            ],
         ];
     }
 }

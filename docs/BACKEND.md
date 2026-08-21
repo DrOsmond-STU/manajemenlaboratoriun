@@ -9,7 +9,8 @@ dan fondasi yang sudah berjalan.
 > dan otorisasi sudah terpasang (§6.3). Sebelas modul berjalan —
 > autentikasi, peran & izin, cakupan data, master data ruangan, master data
 > laboratorium, pemesanan ruangan, peminjaman alat, pemeliharaan & kalibrasi,
-> checklist, notifikasi jadwal, aset BMN, impor master kode barang — tetapi
+> checklist, persetujuan, notifikasi jadwal, aset BMN, impor master kode
+> barang — tetapi
 > **belum boleh diisi
 > data nyata**: belum ada satu pun akun, dan master kode barang masih
 > cuplikan contoh. Lihat §8.
@@ -280,7 +281,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-258 uji lulus, 733 asersi, 0 gagal — dijalankan di PostgreSQL 16
+274 uji lulus, 774 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -342,6 +343,26 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Persetujuan:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Tidak dapat menyetujui pengajuan sendiri** | SECURITY.md §4.3: berlaku "meskipun peran mengizinkan" |
+| **Larangan itu dijaga batasan basis data** | `disetujui_oleh <> user_id` — berlaku walau lewat `psql` |
+| Pengajuan sendiri tidak muncul di antrean | menampilkannya hanya untuk ditolak saat diklik membuat orang mengira sistemnya rusak |
+| **Penolakan wajib beralasan** | dijaga `CHECK`; tanpa alasan, pemohon mengajukan ulang hal yang sama persis |
+| Sudah diputus tidak dapat diputus lagi | keputusan bukan draf |
+| Pengajuan `menunggu` sudah menahan slot | sebab itulah bentrok tak mungkin muncul saat menyetujui |
+| Penolakan membebaskan slot | antrean tidak tersandera pengajuan yang gugur |
+
+**Kode mati yang dibuang.** Versi pertama menyertakan penerjemah galat bentrok
+pada jalur persetujuan. Ujinya justru membuktikan keadaan itu **tidak dapat
+terjadi**: pengajuan `menunggu` sudah menahan slot, sehingga dua pengajuan
+tumpang tindih tak pernah lahir. Penanganan galat untuk keadaan yang mustahil
+lebih buruk daripada tidak ada — tidak pernah teruji, memberi kesan keliru
+bahwa keadaannya mungkin, dan menyamarkan galat sungguhan yang kebetulan
+mirip. Dibuang, dan perilaku sebenarnya dipatok dua uji.
 
 Notifikasi jadwal:
 

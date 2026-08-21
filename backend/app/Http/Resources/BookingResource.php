@@ -22,6 +22,13 @@ class BookingResource extends JsonResource
             'selesai' => $this->selesai?->toIso8601String(),
             'status' => $this->status,
             'catatan' => $this->catatan,
+            'persetujuan' => [
+                'disetujui_pada' => $this->disetujui_pada?->toIso8601String(),
+                'alasan_penolakan' => $this->alasan_penolakan,
+                'oleh' => $this->whenLoaded('penyetuju', fn () => $this->penyetuju ? [
+                    'id' => $this->penyetuju->id, 'nama' => $this->penyetuju->name,
+                ] : null),
+            ],
             'ruangan' => $this->whenLoaded('room', fn () => [
                 'id' => $this->room->id,
                 'kode' => $this->room->kode,

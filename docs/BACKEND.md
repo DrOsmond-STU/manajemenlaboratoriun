@@ -7,8 +7,9 @@ dan fondasi yang sudah berjalan.
 > **Status.** Sudah **berjalan di server** pada
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
 > dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
-> — autentikasi, master data ruangan, pemesanan ruangan, aset BMN, impor
-> master — sehingga **belum boleh diisi data nyata**. Lihat §8.
+> — autentikasi, master data ruangan, master data laboratorium, pemesanan
+> ruangan, aset BMN, impor master — sehingga **belum boleh diisi data
+> nyata**. Lihat §8.
 
 ---
 
@@ -241,8 +242,8 @@ supaya jaminan intinya terbukti lebih dulu.
 ```
 backend/
 ├── app/
-│   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang,AssetMutation}.php
-│   ├── Policies/RoomPolicy.php               izin gabungan: master-data ATAU booking
+│   ├── Models/{Room,Laboratory,Booking,User,Asset,BmnKodeBarang,AssetMutation}.php
+│   ├── Policies/{Room,Laboratory}Policy.php  izin per sumber daya
 │   ├── Support/MatriksAkses.php              matriks peran × modul, sumber kebenaran
 │   ├── Support/CakupanData.php               sumbu kedua: objek mana yang terlihat
 │   ├── Models/Concerns/DapatDibatasiCakupan.php  scope ->dalamCakupan()
@@ -276,7 +277,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-167 uji lulus, 466 asersi, 0 gagal — dijalankan di PostgreSQL 16
+186 uji lulus, 514 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -338,6 +339,16 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Master data laboratorium:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Laboratorium bertahan saat ruangannya dihapus** | identitasnya berdiri sendiri; ia kehilangan tempat, bukan ikut terhapus |
+| **Dapat pindah ruangan tanpa berganti identitas** | inilah alasan ia tidak digabung dengan tabel ruangan |
+| Laboratorium beraset tidak dapat dihapus | `nullOnDelete` hanya bekerja pada hapus permanen |
+| Lab yang belum punya ruangan tetap terlihat | unit baru tidak boleh hilang dari daftar |
+| Asset manager lihat ≠ ubah | matriks memberinya LIHAT pada modul laboratorium |
 
 Cakupan data (sumbu kedua otorisasi):
 

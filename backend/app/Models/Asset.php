@@ -34,7 +34,7 @@ class Asset extends Model
         'cara_perolehan', 'tgl_perolehan', 'sumber_dana', 'no_bukti', 'no_kontrak',
         'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat',
         'kondisi', 'status_penggunaan', 'no_psp', 'tgl_psp', 'kib',
-        'room_id', 'penanggung_jawab_id', 'keterangan',
+        'room_id', 'laboratory_id', 'penanggung_jawab_id', 'keterangan',
     ];
 
     /** `bmn_id` dihitung basis data (GENERATED), jadi tidak boleh ditulis aplikasi. */
@@ -60,6 +60,11 @@ class Asset extends Model
     public function room(): BelongsTo
     {
         return $this->belongsTo(Room::class);
+    }
+
+    public function laboratory(): BelongsTo
+    {
+        return $this->belongsTo(Laboratory::class);
     }
 
     public function penanggungJawab(): BelongsTo

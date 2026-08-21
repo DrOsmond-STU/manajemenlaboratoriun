@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +39,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Master data: laboratorium ---------------------------------------
+    // Izinnya diatur LaboratoryPolicy, mengikuti kolom `laboratorium` pada
+    // matriks akses.
+    Route::apiResource('laboratories', LaboratoryController::class);
 
     // --- Aset & BMN ------------------------------------------------------
     Route::get('assets', [AssetController::class, 'index'])

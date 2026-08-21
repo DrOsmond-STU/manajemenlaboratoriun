@@ -3,6 +3,7 @@
 namespace App\Models\Concerns;
 
 use App\Models\AuditLog;
+use App\Support\AsalPeristiwa;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
@@ -132,7 +133,7 @@ trait Diaudit
             'sebelum' => $sebelum ?: null,
             'sesudah' => $sesudah ?: null,
             'ip' => Request::ip(),
-            'rute' => Request::path() ? mb_substr(Request::path(), 0, 200) : null,
+            'rute' => AsalPeristiwa::jejak(),
         ]);
     }
 }

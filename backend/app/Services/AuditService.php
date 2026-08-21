@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Support\AsalPeristiwa;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
@@ -41,7 +42,43 @@ class AuditService
             'sebelum' => $sebelum ?: null,
             'sesudah' => $sesudah ?: null,
             'ip' => Request::ip(),
-            'rute' => Request::path() ? mb_substr(Request::path(), 0, 200) : null,
+            'rute' => AsalPeristiwa::jejak(),
+        ]);
+    }
+
+    /**
+     * Mencatat peristiwa yang tidak menunjuk satu baris tertentu.
+     *
+     * Penyusunan ulang sekelompok baris sekaligus adalah contohnya. Mencatat
+     * tiap barisnya menghasilkan puluhan entri yang tidak menjawab pertanyaan
+     * yang sebenarnya diajukan pemeriksa — "apa yang berubah pada perspektif
+     * ini, dari apa menjadi apa" — dan, karena penghapusan massal tidak
+     * melepas peristiwa model, entri itu pun berat sebelah: yang ditambahkan
+     * tercatat, yang hilang tidak.
+     *
+     * @param  array<string,mixed>  $sebelum
+     * @param  array<string,mixed>  $sesudah
+     */
+    public static function catatPeristiwa(
+        string $peristiwa,
+        string $model,
+        string $label,
+        array $sebelum = [],
+        array $sesudah = [],
+    ): AuditLog {
+        $pelaku = Auth::user();
+
+        return AuditLog::create([
+            'peristiwa' => $peristiwa,
+            'model' => $model,
+            'model_id' => null,
+            'label' => $label,
+            'user_id' => $pelaku?->id,
+            'nama_pelaku' => $pelaku?->name,
+            'sebelum' => $sebelum ?: null,
+            'sesudah' => $sesudah ?: null,
+            'ip' => Request::ip(),
+            'rute' => AsalPeristiwa::jejak(),
         ]);
     }
 }

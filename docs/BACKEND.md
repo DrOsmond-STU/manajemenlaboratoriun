@@ -256,10 +256,12 @@ backend/
 │   ├── Models/Concerns/Diaudit.php          jejak audit otomatis lewat peristiwa model
 │   ├── Listeners/CatatPerubahanHakAkses.php pemberian & pencabutan peran/izin
 │   ├── Support/RegistriWidget.php           daftar putih widget — batas keamanan
+│   ├── Support/AsalPeristiwa.php            asal jejak audit: rute HTTP atau konsol
 │   ├── Services/
 │   │   ├── AuditService.php                 pencatatan di luar penyuntingan kolom
 │   │   ├── SusunanDashboard.php             simpan susunan + dashboard bawaan per peran
 │   │   ├── DataWidget.php                   perhitungan tiap widget, tunduk cakupan
+│   │   ├── Scorecard.php                    kartu skor BSC + penyusunan perspektif
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
 │   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
@@ -278,6 +280,7 @@ backend/
 │                                             asset_mutations, pemicu identitas BMN,
 │                                             audit_logs + pemicu hanya-tambah,
 │                                             dashboards & dashboard_widgets + CHECK kisi,
+│                                             bsc_indikator + pemicu bobot tertunda,
 │                                             peran & izin, indeks kode ruangan parsial
 ├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
 ├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
@@ -287,13 +290,14 @@ backend/
     ├── Feature/{AssetApi,NupRaceCondition}Test.php
     ├── Feature/AuditTrailTest.php
     ├── Feature/DashboardTest.php
+    ├── Feature/BalancedScorecardTest.php
     └── Unit/PenyusutanTest.php
 ```
 
 ### 4.1 Hasil uji
 
 ```
-329 uji lulus, 965 asersi, 0 gagal — dijalankan di PostgreSQL 16
+356 uji lulus, 1.053 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -499,6 +503,48 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Bobot Balanced Scorecard dijaga pemicu batasan TERTUNDA.** Kesalahan yang
+  menghancurkan hampir setiap BSC di lembar sebar: seseorang menambah satu
+  indikator, bobot perspektifnya menjadi 115, skor gabungannya menggelembung,
+  dan tidak ada tanda apa pun — angkanya hanya menjadi salah, lalu keputusan
+  diambil di atasnya sepanjang tahun. `CONSTRAINT TRIGGER … DEFERRABLE
+  INITIALLY DEFERRED` memeriksanya pada COMMIT, bukan per baris, sehingga satu
+  perspektif dapat disusun ulang utuh dalam satu transaksi — indikator dihapus,
+  ditambah, bobot diatur ulang — dan yang dituntut hanya keadaan akhirnya.
+  Batasan per baris biasa mustahil: menghapus satu indikator saja sudah
+  langsung melanggar. **Ini kemampuan PostgreSQL yang tidak dimiliki
+  MariaDB**, dan alasan ketiga pemilihannya setelah `tstzrange` dan kolom
+  `GENERATED`.
+- **Arah indikator BSC wajib dinyatakan.** "Jumlah keluhan" membaik ketika
+  turun. Rumus capaian yang selalu `realisasi/target` menilai penurunan keluhan
+  sebagai kegagalan dan kenaikan keluhan sebagai prestasi, lalu memberi
+  penghargaan kepada orang yang keliru. `polaritas` karena itu tidak punya
+  nilai bawaan — bawaan apa pun benar untuk sebagian indikator dan diam-diam
+  salah untuk sisanya.
+- **Capaian dibatasi 120% saat menghitung skor,** dilaporkan apa adanya saat
+  ditampilkan. Satu indikator tercapai 900% — hampir selalu karena targetnya
+  salah tulis, bukan kinerja sembilan kali lipat — akan menutupi seluruh
+  perspektif yang gagal.
+- **Indikator yang belum diisi realisasinya dikeluarkan dari pembagi, bukan
+  dihitung nol.** Menghitungnya nol membuat kartu skor Januari selalu merah
+  padahal datanya memang belum masuk, dan orang berhenti mempercayai angkanya
+  sebelum tahunnya berjalan.
+- **Penyusunan ulang perspektif menghasilkan SATU entri audit,** bukan satu per
+  indikator. Penulisan ulang membuat baris baru; mencatatnya per baris akan
+  tampak seolah indikator baru ditambahkan padahal hanya bobotnya yang
+  bergeser — sementara yang dihapus tidak tercatat sama sekali, karena
+  penghapusan massal tidak melepas peristiwa model.
+- **Seeder peran hanya menyinkronkan bila memang berbeda.** `syncPermissions`
+  selalu melepas lalu memasang ulang seluruh izin; sejak perubahan hak akses
+  diaudit, itu berarti 24 entri jejak audit pada **setiap** penerapan tanpa satu
+  izin pun berubah. Ketahuan dari basis data produksi — 48 baris audit sudah
+  menumpuk sebelum ada satu pengguna pun. Jejak audit yang penuh derau sama
+  tidak bergunanya dengan yang kosong: pemeriksa berhenti membacanya.
+- **Asal peristiwa dicatat apa adanya, termasuk dari konsol.** Sebagian besar
+  perubahan paling berdampak tidak datang lewat HTTP — seeder peran, impor
+  master, pembuatan pengguna, pekerjaan terjadwal. `Request::path()` menyebut
+  semuanya `/`, yang membuat jejaknya berbunyi seolah seseorang membuka halaman
+  depan lalu mengubah hak akses dari sana.
 - **Widget dashboard adalah daftar putih, dan itu batas keamanan.**
   Permintaannya adalah dashboard yang widgetnya dapat dikelola sendiri
   pengguna. Cara paling langsung memenuhinya — menyimpan sumber data widget
@@ -567,6 +613,7 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
 | 12 peran, matriks izin | peran & izin basis data, `Policy` per modul |
 | Ekspor PDF/Excel | pekerjaan berantre, hasil disimpan ke disk privat |
 | Dashboard dapat disusun sendiri | `dashboards`/`dashboard_widgets` + daftar putih widget |
+| Dashboard Balanced Scorecard | `bsc_indikator` + pemicu bobot tertunda PostgreSQL |
 
 ---
 
@@ -773,7 +820,7 @@ langkah-langkah di atas belum.
 
 ### 8.1 Yang perlu dipastikan ke satuan kerja
 
-Tiga hal sengaja tidak diputuskan sendiri karena bergantung kebijakan
+Empat hal sengaja tidak diputuskan sendiri karena bergantung kebijakan
 satuan kerja Anda:
 
 - **Tingkat akses enam peran.** SECURITY.md §4.1 hanya memuat matriks untuk
@@ -788,3 +835,11 @@ satuan kerja Anda:
 - **Nilai bawaan identitas satker.** `config/bmn.php` masih berisi contoh
   (BA 024, satker 652431). Wajib diganti lewat `.env` sebelum data nyata
   masuk — bila dibiarkan, seluruh identitas BMN yang terbentuk akan salah.
+- **Siapa pemilik Balanced Scorecard.** Menurut matriks §4.1, peran
+  **Management** hanya berhak `dashboard` = LIHAT, sehingga tidak dapat
+  menyusun kerangka kartu skor — padahal justru merekalah yang paling wajar
+  memilikinya. Kewenangan menyusun kini dipegang Super Admin dan Facility
+  Manager (`dashboard.kelola`); pengisian realisasi bulanan menuntut
+  `dashboard.ubah`. Matriksnya tidak diubah sepihak; bila Management memang
+  harus dapat menyusun, tingkatnya perlu dinaikkan di `MatriksAkses` —
+  perubahan satu baris.

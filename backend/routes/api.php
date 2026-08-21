@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuditController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\BscController;
 use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
@@ -51,6 +52,29 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:dashboard.lihat');
     Route::delete('dashboard/{dashboard}', [DashboardController::class, 'destroy'])
         ->middleware('can:dashboard.lihat');
+
+    // --- Balanced Scorecard -------------------------------------------------
+    // Membaca menuntut dashboard.lihat; menyusun kerangkanya menuntut
+    // dashboard.kelola, yang pada matriks hanya dipegang Super Admin dan
+    // Facility Manager.
+    //
+    // PERLU DIPASTIKAN: peran Management — yang justru paling wajar memiliki
+    // kartu skor — hanya berhak LIHAT menurut matriks di SECURITY.md §4.1.
+    // Tidak diubah sepihak di sini; lihat docs/BACKEND.md §8.1.
+    Route::get('bsc', [BscController::class, 'kartu'])
+        ->middleware('can:dashboard.lihat')->name('bsc.kartu');
+    Route::get('bsc/kerangka', [BscController::class, 'kerangka'])
+        ->middleware('can:dashboard.lihat')->name('bsc.kerangka');
+
+    Route::put('bsc/perspektif', [BscController::class, 'simpanPerspektif'])
+        ->middleware('can:dashboard.kelola')->name('bsc.simpan-perspektif');
+    Route::delete('bsc/periode', [BscController::class, 'hapusPeriode'])
+        ->middleware('can:dashboard.kelola')->name('bsc.hapus-periode');
+
+    // Mengisi angka bulanan adalah pekerjaan rutin, bukan keputusan
+    // manajemen — izinnya UBAH, bukan KELOLA.
+    Route::patch('bsc/indikator/{indikator}/realisasi', [BscController::class, 'isiRealisasi'])
+        ->middleware('can:dashboard.ubah')->name('bsc.realisasi');
 
     // --- Booking ruangan -------------------------------------------------
     Route::get('bookings', [BookingController::class, 'index'])

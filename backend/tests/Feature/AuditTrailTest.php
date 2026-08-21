@@ -7,9 +7,11 @@ use App\Models\AuditLog;
 use App\Models\BmnKodeBarang;
 use App\Models\Tariff;
 use App\Models\User;
+use Database\Seeders\PeranIzinSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AuditTrailTest extends TestCase
@@ -188,6 +190,53 @@ class AuditTrailTest extends TestCase
 
         $this->assertSame($idPetugas, $entri->user_id, 'Jejak audit tidak boleh diubah oleh peristiwa lain.');
         $this->assertSame($nama, $entri->nama_pelaku, 'Nama yang disalin membuat barisnya tetap punya arti.');
+    }
+
+    public function test_asal_peristiwa_dari_konsol_tidak_dicatat_sebagai_halaman_depan(): void
+    {
+        // Uji berjalan dalam konteks konsol. Sebagian besar perubahan paling
+        // berdampak memang datang dari sana — seeder peran, impor master,
+        // pembuatan pengguna — dan Request::path() menyebut semuanya "/",
+        // seolah seseorang membuka halaman depan lalu mengubah hak akses.
+        Tariff::create([
+            'nama' => 'Sewa Lab', 'satuan_waktu' => 'jam',
+            'harga' => 100_000, 'segmen' => 'umum', 'aktif' => true,
+        ]);
+
+        $entri = AuditLog::where('model', 'Tariff')->sole();
+
+        $this->assertNotSame('/', $entri->rute);
+        $this->assertStringStartsWith('konsol', (string) $entri->rute);
+    }
+
+    public function test_penyegaran_peran_yang_tidak_mengubah_apa_pun_tidak_menambah_jejak(): void
+    {
+        // Peran sudah diseed oleh TestCase. Menjalankan seeder-nya lagi tidak
+        // boleh menghasilkan satu entri pun: syncPermissions selalu melepas
+        // lalu memasang ulang seluruh izin, dan tanpa penjagaan ini setiap
+        // penerapan ke server akan menambah puluhan baris jejak audit tanpa
+        // ada satu izin pun yang berubah. Jejak yang penuh derau sama tidak
+        // bergunanya dengan yang kosong.
+        $this->siapkanPeran();
+        $sebelum = AuditLog::count();
+
+        $this->seed(PeranIzinSeeder::class);
+
+        $this->assertSame($sebelum, AuditLog::count());
+    }
+
+    public function test_perubahan_izin_peran_yang_nyata_tetap_tercatat(): void
+    {
+        $this->siapkanPeran();
+        $peran = Role::findByName('finance', 'web');
+
+        $peran->givePermissionTo('audit.lihat');
+
+        $entri = AuditLog::where('model', 'Role')->latest('id')->first();
+
+        $this->assertNotNull($entri, 'Penjagaan terhadap derau tidak boleh ikut membungkam yang nyata.');
+        $this->assertSame('finance', $entri->label);
+        $this->assertContains('audit.lihat', $entri->sesudah['izin']);
     }
 
     // --- Akses ---------------------------------------------------------------

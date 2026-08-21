@@ -28,7 +28,23 @@ class PeranIzinSeeder extends Seeder
 
         foreach (array_keys(MatriksAkses::NAMA_PERAN) as $peran) {
             $role = Role::findOrCreate($peran, 'web');
-            $role->syncPermissions(MatriksAkses::izinPeran($peran));
+
+            $seharusnya = MatriksAkses::izinPeran($peran);
+            $sekarang = $role->permissions->pluck('name')->all();
+
+            sort($seharusnya);
+            sort($sekarang);
+
+            // Disinkronkan HANYA bila memang berbeda.
+            //
+            // syncPermissions selalu melepas lalu memasang ulang seluruh izin,
+            // dan sejak perubahan hak akses diaudit, itu berarti puluhan entri
+            // jejak audit pada SETIAP penerapan — padahal tidak ada satu izin
+            // pun yang berubah. Jejak audit yang penuh derau sama tidak
+            // bergunanya dengan yang kosong: pemeriksa berhenti membacanya.
+            if ($seharusnya !== $sekarang) {
+                $role->syncPermissions($seharusnya);
+            }
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();

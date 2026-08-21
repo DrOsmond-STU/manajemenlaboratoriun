@@ -16,9 +16,21 @@ let fail = 0;
 const ok = (c, m, x) => { if (!c) fail++; console.log((c ? '✅ ' : '❌ ') + m + (x ? ' — ' + x : '')); };
 
 /** Server API tiruan, supaya jalur "tersambung" benar-benar diuji. */
-function apiTiruan(keadaan) {
+function apiTiruan() {
   const http = require('http');
-  let sesi = keadaan === 'masuk';
+
+  // Sesi dilacak lewat cookie, bukan variabel global. Versi pertama uji ini
+  // memakai variabel global, dan login pada satu bagian uji bocor ke bagian
+  // berikutnya — sehingga uji "layar masuk tampil" lulus atau gagal
+  // tergantung urutan jalannya, bukan tergantung kodenya.
+  const sesiAktif = new Set();
+  let urut = 0;
+
+  const punyaSesi = (req) => {
+    const kuki = req.headers.cookie || '';
+    const cocok = kuki.match(/flms_sesi=([^;]+)/);
+    return !!cocok && sesiAktif.has(cocok[1]);
+  };
 
   const server = http.createServer((req, res) => {
     const asal = req.headers.origin || '*';
@@ -47,21 +59,31 @@ function apiTiruan(keadaan) {
       res.writeHead(204); return res.end();
     }
     if (req.url.startsWith('/api/saya')) {
-      return sesi ? kirim(200, pengguna) : kirim(401, { message: 'Unauthenticated.' });
+      return punyaSesi(req) ? kirim(200, pengguna) : kirim(401, { message: 'Unauthenticated.' });
     }
     if (req.url.startsWith('/api/masuk')) {
       let body = '';
       req.on('data', (d) => (body += d));
       return req.on('end', () => {
         const isi = JSON.parse(body || '{}');
-        if (isi.password === 'sandi-benar') { sesi = true; return kirim(200, pengguna); }
+        if (isi.password === 'sandi-benar') {
+          const id = 'sesi' + (++urut);
+          sesiAktif.add(id);
+          res.setHeader('Set-Cookie', 'flms_sesi=' + id + '; Path=/; SameSite=Lax');
+          return kirim(200, pengguna);
+        }
         return kirim(422, {
           message: 'Surel atau kata sandi tidak cocok.',
           errors: { email: ['Surel atau kata sandi tidak cocok.'] }
         });
       });
     }
-    if (req.url.startsWith('/api/keluar')) { sesi = false; return kirim(200, { pesan: 'ok' }); }
+    if (req.url.startsWith('/api/keluar')) {
+      const cocok = (req.headers.cookie || '').match(/flms_sesi=([^;]+)/);
+      if (cocok) sesiAktif.delete(cocok[1]);
+      res.setHeader('Set-Cookie', 'flms_sesi=; Path=/; Max-Age=0');
+      return kirim(200, { pesan: 'ok' });
+    }
 
     kirim(404, { message: 'Tidak ditemukan' });
   });
@@ -106,9 +128,25 @@ function apiTiruan(keadaan) {
     await page.close();
   }
 
+  /* ============ 1b. JALUR DARI HALAMAN DEPAN TETAP BERSPANDUK ============ */
+  console.log('\n--- 1b. Pemilih peran di halaman depan ditandai data contoh ---');
+  {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    await page.goto(`${BASE}/index.html`, { waitUntil: 'load' });
+    await page.click('button[type=submit]');
+    await page.waitForTimeout(900);
+
+    // Pemilih peran di halaman depan hanya menyetel localStorage — ia bukan
+    // autentikasi. Tanpa penandaan tegas, purwarupa yang meyakinkan ini tidak
+    // dapat dibedakan dari sistem yang sudah berisi data sungguhan.
+    ok(!!(await page.$('.mode-banner')), 'Masuk lewat pemilih peran tetap memunculkan spanduk');
+    ok(!!(await page.$('.sidebar')), 'Aplikasi tetap dapat ditelusuri');
+    await page.close();
+  }
+
   /* ============ 2. API HIDUP, BELUM MASUK ============ */
   console.log('\n--- 2. API hidup, belum masuk ---');
-  const { server, port } = await apiTiruan('tamu');
+  const { server, port } = await apiTiruan();
   {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     const errs = [];
@@ -170,10 +208,75 @@ function apiTiruan(keadaan) {
 
     ok(errs.length === 0, 'Tanpa galat halaman', errs.join(' | '));
 
+    /* --- jalan keluar ke purwarupa dan kembali --- */
+    await page.close();
+  }
+
+  /* ============ 3. BERPINDAH ANTARA PURWARUPA DAN AKUN ============ */
+  console.log('\n--- 3. Berpindah antara purwarupa dan akun sungguhan ---');
+  {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    await page.goto(`${BASE}/app.html`, { waitUntil: 'load' });
+    await page.evaluate((p) => {
+      localStorage.setItem('flms.api', 'http://127.0.0.1:' + p);
+      localStorage.removeItem('flms.mode');
+    }, port);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+
+    ok(!!(await page.$('#masukContoh')),
+      'Layar masuk menawarkan penelusuran purwarupa — tanpa itu peninjau terkunci di luar');
+
+    await page.click('#masukContoh');
+    await page.waitForTimeout(900);
+
+    ok(!!(await page.$('.mode-banner')), 'Memilih purwarupa memunculkan spanduk');
+    ok(!!(await page.$('.sidebar')), 'Purwarupa terbuka');
+
+    // Spanduknya tidak punya tombol tutup; satu-satunya jalan keluar adalah
+    // benar-benar masuk dengan akun.
+    const tautan = await page.$('#tinggalkanContoh');
+    ok(!!tautan, 'Spanduk menawarkan jalan kembali ke layar masuk');
+
+    await tautan.click();
+    await page.waitForTimeout(900);
+
+    ok(!!(await page.$('#formMasuk')), 'Kembali ke layar masuk');
+    ok(!(await page.$('.mode-banner')), 'Spanduk hilang hanya karena datanya berganti, bukan ditutup');
+
+    await page.close();
+  }
+
+  /* ============ 4. SESI BERTAHAN ============ */
+  console.log('\n--- 4. Sesi bertahan ---');
+  {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    await page.goto(`${BASE}/app.html`, { waitUntil: 'load' });
+    await page.evaluate((p) => {
+      localStorage.setItem('flms.api', 'http://127.0.0.1:' + p);
+      localStorage.removeItem('flms.mode');
+    }, port);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(700);
+
+    await page.fill('#masukEmail', 'siti@instansi.go.id');
+    await page.fill('#masukSandi', 'sandi-benar');
+    await page.click('#masukTombol');
+    await page.waitForTimeout(900);
+    ok(!!(await page.$('.sidebar')), 'Masuk berhasil');
+
     /* --- sesi bertahan saat dimuat ulang --- */
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(800);
     ok(!(await page.$('#formMasuk')), 'Sesi bertahan setelah halaman dimuat ulang');
+
+    /* --- keluar benar-benar memutus --- */
+    await page.evaluate(() => keluarAplikasi());
+    await page.waitForTimeout(1000);
+
+    ok(!!(await page.$('#formMasuk')), 'Keluar mengembalikan ke layar masuk');
+    ok(!(await page.$('.sidebar')),
+      'Kerangka aplikasi tidak tertinggal di DOM setelah keluar');
 
     await page.close();
   }

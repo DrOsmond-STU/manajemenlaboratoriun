@@ -130,6 +130,17 @@
     var sel = document.querySelector("#rolePick .role-opt.on");
     localStorage.setItem("flms.role", sel ? sel.dataset.role : "Facility Manager");
     localStorage.setItem("flms.user", sel ? sel.dataset.name : "Rahmat Hidayat");
+
+    // Pemilih peran di halaman ini adalah peragaan, bukan autentikasi: ia
+    // hanya menyetel nama dan peran di localStorage. Menandainya tegas
+    // sebagai mode data contoh membuat aplikasi menampilkan spanduk yang
+    // menyatakan datanya karangan — tanpa itu, purwarupa yang meyakinkan ini
+    // tidak dapat dibedakan dari sistem yang sudah berisi data sungguhan.
+    //
+    // Masuk dengan akun sungguhan dilakukan dari app.html, yang menawarkannya
+    // begitu API terjangkau.
+    localStorage.setItem("flms.mode", "contoh");
+
     location.href = "app.html#/dashboard";
     return false;
   }

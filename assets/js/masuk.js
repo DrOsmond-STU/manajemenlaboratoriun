@@ -27,17 +27,32 @@
    * ditutup pada menit pertama, lalu tidak pernah terlihat lagi selama sisa
    * sesi — persis ketika ia paling dibutuhkan.
    */
-  function spandukContoh(alasan) {
+  function spandukContoh(alasan, dipilih) {
     const bar = document.createElement("div");
     bar.className = "mode-banner";
     bar.setAttribute("role", "status");
+
+    const sebab = dipilih
+      ? "Anda sedang menelusuri purwarupa."
+      : "Server tidak terjangkau.";
+
     bar.innerHTML =
-      '<b>MODE DATA CONTOH</b>' +
-      '<span>Server tidak terjangkau, jadi yang ditampilkan adalah data purwarupa — ' +
-      'bukan data laboratorium Anda. Jangan dipakai untuk mengambil keputusan.</span>' +
-      (alasan ? '<code>' + U.esc(alasan) + '</code>' : "");
+      "<b>MODE DATA CONTOH</b>" +
+      "<span>" + sebab + " Yang ditampilkan adalah data purwarupa — " +
+      "bukan data laboratorium Anda. Jangan dipakai untuk mengambil keputusan.</span>" +
+      (alasan ? "<code>" + U.esc(alasan) + "</code>" : "") +
+      '<a href="#" class="mode-banner-keluar" id="tinggalkanContoh">Masuk dengan akun →</a>';
+
     document.body.prepend(bar);
     document.body.classList.add("ada-spanduk");
+
+    // Tautan ini MENINGGALKAN mode data contoh, bukan menutup spanduknya.
+    // Perbedaannya penting: peringatannya hanya hilang ketika datanya
+    // benar-benar berganti menjadi data sungguhan.
+    document.getElementById("tinggalkanContoh").addEventListener("click", function (e) {
+      e.preventDefault();
+      window.API.tinggalkanModeContoh();
+    });
   }
 
   /* ------------------------------------------------------- layar masuk */
@@ -60,6 +75,10 @@
       '    <button class="btn btn-primary btn-block" type="submit" id="masukTombol">Masuk</button>' +
       '    <p class="masuk-kaki">Belum punya akun? Akun dibuat oleh administrator sistem, ' +
       '       bukan lewat pendaftaran mandiri.</p>' +
+      '    <div class="masuk-pisah"><span>atau</span></div>' +
+      '    <button class="btn btn-block" type="button" id="masukContoh">' +
+      '      Telusuri purwarupa dengan data contoh</button>' +
+      '    <p class="masuk-kaki">Seluruh angkanya karangan dan tidak tersimpan ke mana pun.</p>' +
       '  </form>' +
       "</div>"
     );
@@ -77,6 +96,10 @@
 
     const form = document.getElementById("formMasuk");
     const tombol = document.getElementById("masukTombol");
+
+    document.getElementById("masukContoh").addEventListener("click", function () {
+      window.API.pilihModeContoh();
+    });
 
     form.addEventListener("submit", async function (e) {
       e.preventDefault();

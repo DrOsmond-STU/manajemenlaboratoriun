@@ -403,7 +403,7 @@
 
     // 'tidak-terjangkau' — purwarupa tetap dapat ditelusuri, tetapi dengan
     // spanduk yang menyatakan datanya karangan.
-    Masuk.spandukContoh(API.alasanTidakTerjangkau);
+    Masuk.spandukContoh(API.alasanTidakTerjangkau, API.contohDipilih);
     init();
   }
 

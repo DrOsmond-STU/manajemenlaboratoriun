@@ -249,6 +249,17 @@
      * sama sekali berbeda dari antarmuka.
      */
     async periksaSesi() {
+      // Penelusuran purwarupa yang DIPILIH SENDIRI pengguna. Dibedakan dari
+      // "tidak terjangkau" karena sebabnya berbeda, dan pesan spanduknya pun
+      // harus berbeda — tetapi keduanya sama-sama menampilkan spanduk, karena
+      // yang berbahaya bukan sebabnya melainkan datanya.
+      if (localStorage.getItem("flms.mode") === "contoh") {
+        API.mode = "contoh";
+        API.contohDipilih = true;
+        API.alasanTidakTerjangkau = null;
+        return "tidak-terjangkau";
+      }
+
       if (!BASIS) {
         API.mode = "contoh";
         API.alasanTidakTerjangkau =
@@ -290,6 +301,26 @@
     berperan(peran) {
       if (!API.pengguna) return false;
       return (API.pengguna.peran || []).indexOf(peran) !== -1;
+    },
+
+    /* ------------------------------------------------------------- mode */
+
+    /** Masuk ke penelusuran purwarupa dengan data contoh. */
+    pilihModeContoh() {
+      localStorage.setItem("flms.mode", "contoh");
+      location.reload();
+    },
+
+    /**
+     * Keluar dari mode data contoh.
+     *
+     * Ini SATU-SATUNYA jalan keluar dari spanduk, dan bukan kebetulan:
+     * spanduknya tidak dapat ditutup, hanya dapat ditinggalkan dengan
+     * benar-benar masuk memakai akun.
+     */
+    tinggalkanModeContoh() {
+      localStorage.removeItem("flms.mode");
+      location.reload();
     }
   };
 

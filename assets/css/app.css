@@ -990,3 +990,20 @@ body.ada-spanduk #app { min-height: calc(100vh - 40px); }
   margin: 2px 0 0; font-size: 11.5px; line-height: 1.5;
   color: var(--text-faint); text-align: center;
 }
+
+/* Tautan keluar dari mode data contoh.
+   Bukan tombol tutup: peringatannya hanya hilang ketika datanya benar-benar
+   berganti menjadi data sungguhan. */
+.mode-banner-keluar {
+  margin-left: auto; color: #fff; font-weight: 600;
+  text-decoration: underline; text-underline-offset: 2px; white-space: nowrap;
+}
+.mode-banner-keluar:hover { opacity: .85; }
+
+.masuk-pisah {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text-faint); font-size: 11.5px; margin: 2px 0;
+}
+.masuk-pisah::before, .masuk-pisah::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}

@@ -9,7 +9,8 @@ dan fondasi yang sudah berjalan.
 > dan otorisasi sudah terpasang (§6.3). Sebelas modul berjalan —
 > autentikasi, peran & izin, cakupan data, master data ruangan, master data
 > laboratorium, pemesanan ruangan, peminjaman alat, pemeliharaan & kalibrasi,
-> checklist, aset BMN, impor master kode barang — tetapi **belum boleh diisi
+> checklist, notifikasi jadwal, aset BMN, impor master kode barang — tetapi
+> **belum boleh diisi
 > data nyata**: belum ada satu pun akun, dan master kode barang masih
 > cuplikan contoh. Lihat §8.
 
@@ -279,7 +280,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-244 uji lulus, 698 asersi, 0 gagal — dijalankan di PostgreSQL 16
+258 uji lulus, 733 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -341,6 +342,26 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Notifikasi jadwal:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Menjalankan dua kali tidak mengirim dua surel** | orang yang menerima belasan surel identik berhenti membaca semuanya |
+| **Keunikan dijaga indeks basis data** | dua proses penjadwal bersamaan tetap tidak dapat menembusnya |
+| Jadwal yang diundur menghasilkan pengingat baru | tanggal acuan ikut menjadi kunci keunikan |
+| Lima sumber jadwal tercakup | booking, peminjaman, pemeliharaan, kalibrasi, checklist |
+| Peminjaman terlambat diberi penanda `[TERLAMBAT]` | yang mendesak harus terlihat berbeda di kotak masuk |
+| Pemeliharaan jatuh ke PJ alat bila petugas kosong | pekerjaan tanpa penanggung jawab tidak mengirim apa pun |
+| Tanpa preferensi memakai bawaan aktif | mewajibkan setel dulu berarti tak seorang pun menerima pengingat |
+| Kegagalan tercatat, tidak dicoba ulang membabi buta | catatan gagal sengaja tidak dihapus |
+
+**Cacat yang ditangkap uji.** Pencatatan semula menangkap galat keunikan.
+Pada PostgreSQL, pernyataan yang gagal **meracuni seluruh transaksi** —
+setiap perintah sesudahnya ditolak sampai rollback. Cara itu hanya bekerja
+bila kebetulan tidak ada transaksi yang membungkus, dan ketergantungan
+sehalus itu akan patah pada pemanggil pertama yang membungkusnya. Diganti
+`insertOrIgnore`, yang tidak melempar sama sekali.
 
 Checklist:
 

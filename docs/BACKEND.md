@@ -6,10 +6,12 @@ dan fondasi yang sudah berjalan.
 
 > **Status.** Sudah **berjalan di server** pada
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
-> dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
-> — autentikasi, master data ruangan, master data laboratorium, pemesanan
-> ruangan, peminjaman alat, pemeliharaan & kalibrasi, checklist, aset BMN,
-> impor master — sehingga **belum boleh diisi data nyata**. Lihat §8.
+> dan otorisasi sudah terpasang (§6.3). Sebelas modul berjalan —
+> autentikasi, peran & izin, cakupan data, master data ruangan, master data
+> laboratorium, pemesanan ruangan, peminjaman alat, pemeliharaan & kalibrasi,
+> checklist, aset BMN, impor master kode barang — tetapi **belum boleh diisi
+> data nyata**: belum ada satu pun akun, dan master kode barang masih
+> cuplikan contoh. Lihat §8.
 
 ---
 

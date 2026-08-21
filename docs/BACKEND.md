@@ -4,16 +4,18 @@
 Dokumen keputusan: tumpukan teknologi backend, alasannya, bukti yang mendasarinya,
 dan fondasi yang sudah berjalan.
 
-> **Status.** Sudah **berjalan di server** pada
-> `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
-> dan otorisasi sudah terpasang (§6.3). Sebelas modul berjalan —
-> autentikasi, peran & izin, cakupan data, master data ruangan, master data
-> laboratorium, pemesanan ruangan, peminjaman alat, pemeliharaan & kalibrasi,
-> checklist, persetujuan, penyewaan & penagihan, notifikasi jadwal, aset BMN,
-> impor master kode barang — tetapi
-> **belum boleh diisi
-> data nyata**: belum ada satu pun akun, dan master kode barang masih
-> cuplikan contoh. Lihat §8.
+> **Status.** Berjalan di server pada
+> `https://api.lab.semestateknologiutama.com` — lihat §6.
+>
+> **Modul yang berjalan (14):** autentikasi · peran & izin · cakupan data ·
+> master data ruangan · master data laboratorium · pemesanan ruangan ·
+> peminjaman alat · pemeliharaan & kalibrasi · checklist · persetujuan ·
+> penyewaan & penagihan · notifikasi jadwal · aset BMN · impor master kode
+> barang.
+>
+> **Belum boleh diisi data nyata**, dan alasannya bukan kekurangan modul:
+> belum ada satu pun akun, master kode barang masih cuplikan contoh, dan
+> SMTP belum disetel sehingga surel hanya masuk log. Lihat §8.
 
 ---
 

@@ -503,6 +503,21 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **CORS lintas subdomain dengan kredensial, dan asalnya tegas.** Antarmuka
+  di `lab.` dan API di `api.lab.` adalah **asal yang berbeda** bagi peramban.
+  Tanpa `config/cors.php` berlaku bawaan Laravel `supports_credentials =>
+  false`, dan cookie sesi tidak pernah menyeberang — gejalanya bukan galat
+  CORS yang jelas, melainkan **401 pada setiap permintaan setelah login,
+  seolah sandinya salah**. Asalnya disebut satu per satu, bukan `*`:
+  spesifikasi CORS melarang `*` bersama kredensial, dan gejalanya justru
+  membingungkan karena permintaan tanpa kredensial tetap berhasil.
+- **Perubahan `.env` ikut memicu pembangunan ulang cache.** Skrip pasca-deploy
+  semula hanya membangun ulang cache ketika ada migrasi tertunda, sehingga
+  menyunting `.env` tanpa menambah migrasi tidak berpengaruh apa pun — dan itu
+  sama sekali tidak terlihat: aplikasinya berjalan normal, hanya dengan nilai
+  lama. Sidik jari `.env` kini disimpan dan dibandingkan, dan disimpan **hanya
+  setelah** penerapannya selesai, supaya skrip yang mati di tengah jalan
+  mengulang, bukan menganggapnya beres.
 - **Bobot Balanced Scorecard dijaga pemicu batasan TERTUNDA.** Kesalahan yang
   menghancurkan hampir setiap BSC di lembar sebar: seseorang menambah satu
   indikator, bobot perspektifnya menjadi 115, skor gabungannya menggelembung,

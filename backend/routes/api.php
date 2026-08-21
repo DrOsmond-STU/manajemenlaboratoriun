@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
@@ -41,6 +42,35 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Checklist ---------------------------------------------------------
+    // Templat dibuat dan dikelola pengguna; penugasan melekatkannya pada
+    // sumber daya sekaligus pada penanggung jawabnya.
+    Route::get('checklist/templat', [ChecklistController::class, 'daftarTemplat'])
+        ->middleware('can:checklist.lihat');
+    Route::post('checklist/templat', [ChecklistController::class, 'buatTemplat'])
+        ->middleware('can:checklist.buat');
+    Route::get('checklist/templat/{templat}', [ChecklistController::class, 'lihatTemplat'])
+        ->middleware('can:checklist.lihat');
+
+    Route::post('checklist/penugasan', [ChecklistController::class, 'tugaskan'])
+        ->middleware('can:checklist.ubah');
+
+    // Tugas sendiri hanya menuntut izin LIHAT — pelaksana lapangan tidak
+    // perlu izin mengelola untuk mengetahui apa yang harus dikerjakannya.
+    Route::get('checklist/tugas-saya', [ChecklistController::class, 'tugasSaya'])
+        ->middleware('can:checklist.lihat')->name('checklist.tugas-saya');
+
+    Route::get('checklist/pelaksanaan', [ChecklistController::class, 'daftarPelaksanaan'])
+        ->middleware('can:checklist.lihat');
+    Route::post('checklist/pelaksanaan', [ChecklistController::class, 'mulai'])
+        ->middleware('can:checklist.buat');
+    Route::get('checklist/pelaksanaan/{pelaksanaan}', [ChecklistController::class, 'lihatPelaksanaan'])
+        ->middleware('can:checklist.lihat');
+    Route::post('checklist/pelaksanaan/{pelaksanaan}/jawab', [ChecklistController::class, 'jawab'])
+        ->middleware('can:checklist.buat');
+    Route::post('checklist/pelaksanaan/{pelaksanaan}/selesaikan', [ChecklistController::class, 'selesaikan'])
+        ->middleware('can:checklist.buat');
 
     // --- Pemeliharaan & kalibrasi -----------------------------------------
     // Izinnya diperiksa di dalam controller, bukan lewat middleware `can:`,

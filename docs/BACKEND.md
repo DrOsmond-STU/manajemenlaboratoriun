@@ -8,8 +8,8 @@ dan fondasi yang sudah berjalan.
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
 > dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
 > — autentikasi, master data ruangan, master data laboratorium, pemesanan
-> ruangan, peminjaman alat, pemeliharaan & kalibrasi, aset BMN, impor master
-> — sehingga **belum boleh diisi data nyata**. Lihat §8.
+> ruangan, peminjaman alat, pemeliharaan & kalibrasi, checklist, aset BMN,
+> impor master — sehingga **belum boleh diisi data nyata**. Lihat §8.
 
 ---
 
@@ -277,7 +277,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-225 uji lulus, 618 asersi, 0 gagal — dijalankan di PostgreSQL 16
+244 uji lulus, 698 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -339,6 +339,21 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Checklist:
+
+| Uji | Yang dijaga |
+|---|---|
+| Enam jenis tersedia | pengecekan, perawatan, penyewaan, kebersihan, kerapian, kelayakan |
+| Templat dibuat pengguna, bukan tertanam kode | butir disertakan sekaligus agar tak ada templat setengah jadi |
+| Melekat pada ruangan, laboratorium, ATAU aset | tiga kunci asing + `num_nonnulls(...) = 1` |
+| **Batasan tepat satu dijaga basis data** | berlaku walau lapisan aplikasi ditembus |
+| Melekat pada user — "tugas saya" | daftar yang menjawab "apa yang harus saya kerjakan" |
+| **Butir wajib kosong menahan penyelesaian** | checklist setengah terisi yang tercatat "sudah diperiksa" lebih menyesatkan daripada tidak diperiksa |
+| **Templat tanpa butir tidak dapat dilaksanakan** | checklist kosong selalu selesai dengan skor sempurna tanpa memeriksa apa pun |
+| Skor hanya dari butir ya/tidak | butir angka dan teks mencatat, bukan menilai |
+| Pelaksanaan selesai tidak dapat diubah | riwayat pemeriksaan bukan draf |
+| Employee melaksanakan ≠ menugaskan | matriks memberinya BUAT, bukan UBAH |
 
 Pemeliharaan & kalibrasi:
 

@@ -8,8 +8,8 @@ dan fondasi yang sudah berjalan.
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
 > dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
 > — autentikasi, master data ruangan, master data laboratorium, pemesanan
-> ruangan, aset BMN, impor master — sehingga **belum boleh diisi data
-> nyata**. Lihat §8.
+> ruangan, peminjaman alat, aset BMN, impor master — sehingga **belum boleh
+> diisi data nyata**. Lihat §8.
 
 ---
 
@@ -277,7 +277,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-186 uji lulus, 514 asersi, 0 gagal — dijalankan di PostgreSQL 16
+206 uji lulus, 570 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -339,6 +339,20 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Peminjaman alat:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tumpang tindih ditolak, berurutan diizinkan | pemicu yang sepadan dengan pemesanan ruangan, berkunci aset |
+| Bentrok ditolak pemicu basis data | berlaku walau lapisan aplikasi ditembus |
+| **Peminjaman dikembalikan membebaskan slot** | alat yang kembali lebih awal tidak menganggur sampai jadwal aslinya habis |
+| **Alat rusak berat tidak dapat dipinjam** | dijaga aplikasi; basis data tidak dapat menilai keadaan saat pengambilan |
+| **Kondisi diperiksa ULANG saat serah terima** | alat dapat rusak antara pengajuan dan pengambilan |
+| Kondisi saat kembali memperbarui master + riwayat | tanpa itu, alat rusak tetap tercatat "Baik" |
+| Pengembalian tanpa kondisi tidak mengubah master | kondisi yang dikarang lebih berbahaya daripada yang belum diisi |
+| Peminjam tidak boleh menyerahkan ke dirinya sendiri | serah terima menuntut izin UBAH, bukan BUAT |
+| Keterlambatan dapat ditapis | pertanyaan pertama pengelola alat tiap pagi |
 
 Master data laboratorium:
 

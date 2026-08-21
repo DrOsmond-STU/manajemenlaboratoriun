@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
@@ -39,6 +40,22 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Peminjaman alat --------------------------------------------------
+    Route::get('peminjaman', [EquipmentLoanController::class, 'index'])
+        ->middleware('can:booking-alat.lihat');
+    Route::post('peminjaman', [EquipmentLoanController::class, 'store'])
+        ->middleware('can:booking-alat.buat');
+    Route::get('peminjaman/{peminjaman}', [EquipmentLoanController::class, 'show'])
+        ->middleware('can:booking-alat.lihat');
+
+    // Serah terima dan pengembalian adalah tindakan pengelolaan, bukan
+    // pengajuan — karena itu menuntut izin UBAH, bukan BUAT. Peminjam boleh
+    // mengajukan, tetapi bukan menyerahkan alat kepada dirinya sendiri.
+    Route::post('peminjaman/{peminjaman}/serahkan', [EquipmentLoanController::class, 'serahkan'])
+        ->middleware('can:booking-alat.ubah')->name('peminjaman.serahkan');
+    Route::post('peminjaman/{peminjaman}/kembalikan', [EquipmentLoanController::class, 'kembalikan'])
+        ->middleware('can:booking-alat.ubah')->name('peminjaman.kembalikan');
 
     // --- Master data: laboratorium ---------------------------------------
     // Izinnya diatur LaboratoryPolicy, mengikuti kolom `laboratorium` pada

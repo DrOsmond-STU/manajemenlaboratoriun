@@ -461,18 +461,20 @@ Sebagai lapis kedua, `.htaccess` docroot purwarupa menutup `^/backend/`.
 - **Tidak ada akses shell.** Hosting ini hanya menyediakan cron sebagai jalur
   eksekusi. Pemasangan awal karena itu dijalankan lewat cron berpenanda; lihat
   `/home/semestat/flms-setup.sh` dan lognya di `flms-setup.log`.
-- **Penerapan perubahan basis data.** Karena tidak ada akses shell, migrasi
-  dan pembangunan ulang cache dijalankan lewat `/home/semestat/flms-cek.sh`,
-  yang dipanggil cron berpenanda. Prosedurnya setelah `git deploy`:
+- **Penerapan perubahan basis data berjalan sendiri.** Karena tidak ada akses
+  shell, migrasi hanya dapat dijalankan lewat cron. `/home/semestat/flms-cek.sh`
+  dipanggil tiap 9 menit dan **memeriksa sendiri** apakah ada migrasi tertunda;
+  bila tidak ada, ia keluar tanpa melakukan apa pun. Bila ada, ia menjalankan
+  `migrate --force`, menyegarkan peran dan cache, memanggil beberapa rute
+  sebagai pemeriksaan, lalu mencatat hasilnya ke `flms-cek.log`.
 
-  ```
-  hapus /home/semestat/.flms-cek.done   → cron menjalankannya sekali
-  baca  /home/semestat/flms-cek.log     → hasil migrasi, seed, cache, uji rute
-  ```
+  Artinya **setelah `git deploy` tidak ada langkah manual** — skema menyusul
+  sendiri dalam hitungan menit. Versi sebelumnya memakai berkas penanda yang
+  harus dihapus manual, dan itu berarti skema baru hanya menyusul bila ada
+  orang yang ingat menghapusnya.
 
-  Skripnya menjalankan `migrate --force`, `db:seed PeranIzinSeeder`,
-  `config:cache`, `route:cache`, lalu memanggil beberapa rute untuk memastikan
-  aplikasinya masih melayani. Aman diulang.
+  Catatan: entri cron per-menit dinormalkan hosting menjadi `*/9`, jadi jangan
+  heran bila penerapannya tertunda sampai sembilan menit.
 
 - **`composer install` bisa terbunuh di tengah.** Proses cron dibatasi lamanya,
   dan 504 dari `api.github.com` memaksa composer beralih ke `git clone` per

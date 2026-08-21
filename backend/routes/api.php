@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
+use App\Http\Controllers\Api\PenggunaController;
 use App\Http\Controllers\Api\PenyewaanController;
 use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
@@ -83,6 +84,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:booking-ruangan.buat');
     Route::get('bookings/{booking}', [BookingController::class, 'show'])
         ->middleware('can:booking-ruangan.lihat');
+
+    // --- Pemilih pengguna --------------------------------------------------
+    // Untuk mengisi penanggung jawab, supervisor, dan teknisi pada formulir.
+    // Izinnya master-data.lihat: yang memerlukannya adalah orang yang memang
+    // sedang menyunting master data. Surel tidak pernah ikut dikirim — lihat
+    // keterangan pada PenggunaController.
+    Route::get('pengguna', [PenggunaController::class, 'index'])
+        ->middleware('can:master-data.lihat')->name('pengguna.index');
 
     // --- Master data: ruangan --------------------------------------------
     // Izinnya diatur RoomPolicy, bukan middleware `can:`, karena membaca

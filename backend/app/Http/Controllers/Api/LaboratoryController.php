@@ -10,6 +10,7 @@ use App\Models\Laboratory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class LaboratoryController extends Controller
@@ -20,7 +21,7 @@ class LaboratoryController extends Controller
 
         $query = Laboratory::query()
             ->dalamCakupan($request->user())
-            ->with(['room:id,kode,nama,gedung', 'penanggungJawab:id,name'])
+            ->with(['room:id,kode,nama,gedung', 'penanggungJawab:id,name', 'supervisor:id,name', 'teknisi:id,name'])
             ->withCount('assets')
             ->orderBy('kode');
 
@@ -43,9 +44,26 @@ class LaboratoryController extends Controller
     {
         $this->authorize('create', Laboratory::class);
 
-        $lab = Laboratory::create($request->validated());
+        $data = $request->validated();
+        $teknisi = $data['teknisi_ids'] ?? null;
+        unset($data['teknisi_ids']);
 
-        return LaboratoryResource::make($lab->load('room:id,kode,nama,gedung'))
+        $lab = DB::transaction(function () use ($data, $teknisi) {
+            $lab = Laboratory::create($data);
+
+            if ($teknisi !== null) {
+                $lab->teknisi()->sync($teknisi);
+            }
+
+            return $lab;
+        });
+
+        // refresh(): sebagian kolom punya nilai bawaan di basis data, dan
+        // objek hasil create() tidak mengetahuinya — tanpa ini antarmuka
+        // menampilkan laboratorium tanpa status sampai halamannya dimuat ulang.
+        $lab->refresh();
+
+        return LaboratoryResource::make($lab->load(['room:id,kode,nama,gedung', 'penanggungJawab:id,name', 'supervisor:id,name', 'teknisi:id,name']))
             ->response()->setStatusCode(201);
     }
 
@@ -54,7 +72,7 @@ class LaboratoryController extends Controller
         $this->authorize('view', $laboratory);
 
         return LaboratoryResource::make(
-            $laboratory->load(['room:id,kode,nama,gedung', 'penanggungJawab:id,name'])->loadCount('assets')
+            $laboratory->load(['room:id,kode,nama,gedung', 'penanggungJawab:id,name', 'supervisor:id,name', 'teknisi:id,name'])->loadCount('assets')
         );
     }
 
@@ -62,10 +80,24 @@ class LaboratoryController extends Controller
     {
         $this->authorize('update', $laboratory);
 
-        $laboratory->update($request->validated());
+        $data = $request->validated();
+        $teknisi = $data['teknisi_ids'] ?? null;
+        unset($data['teknisi_ids']);
+
+        DB::transaction(function () use ($laboratory, $data, $teknisi) {
+            $laboratory->update($data);
+
+            // Hanya disentuh bila memang dikirim. Tanpa penjagaan ini,
+            // menyunting satu kolom lewat PATCH tanpa menyertakan daftar
+            // teknisi akan MENGHAPUS seluruh penugasan — kehilangan diam-diam
+            // yang baru ketahuan saat notifikasi jadwal tidak sampai.
+            if ($teknisi !== null) {
+                $laboratory->teknisi()->sync($teknisi);
+            }
+        });
 
         return LaboratoryResource::make(
-            $laboratory->load(['room:id,kode,nama,gedung', 'penanggungJawab:id,name'])->loadCount('assets')
+            $laboratory->load(['room:id,kode,nama,gedung', 'penanggungJawab:id,name', 'supervisor:id,name', 'teknisi:id,name'])->loadCount('assets')
         );
     }
 

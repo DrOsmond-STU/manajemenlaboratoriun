@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-371 uji lulus, 1.104 asersi, 0 gagal — dijalankan di PostgreSQL 16
+387 uji lulus, 1.151 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,26 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Fasilitas disimpan sebagai jsonb, teknisi sebagai tabel penghubung.**
+  Keduanya "daftar", tetapi pertanyaannya berbeda. Fasilitas tidak pernah
+  dikueri sendirian — selalu dibaca bersama laboratoriumnya. Teknisi
+  sebaliknya: "laboratorium mana saja yang ditangani orang ini" benar-benar
+  diajukan saat menyusun jadwal, saat orang itu cuti, dan saat menentukan
+  siapa yang menerima notifikasi perawatan. Menyimpannya sebagai daftar id di
+  dalam jsonb membuat pertanyaan itu hanya terjawab dengan memindai seluruh
+  tabel, dan tak ada yang menjaga id-nya tetap menunjuk pengguna yang ada.
+- **Penugasan teknisi hanya disentuh bila memang dikirim.** Tanpa penjagaan
+  itu, menyunting satu kolom lewat PATCH tanpa menyertakan daftar teknisi akan
+  MENGHAPUS seluruh penugasan — kehilangan diam-diam yang baru ketahuan saat
+  notifikasi jadwal perawatan tidak sampai ke siapa pun. Larik kosong tetap
+  berarti "tidak ada teknisinya"; yang diabaikan hanya ketiadaan medannya.
+- **Endpoint pemilih pengguna tidak pernah mengirim surel.** Formulir ruangan,
+  laboratorium, dan aset perlu memilih penanggung jawab dan teknisi, sehingga
+  `GET /api/pengguna` terbuka bagi hampir semua peran yang menyunting master
+  data. Daftar surel seluruh pegawai adalah bahan baku paling berguna bagi
+  siapa pun yang menyiapkan phishing; nama saja sudah cukup untuk memilih.
+  Dibatasi keras 50 baris, dan pemotongannya diberitahukan supaya antarmuka
+  meminta pencarian dipersempit alih-alih diam-diam menyembunyikan orangnya.
 - **Tabel yang menyusul layar, bukan layar yang dipangkas.** Tabel `rooms`
   semula dibuat untuk melayani pemesanan saja — kode, nama, gedung, lantai,
   kapasitas. Purwarupa yang sudah ditinjau menampilkan lebih banyak: jenis

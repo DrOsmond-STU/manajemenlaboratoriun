@@ -147,8 +147,113 @@
     }
   };
 
+
+  /* --------------------------------------------------------- laboratorium */
+
+  const STATUS_LAB_PURWARUPA = {
+    "Aktif": ["aktif", "Aktif"],
+    "Renovasi": ["pemeliharaan", "Pemeliharaan"],
+    "Nonaktif": ["tidak_aktif", "Tidak Aktif"]
+  };
+
+  function labDariPurwarupa(l) {
+    const st = STATUS_LAB_PURWARUPA[l.status] || ["aktif", "Aktif"];
+    const nama = (id) => (window.DB ? DB.personName(id) : id);
+
+    return {
+      id: l.id,
+      kode: l.code,
+      nama: l.name,
+      jenis: l.type,
+      unit_kerja: null,
+      luas_m2: l.area,
+      kapasitas: l.cap,
+      jam_layanan: l.hours,
+      akreditasi: l.accred === "\u2014" ? null : l.accred,
+      fasilitas: l.facs || [],
+      status: { kode: st[0], nama: st[1] },
+      ruangan: null,
+      penanggung_jawab: l.pic ? { id: l.pic, nama: nama(l.pic) } : null,
+      supervisor: l.supervisor ? { id: l.supervisor, nama: nama(l.supervisor) } : null,
+      teknisi: (l.tech || []).map((t) => ({ id: t, nama: nama(t) })),
+      jumlah_aset: l.assets,
+      keterangan: null
+    };
+  }
+
+  const laboratorium = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.labs : []).map(labDariPurwarupa);
+
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((l) =>
+            (l.nama + " " + l.kode + " " + (l.jenis || "")).toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.jenis) baris = baris.filter((l) => l.jenis === tapis.jenis);
+        if (tapis && tapis.status) baris = baris.filter((l) => l.status.kode === tapis.status);
+
+        return { data: baris, total: baris.length };
+      }
+
+      const jawaban = await API.get("/api/laboratories" + qs(tapis));
+      return { data: jawaban.data, total: (jawaban.meta && jawaban.meta.total) || jawaban.data.length };
+    },
+
+    async ambil(id) {
+      if (!langsungKeApi()) {
+        const l = (window.DB ? DB.labs : []).find((x) => x.id === id);
+        return l ? labDariPurwarupa(l) : null;
+      }
+      return (await API.get("/api/laboratories/" + encodeURIComponent(id))).data;
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyimpan laboratorium");
+
+      return id
+        ? API.patch("/api/laboratories/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/laboratories", isi).then((j) => j.data);
+    },
+
+    hapus(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menghapus laboratorium");
+      return API.hapus("/api/laboratories/" + encodeURIComponent(id));
+    }
+  };
+
+  /* ------------------------------------------------------------- pengguna */
+
+  const pengguna = {
+    /**
+     * Daftar pengguna untuk pemilihan.
+     *
+     * Di mode purwarupa memakai daftar orang di data.js. Bentuknya sama
+     * persis dengan yang dikirim server — id, nama, unit_kerja — sehingga
+     * pemilihnya tidak perlu tahu sedang berjalan di mode mana.
+     */
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.people : []).map((p) => ({
+          id: p.id, nama: p.name, unit_kerja: p.unit || null
+        }));
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((p) => p.nama.toLowerCase().indexOf(k) !== -1);
+        }
+        return { data: baris.slice(0, 50), terpotong: baris.length > 50 };
+      }
+
+      const j = await API.get("/api/pengguna" + qs(tapis));
+      return { data: j.data, terpotong: !!j.terpotong };
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    laboratorium: laboratorium,
+    pengguna: pengguna,
     NAMA_SKEMA: NAMA_SKEMA,
 
     /** Apakah tindakan tulis tersedia saat ini. */

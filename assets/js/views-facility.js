@@ -7,88 +7,430 @@
   /* =======================================================================
      LABORATORIUM
      ======================================================================= */
-  V["lab"] = {
-    title: "Manajemen Laboratorium",
-    sub: "Profil, kapasitas, penanggung jawab, alat, dan status seluruh laboratorium.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Ekspor daftar laboratorium')">${U.icon("download")} Ekspor</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form tambah laboratorium')">${U.icon("plus")} Tambah Laboratorium</button>`,
-    render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Total Laboratorium", value: D.labs.length, icon: "flask", tint: "teal", note: D.labs.filter((l) => l.status === "Aktif").length + " aktif, 1 renovasi" })}
-          ${U.kpi({ label: "Total Kapasitas", value: D.labs.reduce((a, l) => a + l.cap, 0), suffix: "orang", icon: "users", tint: "brand", note: "Seluruh laboratorium" })}
-          ${U.kpi({ label: "Utilisasi Rata-rata", value: Math.round(D.labs.reduce((a, l) => a + l.util, 0) / D.labs.length), suffix: "%", icon: "chart", tint: "violet", delta: 7, note: "30 hari terakhir" })}
-          ${U.kpi({ label: "Terakreditasi", value: D.labs.filter((l) => l.accred !== "—").length, suffix: "lab", icon: "shield", tint: "green", note: "ISO 17025 / KAN" })}
+  /* =======================================================================
+     LABORATORIUM — tersambung ke basis data
+
+     Mengikuti pola yang sama dengan Ruangan: render() memasang kerangka,
+     mount() mengambil datanya.
+     ======================================================================= */
+
+  const LAB = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  const STATUS_LAB_TINT = { aktif: "green", pemeliharaan: "amber", tidak_aktif: "slate" };
+
+  function kartuLab(l) {
+    const pj = l.penanggung_jawab;
+
+    return `
+      <div class="card res-card" onclick="showLab('${U.esc(String(l.id))}')">
+        <div class="card-body">
+          <div class="row mb-12">
+            <div class="kpi-ico tint-teal">${U.icon("flask", 17)}</div>
+            <div style="flex:1;min-width:0"><div class="rc-title trunc">${U.esc(l.nama)}</div>
+              <div class="rc-meta">${U.esc(l.kode)}${l.jenis ? " • " + U.esc(l.jenis) : ""}</div></div>
+            <span class="badge ${STATUS_LAB_TINT[l.status.kode] || "slate"}">${U.esc(l.status.nama)}</span>
+          </div>
+          <div class="grid g3 mb-12" style="gap:8px">
+            <div><div class="tiny faint">Kapasitas</div><b>${l.kapasitas || 0} org</b></div>
+            <div><div class="tiny faint">Luas</div><b>${l.luas_m2 ? l.luas_m2 + " m²" : "—"}</b></div>
+            <div><div class="tiny faint">Aset</div><b>${l.jumlah_aset === null || l.jumlah_aset === undefined ? "—" : l.jumlah_aset}</b></div>
+          </div>
+          ${l.akreditasi
+            ? `<div class="row small mb-8">${U.icon("shield", 13)}<span class="trunc">${U.esc(l.akreditasi)}</span></div>`
+            : `<div class="row small muted mb-8">${U.icon("shield", 13)}<span>Belum terakreditasi</span></div>`}
+          <div class="row small muted mt-12" style="padding-top:10px;border-top:1px solid var(--border)">
+            ${pj ? `<span class="avatar sm">${U.initials(pj.nama)}</span>
+              <div style="flex:1;min-width:0"><div class="trunc" style="font-size:12px">${U.esc(pj.nama)}</div>
+              <div class="tiny faint">Penanggung jawab</div></div>`
+              : `<div style="flex:1"><span class="tiny faint">Penanggung jawab belum ditetapkan</span></div>`}
+            ${l.jam_layanan ? `<span class="badge outline tiny">${U.esc(l.jam_layanan)}</span>` : ""}
+          </div>
         </div>
-        <div class="grid g3">
-          ${D.labs.map((l) => `
-            <div class="card res-card" onclick="showLab('${l.id}')">
-              <div class="card-body">
-                <div class="row mb-12">
-                  <div class="kpi-ico tint-teal">${U.icon("flask", 17)}</div>
-                  <div style="flex:1;min-width:0"><div class="rc-title trunc">${U.esc(l.name)}</div>
-                    <div class="rc-meta">${l.code} • ${l.type}</div></div>
-                  ${U.badge(l.status)}
-                </div>
-                <div class="grid g3 mb-12" style="gap:8px">
-                  <div><div class="tiny faint">Kapasitas</div><b>${l.cap} org</b></div>
-                  <div><div class="tiny faint">Luas</div><b>${l.area} m²</b></div>
-                  <div><div class="tiny faint">Alat</div><b>${l.equip} unit</b></div>
-                </div>
-                <div class="mb-8">${U.meter(`<span class="small">Utilisasi</span>`, l.util, l.util > 75 ? "var(--amber-500)" : "var(--teal-500)")}</div>
-                <div class="row small muted mt-12" style="padding-top:10px;border-top:1px solid var(--border)">
-                  <span class="avatar sm">${U.initials(D.personName(l.pic))}</span>
-                  <div style="flex:1;min-width:0"><div class="trunc" style="font-size:12px">${U.esc(D.personName(l.pic))}</div>
-                  <div class="tiny faint">PIC Laboratorium</div></div>
-                  <span class="badge outline tiny">${l.hours}</span>
-                </div>
-              </div>
-            </div>`).join("")}
-        </div>`;
+      </div>`;
+  }
+
+  function isiDaftarLab() {
+    const wadah = document.getElementById("labDaftar");
+    if (!wadah) return;
+
+    if (LAB.memuat) {
+      wadah.innerHTML = `<div class="card" style="padding:32px;text-align:center">
+        <span class="muted">Memuat laboratorium…</span></div>`;
+      return;
+    }
+
+    if (LAB.galat) {
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat laboratorium.</b><br><span class="small">${U.esc(LAB.galat)}</span></div></div>`;
+      return;
+    }
+
+    if (!LAB.baris.length) {
+      const adaTapis = Object.keys(LAB.tapis).some((k) => LAB.tapis[k]);
+      wadah.innerHTML = `<div class="card" style="padding:40px;text-align:center">
+        <div class="muted mb-12">${adaTapis
+          ? "Tidak ada laboratorium yang cocok dengan penyaringan ini."
+          : "Belum ada laboratorium yang terdaftar."}</div>
+        ${adaTapis
+          ? `<button class="btn btn-sm" onclick="labHapusTapis()">Hapus penyaringan</button>`
+          : (Repo.dapatMenulis()
+            ? `<button class="btn btn-primary btn-sm" onclick="labForm()">${U.icon("plus")} Tambah Laboratorium Pertama</button>`
+            : `<span class="small muted">Masuk dengan akun untuk menambahkan laboratorium.</span>`)}
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="grid g3">${LAB.baris.map(kartuLab).join("")}</div>`;
+  }
+
+  function isiRingkasanLab() {
+    const wadah = document.getElementById("labKpi");
+    if (!wadah) return;
+
+    const b = LAB.baris;
+    const aktif = b.filter((l) => l.status.kode === "aktif").length;
+    const kapasitas = b.reduce((a, l) => a + (l.kapasitas || 0), 0);
+    const terakreditasi = b.filter((l) => l.akreditasi).length;
+    const tanpaPj = b.filter((l) => !l.penanggung_jawab).length;
+
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Total Laboratorium", value: b.length, icon: "flask", tint: "teal",
+                note: aktif + " aktif" })}
+      ${U.kpi({ label: "Total Kapasitas", value: U.num(kapasitas), suffix: "orang", icon: "users", tint: "brand", note: "Seluruh laboratorium" })}
+      ${U.kpi({ label: "Terakreditasi", value: terakreditasi, suffix: "lab", icon: "shield", tint: "green", note: "ISO 17025 / KAN" })}
+      ${U.kpi({ label: "Tanpa Penanggung Jawab", value: tanpaPj, icon: "alert",
+                tint: tanpaPj ? "red" : "slate",
+                note: tanpaPj ? "Perlu ditetapkan" : "Semua sudah ada" })}`;
+  }
+
+  async function muatLab() {
+    LAB.memuat = true;
+    LAB.galat = null;
+    isiDaftarLab();
+
+    try {
+      const hasil = await Repo.laboratorium.daftar(LAB.tapis);
+      LAB.baris = hasil.data;
+    } catch (e) {
+      LAB.baris = [];
+      LAB.galat = e.message;
+    } finally {
+      LAB.memuat = false;
+      isiDaftarLab();
+      isiRingkasanLab();
+
+      const sel = document.getElementById("labJenis");
+      if (sel) {
+        const terpilih = sel.value;
+        sel.innerHTML = `<option value="">Semua Jenis</option>` +
+          [...new Set(LAB.baris.map((l) => l.jenis).filter(Boolean))].sort()
+            .map((v) => `<option${v === terpilih ? " selected" : ""}>${U.esc(v)}</option>`).join("");
+      }
+    }
+  }
+
+  window.labTapis = function (kunci, nilai) {
+    if (nilai) LAB.tapis[kunci] = nilai; else delete LAB.tapis[kunci];
+    muatLab();
+  };
+
+  window.labHapusTapis = function () {
+    LAB.tapis = {};
+    const c = document.getElementById("labCari");
+    if (c) c.value = "";
+    muatLab();
+  };
+
+  /* ------------------------------------------------------------- formulir */
+
+  const STATUS_LAB_PILIHAN = [
+    ["aktif", "Aktif"],
+    ["pemeliharaan", "Pemeliharaan"],
+    ["tidak_aktif", "Tidak Aktif"]
+  ];
+
+  window.labForm = async function (id) {
+    if (!Repo.dapatMenulis()) {
+      U.toast("Tidak tersedia", "Menyimpan laboratorium hanya bisa setelah masuk dengan akun.");
+      return;
+    }
+
+    const l = id ? LAB.baris.find((x) => String(x.id) === String(id)) : null;
+    const v = (x) => (x === null || x === undefined ? "" : U.esc(String(x)));
+
+    // Daftar pengguna diambil SEKALI di sini lalu dipakai ketiga pemilih.
+    // Mengambilnya tiga kali menghasilkan tiga permintaan identik yang
+    // jawabannya pasti sama.
+    let orang = [];
+    try {
+      orang = (await Repo.pengguna.daftar()).data;
+    } catch (e) {
+      // Formulir tetap dibuka. Kehilangan pemilih orang jauh lebih ringan
+      // daripada tidak bisa menyunting sama sekali — kolom lainnya masih
+      // dapat diisi, dan penanggung jawab dapat ditetapkan kemudian.
+      orang = [];
+    }
+
+    const pilihOrang = (idEl, terpilih) =>
+      `<select class="select" id="${idEl}">
+         <option value="">— belum ditetapkan —</option>
+         ${orang.map((o) => `<option value="${U.esc(String(o.id))}"${
+           terpilih && String(terpilih) === String(o.id) ? " selected" : ""
+         }>${U.esc(o.nama)}${o.unit_kerja ? " · " + U.esc(o.unit_kerja) : ""}</option>`).join("")}
+       </select>`;
+
+    const terpilihTeknisi = (l && l.teknisi ? l.teknisi : []).map((t) => String(t.id));
+
+    U.drawer({
+      size: "wide",
+      title: l ? "Ubah Laboratorium" : "Tambah Laboratorium",
+      sub: l ? l.kode : "Isian bertanda * wajib diisi",
+      body: `
+        <div id="labFormGalat" class="alert err mb-16" hidden></div>
+        ${orang.length === 0 ? `<div class="alert warn mb-16">${U.icon("alert", 15)}<div>
+          Daftar pengguna tidak dapat dimuat, jadi penanggung jawab, supervisor, dan teknisi
+          belum dapat dipilih di sini. Isian lainnya tetap dapat disimpan.</div></div>` : ""}
+        <div class="grid g2 gap-12">
+          <label class="fld"><span>Kode laboratorium *</span>
+            <input class="input" id="lKode" value="${v(l && l.kode)}" placeholder="LAB-KIM-01"></label>
+          <label class="fld"><span>Nama laboratorium *</span>
+            <input class="input" id="lNama" value="${v(l && l.nama)}" placeholder="Laboratorium Kimia Analitik"></label>
+          <label class="fld"><span>Jenis</span>
+            <input class="input" id="lJenis" value="${v(l && l.jenis)}" placeholder="Pengujian / Riset / Kalibrasi"></label>
+          <label class="fld"><span>Unit kerja</span>
+            <input class="input" id="lUnit" value="${v(l && l.unit_kerja)}" placeholder="Pengujian Mutu"></label>
+          <label class="fld"><span>Luas (m²)</span>
+            <input class="input" id="lLuas" type="number" min="0" value="${v(l && l.luas_m2)}"></label>
+          <label class="fld"><span>Kapasitas (orang)</span>
+            <input class="input" id="lKapasitas" type="number" min="0" value="${v(l && l.kapasitas)}"></label>
+          <label class="fld"><span>Jam layanan</span>
+            <input class="input" id="lJam" value="${v(l && l.jam_layanan)}" placeholder="07:30 – 17:00"></label>
+          <label class="fld"><span>Status</span>
+            <select class="select" id="lStatus">${STATUS_LAB_PILIHAN
+              .map(([k, t]) => `<option value="${k}"${l && l.status.kode === k ? " selected" : ""}>${t}</option>`)
+              .join("")}</select></label>
+        </div>
+        <label class="fld mt-12"><span>Akreditasi</span>
+          <input class="input" id="lAkreditasi" value="${v(l && l.akreditasi)}"
+                 placeholder="ISO/IEC 17025:2017 atau KAN LP-1234-IDN"></label>
+        <p class="small muted mt-6">Kosongkan bila belum terakreditasi.</p>
+
+        <div class="grid g2 gap-12 mt-12">
+          <label class="fld"><span>Penanggung jawab</span>
+            ${pilihOrang("lPj", l && l.penanggung_jawab && l.penanggung_jawab.id)}</label>
+          <label class="fld"><span>Supervisor</span>
+            ${pilihOrang("lSv", l && l.supervisor && l.supervisor.id)}</label>
+        </div>
+
+        <div class="fld mt-12"><span>Teknisi</span>
+          <select class="select" id="lTeknisi" multiple size="6">
+            ${orang.map((o) => `<option value="${U.esc(String(o.id))}"${
+              terpilihTeknisi.indexOf(String(o.id)) !== -1 ? " selected" : ""
+            }>${U.esc(o.nama)}${o.unit_kerja ? " · " + U.esc(o.unit_kerja) : ""}</option>`).join("")}
+          </select></div>
+        <p class="small muted mt-6">Tahan Ctrl (atau Cmd) untuk memilih lebih dari satu.
+          Teknisi yang terdaftar di sini menerima notifikasi jadwal perawatan laboratorium ini.</p>
+
+        <label class="fld mt-12"><span>Fasilitas</span>
+          <input class="input" id="lFasilitas" value="${v(l && (l.fasilitas || []).join(', '))}"
+                 placeholder="Fume Hood 4, Emergency Shower, Eye Wash, APAR CO2"></label>
+        <p class="small muted mt-6">Pisahkan dengan koma.</p>
+
+        <label class="fld mt-12"><span>Keterangan</span>
+          <textarea class="input" id="lKeterangan" rows="3">${v(l && l.keterangan)}</textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="labSimpan" onclick="labSimpan(${l ? "'" + U.esc(String(l.id)) + "'" : "null"})">
+               ${l ? "Simpan Perubahan" : "Simpan Laboratorium"}</button>`
+    });
+  };
+
+  window.labSimpan = async function (id) {
+    const teks = (x) => {
+      const el = document.getElementById(x);
+      const t = el ? el.value.trim() : "";
+      return t === "" ? null : t;
+    };
+    const angka = (x) => {
+      const el = document.getElementById(x);
+      if (!el || el.value === "") return null;
+      const n = Number(el.value);
+      return Number.isFinite(n) ? n : null;
+    };
+    const daftar = (x) => {
+      const bagian = (document.getElementById(x).value || "")
+        .split(",").map((s) => s.trim()).filter(Boolean);
+      return bagian.length ? bagian : null;
+    };
+
+    const selTeknisi = document.getElementById("lTeknisi");
+    const teknisi = Array.from(selTeknisi.selectedOptions).map((o) => Number(o.value));
+
+    const isi = {
+      kode: teks("lKode"),
+      nama: teks("lNama"),
+      jenis: teks("lJenis"),
+      unit_kerja: teks("lUnit"),
+      luas_m2: angka("lLuas"),
+      kapasitas: angka("lKapasitas"),
+      jam_layanan: teks("lJam"),
+      akreditasi: teks("lAkreditasi"),
+      status: document.getElementById("lStatus").value,
+      penanggung_jawab_id: teks("lPj") ? Number(document.getElementById("lPj").value) : null,
+      supervisor_id: teks("lSv") ? Number(document.getElementById("lSv").value) : null,
+      // Selalu dikirim, termasuk saat kosong: larik kosong berarti "tidak ada
+      // teknisinya", dan itu berbeda dari tidak dikirim sama sekali yang
+      // berarti "jangan diubah".
+      teknisi_ids: teknisi,
+      fasilitas: daftar("lFasilitas"),
+      keterangan: teks("lKeterangan")
+    };
+
+    const tombol = document.getElementById("labSimpan");
+    const kotak = document.getElementById("labFormGalat");
+    kotak.hidden = true;
+    tombol.disabled = true;
+    tombol.textContent = "Menyimpan…";
+
+    try {
+      await Repo.laboratorium.simpan(isi, id);
+      U.closeDrawer();
+      U.toast(id ? "Laboratorium diperbarui" : "Laboratorium tersimpan",
+        isi.nama + " tersimpan ke basis data.");
+      await muatLab();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan)
+          .map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else {
+        kotak.textContent = e.message || "Gagal menyimpan.";
+      }
+      kotak.hidden = false;
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = id ? "Simpan Perubahan" : "Simpan Laboratorium";
     }
   };
 
+  window.labHapus = function (id) {
+    const l = LAB.baris.find((x) => String(x.id) === String(id));
+    if (!l) return;
+
+    U.modal({
+      title: "Hapus laboratorium?",
+      body: `<p>Laboratorium <b>${U.esc(l.nama)}</b> (${U.esc(l.kode)}) akan dihapus.</p>
+             <p class="small muted mt-8">Penghapusan bersifat lunak. Laboratorium yang masih
+             memiliki aset terdaftar tidak dapat dihapus — pindahkan asetnya lebih dulu.</p>`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn btn-danger" onclick="labHapusPasti('${U.esc(String(id))}')">Hapus</button>`
+    });
+  };
+
+  window.labHapusPasti = async function (id) {
+    try {
+      await Repo.laboratorium.hapus(id);
+      U.closeModal();
+      U.closeDrawer();
+      U.toast("Laboratorium dihapus", "Laboratorium telah dihapus.");
+      await muatLab();
+    } catch (e) {
+      U.closeModal();
+      Repo.tampilkanGalat(e, "Tidak dapat menghapus");
+    }
+  };
+
+  /* --------------------------------------------------------------- detail */
+
   window.showLab = function (id) {
-    const l = D.byId(D.labs, id);
-    const eqs = D.equipment.filter((e) => e.lab === id);
+    const l = LAB.baris.find((x) => String(x.id) === String(id));
+    if (!l) return;
+
+    const baris = (label, isi) => isi === null || isi === undefined || isi === ""
+      ? "" : `<dt>${label}</dt><dd>${isi}</dd>`;
+
     U.drawer({
-      size: "wide", title: l.name, sub: l.code + " • " + l.type + " • " + U.esc(l.accred),
+      size: "wide",
+      title: l.nama,
+      sub: [l.kode, l.jenis, l.akreditasi].filter(Boolean).join(" • "),
       body: `
-        <div class="thumb mb-16" style="aspect-ratio:21/9">${U.layoutDiagram("Cluster", 220, 100)}</div>
         <div class="grid g4 mb-16" style="gap:10px">
-          ${[["Kapasitas", l.cap + " org"], ["Luas", l.area + " m²"], ["Alat", l.equip + " unit"], ["Aset", l.assets + " item"]]
-            .map(([k, v]) => `<div class="card"><div class="card-body tight center"><div class="tiny faint">${k}</div><b>${v}</b></div></div>`).join("")}
+          ${[["Kapasitas", (l.kapasitas || 0) + " org"],
+             ["Luas", l.luas_m2 ? l.luas_m2 + " m²" : "—"],
+             ["Aset", l.jumlah_aset === null || l.jumlah_aset === undefined ? "—" : l.jumlah_aset],
+             ["Teknisi", (l.teknisi || []).length]]
+            .map(([k, v]) => `<div class="card"><div class="card-body tight center">
+              <div class="tiny faint">${k}</div><b>${v}</b></div></div>`).join("")}
         </div>
-        <div class="tabs mb-16">
-          <button class="active">Profil</button><button onclick="UI.demo('Tab jadwal')">Jadwal</button>
-          <button onclick="UI.demo('Tab alat')">Alat</button><button onclick="UI.demo('Tab dokumen')">Dokumen</button>
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_LAB_TINT[l.status.kode] || "slate"}">${U.esc(l.status.nama)}</span>
+          ${l.akreditasi ? `<span class="badge green">${U.esc(l.akreditasi)}</span>`
+            : `<span class="badge slate">Belum terakreditasi</span>`}
+          ${l.jam_layanan ? `<span class="badge outline">${U.esc(l.jam_layanan)}</span>` : ""}
         </div>
         <div class="dl mb-16">
-          <dt>Lokasi</dt><dd>${U.esc((D.org.buildings.find((b) => b.code === l.building) || {}).name)} — Lantai ${l.floor}</dd>
-          <dt>Jam Operasional</dt><dd>${l.hours} WIB</dd>
-          <dt>Status</dt><dd>${U.badge(l.status)}</dd>
-          <dt>Akreditasi</dt><dd>${U.esc(l.accred)}</dd>
-          <dt>PIC / Kepala Lab</dt><dd>${U.esc(D.personName(l.pic))}</dd>
-          <dt>Supervisor</dt><dd>${U.esc(D.personName(l.supervisor))}</dd>
-          <dt>Teknisi</dt><dd>${l.tech.length ? l.tech.map((t) => U.esc(D.personName(t))).join(", ") : "—"}</dd>
-          <dt>Utilisasi 30 Hari</dt><dd><b>${l.util}%</b></dd>
+          ${baris("Jenis", l.jenis ? U.esc(l.jenis) : null)}
+          ${baris("Unit Kerja", l.unit_kerja ? U.esc(l.unit_kerja) : null)}
+          ${baris("Ruangan", l.ruangan ? U.esc(l.ruangan.nama) + " (" + U.esc(l.ruangan.kode) + ")" : null)}
+          ${baris("Penanggung Jawab", l.penanggung_jawab ? U.esc(l.penanggung_jawab.nama) : null)}
+          ${baris("Supervisor", l.supervisor ? U.esc(l.supervisor.nama) : null)}
+          ${baris("Teknisi", (l.teknisi || []).length
+            ? l.teknisi.map((t) => `<span class="fac">${U.esc(t.nama)}</span>`).join(" ") : null)}
+          ${baris("Keterangan", l.keterangan ? U.esc(l.keterangan) : null)}
         </div>
-        <h4 class="mb-8 muted">FASILITAS &amp; SAFETY EQUIPMENT</h4>
-        <div class="row wrap gap-6 mb-16">${l.facs.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>
-        <h4 class="mb-8 muted">ALAT DI LABORATORIUM INI (${eqs.length})</h4>
-        ${U.table([{ t: "Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${e.code} • ${e.brand}</div>` },
-                   { t: "Status", render: (e) => U.badge(e.status) },
-                   { t: "Kalibrasi", cls: "right", render: (e) => { const od = e.calDue < D.shift(0); return `<span class="badge ${od ? "red" : "green"}">${U.fdate(e.calDue, "short")}</span>`; } }], eqs)}
-        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">${ckForResource(l.id)}</div>
+        ${(l.fasilitas || []).length ? `
+          <h4 class="mb-8 muted">FASILITAS LABORATORIUM</h4>
+          <div class="row wrap gap-6 mb-16">
+            ${l.fasilitas.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>` : ""}
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
+          ${ckForResource(l.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
-          ${U.qrBox(l.code)}
-          <div class="small muted">Scan QR di pintu laboratorium untuk melihat status, PIC, jadwal penggunaan, dan riwayat maintenance.</div>
-        </div>`,
+          ${U.qrBox(l.kode)}<div class="small muted">QR di pintu laboratorium menampilkan
+            penanggung jawab, jam layanan, status akreditasi, dan daftar alat.</div></div>`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
-             <button class="btn" onclick="UI.demo('Form edit laboratorium')">${U.icon("edit")} Edit</button>
+             ${Repo.dapatMenulis() ? `
+               <button class="btn" onclick="labForm('${U.esc(String(l.id))}')">${U.icon("edit")} Ubah</button>
+               <button class="btn btn-danger" onclick="labHapus('${U.esc(String(l.id))}')">Hapus</button>` : ""}
              <div class="spacer"></div>
-             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/booking/new'">Booking Lab</button>`
+             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/equipment'">Lihat Alat</button>`
     });
+  };
+
+  V["lab"] = {
+    title: "Manajemen Laboratorium",
+    sub: "Profil, kapasitas, penanggung jawab, teknisi, fasilitas, dan status seluruh laboratorium.",
+    get actions() {
+      return Repo.dapatMenulis()
+        ? `<button class="btn btn-primary btn-sm" onclick="labForm()">${U.icon("plus")} Tambah Laboratorium</button>`
+        : "";
+    },
+    render() {
+      return `
+        <div class="grid g4 mb-16" id="labKpi"></div>
+        <div class="card mb-16"><div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="labCari" placeholder="Cari nama, kode, atau jenis…"></div>
+          <select class="select" style="width:auto" id="labJenis"
+                  onchange="labTapis('jenis', this.value)"><option value="">Semua Jenis</option></select>
+          <select class="select" style="width:auto" onchange="labTapis('status', this.value)">
+            <option value="">Semua Status</option>
+            <option value="aktif">Aktif</option>
+            <option value="pemeliharaan">Pemeliharaan</option>
+            <option value="tidak_aktif">Tidak Aktif</option></select>
+          <div class="spacer"></div>
+        </div></div>
+        <div id="labDaftar"></div>`;
+    },
+    mount() {
+      const cari = document.getElementById("labCari");
+      if (cari) {
+        cari.value = LAB.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => labTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatLab();
+    }
   };
 
   V["labschedule"] = {
@@ -709,6 +1051,8 @@
           <h4 class="mb-8 muted">FASILITAS RUANGAN</h4>
           <div class="row wrap gap-6 mb-16">
             ${r.fasilitas.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>` : ""}
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
+          ${ckForResource(r.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(r.kode)}<div class="small muted">QR di pintu ruangan menampilkan jadwal hari ini,
             penanggung jawab, status, dan tombol check-in cepat.</div></div>`,

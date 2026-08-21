@@ -24,6 +24,11 @@ class LaboratoryResource extends JsonResource
             'kapasitas' => $this->kapasitas,
             'jam_layanan' => $this->jam_layanan,
             'akreditasi' => $this->akreditasi,
+
+            // Selalu larik, tidak pernah null — antarmuka yang memanggil
+            // .map() pada null akan patah, dan "belum ada fasilitas" paling
+            // tepat diwakili larik kosong.
+            'fasilitas' => $this->fasilitas ?? [],
             'status' => [
                 'kode' => $this->status,
                 'nama' => Laboratory::STATUS[$this->status] ?? $this->status,
@@ -38,6 +43,14 @@ class LaboratoryResource extends JsonResource
                 'id' => $this->penanggungJawab->id,
                 'nama' => $this->penanggungJawab->name,
             ] : null),
+            'supervisor' => $this->whenLoaded('supervisor', fn () => $this->supervisor ? [
+                'id' => $this->supervisor->id,
+                'nama' => $this->supervisor->name,
+            ] : null),
+            'teknisi' => $this->whenLoaded(
+                'teknisi',
+                fn () => $this->teknisi->map(fn ($t) => ['id' => $t->id, 'nama' => $t->name])->values(),
+            ),
             'jumlah_aset' => $this->whenCounted('assets'),
             'keterangan' => $this->keterangan,
         ];

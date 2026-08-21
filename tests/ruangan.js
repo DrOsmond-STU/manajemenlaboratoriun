@@ -15,7 +15,14 @@ function apiTiruan() {
   const sesiAktif = new Set();
   let urut = 0;
   let idRuang = 0;
+  let idLab = 0;
   const ruangan = [];
+  const lab = [];
+  const orang = [
+    { id: 91, nama: 'Dr. Sri Wahyuni', unit_kerja: 'Litbang' },
+    { id: 92, nama: 'Andi Teknisi', unit_kerja: 'Pengujian' },
+    { id: 93, nama: 'Rina Teknisi', unit_kerja: 'Pengujian' }
+  ];
 
   const punyaSesi = (req) => {
     const c = (req.headers.cookie || '').match(/flms_sesi=([^;]+)/);
@@ -41,6 +48,23 @@ function apiTiruan() {
     fasilitas: r.fasilitas || [],
     keterangan: r.keterangan || null,
     jumlah_booking_aktif: 0
+  });
+
+  const bentukLab = (l) => ({
+    id: l.id, kode: l.kode, nama: l.nama, jenis: l.jenis || null,
+    unit_kerja: l.unit_kerja || null, luas_m2: l.luas_m2 || null,
+    kapasitas: l.kapasitas || 0, jam_layanan: l.jam_layanan || null,
+    akreditasi: l.akreditasi || null,
+    fasilitas: l.fasilitas || [],
+    status: { kode: l.status || 'aktif',
+      nama: { aktif: 'Aktif', pemeliharaan: 'Pemeliharaan', tidak_aktif: 'Tidak Aktif' }[l.status || 'aktif'] },
+    ruangan: null,
+    penanggung_jawab: l.penanggung_jawab_id
+      ? orang.find((o) => o.id === l.penanggung_jawab_id) || null : null,
+    supervisor: l.supervisor_id ? orang.find((o) => o.id === l.supervisor_id) || null : null,
+    teknisi: (l.teknisi_ids || []).map((i) => orang.find((o) => o.id === i)).filter(Boolean),
+    jumlah_aset: 0,
+    keterangan: l.keterangan || null
   });
 
   const server = http.createServer((req, res) => {
@@ -108,6 +132,42 @@ function apiTiruan() {
           isi.id = ++idRuang;
           ruangan.push(isi);
           return kirim(201, { data: bentuk(isi) });
+        });
+      }
+    }
+
+    if (req.url.startsWith('/api/pengguna')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      return kirim(200, { data: orang, terpotong: false });
+    }
+
+    if (req.url.startsWith('/api/laboratories')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+
+      if (req.method === 'GET') {
+        return kirim(200, { data: lab.map(bentukLab), meta: { total: lab.length } });
+      }
+
+      if (req.method === 'POST') {
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+          if (!isi.kode) return kirim(422, { message: 'x', errors: { kode: ['Kode laboratorium wajib diisi.'] } });
+          isi.id = ++idLab;
+          lab.push(isi);
+          return kirim(201, { data: bentukLab(isi) });
+        });
+      }
+
+      if (req.method === 'PATCH') {
+        const id = Number(req.url.split('/').pop());
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+          const l = lab.find((x) => x.id === id);
+          if (!l) return kirim(404, { message: 'Tidak ditemukan' });
+          Object.assign(l, isi);
+          return kirim(200, { data: bentukLab(l) });
         });
       }
     }
@@ -239,7 +299,78 @@ function apiTiruan() {
   ok(/Proyektor 2x/.test(drawer), 'Fasilitas yang diisi ikut tersimpan dan tampil');
   ok(/Theater/.test(drawer), 'Tata letak ikut tersimpan dan tampil');
 
+  // Bagian checklist sempat HILANG saat layar ini ditulis ulang, dan tidak
+  // ada yang menandainya — persis kemunduran senyap yang paling sulit
+  // ketahuan. Dikunci di sini.
+  ok(/[Cc]hecklist/.test(drawer), 'Bagian checklist tetap ada pada detail ruangan');
+
   ok(errs.length === 0, 'Tanpa galat halaman', errs.join(' | '));
+
+  /* ============ 7. LABORATORIUM ============ */
+  console.log('\n--- 7. Laboratorium tersambung ---');
+  await page.evaluate(() => { UI.closeDrawer(); location.hash = '#/lab'; });
+  await page.waitForTimeout(900);
+
+  ok(/Belum ada laboratorium/.test(await page.textContent('#labDaftar')),
+    'Basis data kosong ditampilkan apa adanya');
+
+  await page.click('#labDaftar button');
+  await page.waitForTimeout(600);
+  ok(!!(await page.$('#lKode')), 'Formulir tambah laboratorium terbuka');
+
+  // Pemilih orang terisi dari endpoint /api/pengguna.
+  const jumlahOpsiPj = await page.$$eval('#lPj option', (e) => e.length);
+  ok(jumlahOpsiPj === 4, 'Pemilih penanggung jawab terisi dari server', 'opsi=' + jumlahOpsiPj);
+
+  await page.fill('#lKode', 'LAB-KIM-01');
+  await page.fill('#lNama', 'Laboratorium Kimia Analitik');
+  await page.fill('#lJenis', 'Pengujian');
+  await page.fill('#lKapasitas', '24');
+  await page.fill('#lLuas', '145');
+  await page.fill('#lJam', '07:30 - 17:00');
+  await page.fill('#lAkreditasi', 'ISO/IEC 17025:2017');
+  await page.selectOption('#lPj', '91');
+  await page.selectOption('#lTeknisi', ['92', '93']);
+  await page.fill('#lFasilitas', 'Fume Hood 4, Emergency Shower, APAR CO2');
+  await page.click('#labSimpan');
+  await page.waitForTimeout(900);
+
+  ok(!(await page.$('#lKode')), 'Formulir tertutup setelah berhasil');
+
+  const daftarLab = await page.textContent('#labDaftar');
+  ok(/Laboratorium Kimia Analitik/.test(daftarLab), 'Laboratorium muncul di daftar');
+  ok(/Dr. Sri Wahyuni/.test(daftarLab), 'Penanggung jawab tampil sebagai nama');
+  ok(/ISO\/IEC 17025/.test(daftarLab), 'Akreditasi tampil');
+
+  const kpiLab = await page.textContent('#labKpi');
+  ok(/Tanpa Penanggung Jawab/.test(kpiLab), 'Ringkasan menyoroti lab tanpa penanggung jawab');
+
+  await page.click('#labDaftar .res-card');
+  await page.waitForTimeout(500);
+  const drawerLab = await page.textContent('body');
+  ok(/Andi Teknisi/.test(drawerLab) && /Rina Teknisi/.test(drawerLab),
+    'Kedua teknisi tersimpan dan tampil di detail');
+  ok(/Fume Hood 4/.test(drawerLab), 'Fasilitas tersimpan dan tampil');
+  ok(/[Cc]hecklist/.test(drawerLab), 'Bagian checklist tetap ada pada detail laboratorium');
+
+  /* --- penyuntingan tidak menghapus teknisi --- */
+  await page.click('button:has-text("Ubah")');
+  await page.waitForTimeout(700);
+  const teknisiTerpilih = await page.$$eval('#lTeknisi option:checked', (e) => e.length);
+  ok(teknisiTerpilih === 2, 'Formulir ubah memuat teknisi yang sudah ditugaskan',
+    'terpilih=' + teknisiTerpilih);
+
+  await page.fill('#lKapasitas', '30');
+  await page.click('#labSimpan');
+  await page.waitForTimeout(900);
+
+  await page.click('#labDaftar .res-card');
+  await page.waitForTimeout(500);
+  const setelahUbah = await page.textContent('body');
+  ok(/Andi Teknisi/.test(setelahUbah),
+    'Menyunting kapasitas tidak menghapus penugasan teknisi');
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada modul laboratorium', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

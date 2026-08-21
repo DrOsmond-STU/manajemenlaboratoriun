@@ -14,7 +14,7 @@ const SUITES = [
   ['bmnlbl',   'Label BMN rapi dan terbaca di semua ukuran'],
   ['feattest', 'Dashboard, BSC, checklist, notifikasi email'],
   ['masuk',    'Gerbang masuk, mode data contoh, penghubung API'],
-  ['ruangan',  'Layar Ruangan tersambung: baca, simpan, tapis, bertahan']
+  ['ruangan',  'Ruangan & Laboratorium tersambung: baca, simpan, tapis, bertahan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

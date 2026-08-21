@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Models\Concerns\DapatDibatasiCakupan;
+use App\Models\Concerns\Diaudit;
 use App\Support\CakupanData;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -19,7 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class Laboratory extends Model
 {
-    use DapatDibatasiCakupan, HasFactory, SoftDeletes;
+    use DapatDibatasiCakupan, Diaudit, HasFactory, SoftDeletes;
 
     protected $table = 'laboratories';
 
@@ -31,8 +33,8 @@ class Laboratory extends Model
 
     protected $fillable = [
         'kode', 'nama', 'room_id', 'jenis', 'unit_kerja', 'luas_m2', 'kapasitas',
-        'jam_layanan', 'akreditasi', 'status', 'penanggung_jawab_id', 'supervisor_id',
-        'keterangan',
+        'jam_layanan', 'akreditasi', 'fasilitas', 'status',
+        'penanggung_jawab_id', 'supervisor_id', 'keterangan',
     ];
 
     protected function casts(): array
@@ -40,7 +42,35 @@ class Laboratory extends Model
         return [
             'luas_m2' => 'integer',
             'kapasitas' => 'integer',
+            'fasilitas' => 'array',
         ];
+    }
+
+    /** @return list<string> */
+    public function kolomDiaudit(): array
+    {
+        // Akreditasi adalah klaim yang dipakai pelanggan luar untuk memutuskan
+        // apakah hasil ujinya sah; siapa yang mengubahnya, kapan, dan dari apa
+        // menjadi apa harus selalu dapat ditelusuri.
+        return ['kode', 'nama', 'akreditasi', 'status', 'penanggung_jawab_id', 'supervisor_id'];
+    }
+
+    public function labelAudit(): ?string
+    {
+        return $this->nama;
+    }
+
+    /**
+     * Teknisi yang melayani laboratorium ini.
+     *
+     * Relasi sungguhan, bukan daftar id di dalam jsonb: pertanyaan
+     * "laboratorium mana saja yang ditangani orang ini" benar-benar diajukan
+     * — saat menyusun jadwal, saat orang itu cuti, dan saat menentukan siapa
+     * yang menerima notifikasi jadwal perawatan.
+     */
+    public function teknisi(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'laboratory_technicians')->withTimestamps();
     }
 
     public function room(): BelongsTo

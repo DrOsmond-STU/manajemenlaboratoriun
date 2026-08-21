@@ -23,6 +23,17 @@ class StoreLaboratoryRequest extends FormRequest
             'kapasitas' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'jam_layanan' => ['nullable', 'string', 'max:60'],
             'akreditasi' => ['nullable', 'string', 'max:100'],
+
+            'fasilitas' => ['nullable', 'array', 'max:40'],
+            'fasilitas.*' => ['string', 'max:60'],
+
+            // Daftar teknisi dikirim utuh, bukan ditambah/dikurangi satu per
+            // satu. Penugasan adalah keadaan sekarang, bukan riwayat: mengirim
+            // daftar lengkap membuat "siapa saja teknisinya" selalu punya satu
+            // jawaban, sementara operasi tambah/hapus terpisah dapat berselisih
+            // bila dua orang menyunting bersamaan.
+            'teknisi_ids' => ['nullable', 'array', 'max:30'],
+            'teknisi_ids.*' => ['integer', 'distinct', 'exists:users,id'],
             'status' => ['nullable', Rule::in(array_keys(Laboratory::STATUS))],
             'penanggung_jawab_id' => ['nullable', 'integer', 'exists:users,id'],
             'supervisor_id' => ['nullable', 'integer', 'exists:users,id'],

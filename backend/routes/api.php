@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\ChecklistController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
@@ -31,6 +32,25 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Disimpan demi kecocokan dengan bawaan Sanctum.
     Route::get('user', [AuthController::class, 'saya']);
+
+    // --- Dashboard ---------------------------------------------------------
+    // Yang boleh disusun pengguna adalah PENYAJIANNYA; cara angkanya dihitung
+    // tetap kode yang ditinjau — lihat App\Support\RegistriWidget.
+    Route::get('dashboard/utama', [DashboardController::class, 'utama'])
+        ->middleware('can:dashboard.lihat')->name('dashboard.utama');
+    Route::get('dashboard/widget-tersedia', [DashboardController::class, 'widgetTersedia'])
+        ->middleware('can:dashboard.lihat')->name('dashboard.widget-tersedia');
+
+    Route::get('dashboard', [DashboardController::class, 'index'])
+        ->middleware('can:dashboard.lihat');
+    Route::post('dashboard', [DashboardController::class, 'store'])
+        ->middleware('can:dashboard.lihat');
+    Route::get('dashboard/{dashboard}', [DashboardController::class, 'show'])
+        ->middleware('can:dashboard.lihat');
+    Route::put('dashboard/{dashboard}', [DashboardController::class, 'update'])
+        ->middleware('can:dashboard.lihat');
+    Route::delete('dashboard/{dashboard}', [DashboardController::class, 'destroy'])
+        ->middleware('can:dashboard.lihat');
 
     // --- Booking ruangan -------------------------------------------------
     Route::get('bookings', [BookingController::class, 'index'])

@@ -255,8 +255,11 @@ backend/
 │   ├── Models/Concerns/DapatDibatasiCakupan.php  scope ->dalamCakupan()
 │   ├── Models/Concerns/Diaudit.php          jejak audit otomatis lewat peristiwa model
 │   ├── Listeners/CatatPerubahanHakAkses.php pemberian & pencabutan peran/izin
+│   ├── Support/RegistriWidget.php           daftar putih widget — batas keamanan
 │   ├── Services/
 │   │   ├── AuditService.php                 pencatatan di luar penyuntingan kolom
+│   │   ├── SusunanDashboard.php             simpan susunan + dashboard bawaan per peran
+│   │   ├── DataWidget.php                   perhitungan tiap widget, tunduk cakupan
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
 │   │   ├── NupAllocator.php                 pemberian NUP yang aman balapan
@@ -274,6 +277,7 @@ backend/
 │                                             bmn_kode_barang, bmn_nup_counters, assets,
 │                                             asset_mutations, pemicu identitas BMN,
 │                                             audit_logs + pemicu hanya-tambah,
+│                                             dashboards & dashboard_widgets + CHECK kisi,
 │                                             peran & izin, indeks kode ruangan parsial
 ├── database/factories/{Room,Booking,Asset,BmnKodeBarang}Factory.php
 ├── database/seeders/BmnKodeBarangSeeder.php  ⚠ cuplikan contoh, bukan master resmi
@@ -282,13 +286,14 @@ backend/
     ├── Feature/{BookingConflict,BookingApi,BookingRaceCondition}Test.php
     ├── Feature/{AssetApi,NupRaceCondition}Test.php
     ├── Feature/AuditTrailTest.php
+    ├── Feature/DashboardTest.php
     └── Unit/PenyusutanTest.php
 ```
 
 ### 4.1 Hasil uji
 
 ```
-306 uji lulus, 881 asersi, 0 gagal — dijalankan di PostgreSQL 16
+329 uji lulus, 965 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -494,6 +499,34 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Widget dashboard adalah daftar putih, dan itu batas keamanan.**
+  Permintaannya adalah dashboard yang widgetnya dapat dikelola sendiri
+  pengguna. Cara paling langsung memenuhinya — menyimpan sumber data widget
+  sebagai teks bebas (nama tabel atau potongan kueri) — membongkar dua hal
+  sekaligus: injeksi SQL lewat jalur yang tidak terlihat seperti jalur data,
+  dan penembusan cakupan data, karena widget berkueri bebas melewati
+  `->dalamCakupan()` yang dipatuhi seluruh modul lain. Yang dapat disusun
+  pengguna karena itu adalah **penyajiannya** — widget mana, di posisi mana,
+  selebar apa, berjudul apa, dengan tapis apa — sementara **cara angkanya
+  dihitung** tetap kode yang ditinjau di `App\Support\RegistriWidget`.
+- **Izin widget diperiksa saat data diambil, bukan saat dipasang.** Peran
+  berubah seiring waktu; orang yang kehilangan peran Finance tidak boleh terus
+  melihat angka piutang hanya karena widgetnya sudah tersimpan di tata
+  letaknya sejak sebelum perannya dicabut. Widget tak berizin mengembalikan
+  penanda, bukan angka — dan bukan pula galat.
+- **Angka ringkasan tunduk pada cakupan data yang sama dengan daftar
+  rincinya.** "42 aset" bagi orang yang seharusnya hanya melihat gedungnya
+  sendiri sudah memberi tahu ada sesuatu di luar sana.
+- **Geometri kisi dijaga batasan CHECK, bukan JavaScript penyusunnya.**
+  Seret-lepas di peramban mengirim angka apa pun, dan satu widget berlebar 0
+  atau menjorok keluar kisi 12 kolom merusak tata letak bagi semua orang yang
+  membukanya — termasuk pemiliknya, yang lalu tidak punya cara memperbaikinya
+  lewat antarmuka yang sudah rusak.
+- **Satu widget rusak tidak menjatuhkan seluruh halaman.** Perhitungan tiap
+  widget dibungkus, galatnya tetap diteruskan `report()` ke log seperti biasa,
+  tetapi yang muncul di layar adalah satu kotak bertanda — bukan galat 500 pada
+  tampilan pertama setiap kali orang masuk. Ditambahkan setelah satu nama
+  scope yang keliru benar-benar menjatuhkan seluruh dashboard saat pengujian.
 - **Jejak audit hanya bisa ditambah, dan itu ditegakkan basis data.**
   Pemicu pada `audit_logs` menolak setiap UPDATE dan DELETE. Jejak audit yang
   dapat disunting bukan jejak audit: yang dirugikan ketiadaannya hanya
@@ -533,6 +566,7 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
 | Unggah foto peralatan | `Storage` + disk privat di luar docroot |
 | 12 peran, matriks izin | peran & izin basis data, `Policy` per modul |
 | Ekspor PDF/Excel | pekerjaan berantre, hasil disimpan ke disk privat |
+| Dashboard dapat disusun sendiri | `dashboards`/`dashboard_widgets` + daftar putih widget |
 
 ---
 

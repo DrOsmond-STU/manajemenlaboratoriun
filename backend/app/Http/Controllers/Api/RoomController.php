@@ -24,6 +24,7 @@ class RoomController extends Controller
         $this->authorize('viewAny', Room::class);
 
         $query = Room::query()->dalamCakupan($request->user())
+            ->with('penanggungJawab:id,name')
             ->withCount('bookingsAktif')->orderBy('kode');
 
         if ($request->filled('cari')) {
@@ -42,6 +43,10 @@ class RoomController extends Controller
             $query->where('gedung', $request->string('gedung')->toString());
         }
 
+        if ($request->filled('jenis')) {
+            $query->where('jenis', $request->string('jenis')->toString());
+        }
+
         // Kapasitas minimum — pertanyaan pertama siapa pun yang mencari ruangan.
         if ($request->filled('kapasitas_min')) {
             $query->where('kapasitas', '>=', $request->integer('kapasitas_min'));
@@ -56,14 +61,25 @@ class RoomController extends Controller
 
         $ruangan = Room::create($request->validated());
 
-        return RoomResource::make($ruangan)->response()->setStatusCode(201);
+        // refresh() bukan pemborosan: sebagian kolom punya nilai bawaan di
+        // basis data (`status`, `skema_tarif`), dan objek hasil create() tidak
+        // mengetahuinya. Tanpa ini jawabannya memantulkan keadaan di memori —
+        // dengan kolom-kolom itu bernilai null — bukan baris yang benar-benar
+        // tersimpan, dan antarmuka menampilkan ruangan tanpa status sampai
+        // halamannya dimuat ulang.
+        $ruangan->refresh();
+
+        return RoomResource::make($ruangan->load('penanggungJawab:id,name'))
+            ->response()->setStatusCode(201);
     }
 
     public function show(Room $room): RoomResource
     {
         $this->authorize('view', $room);
 
-        return RoomResource::make($room->loadCount('bookingsAktif'));
+        return RoomResource::make(
+            $room->load('penanggungJawab:id,name')->loadCount('bookingsAktif')
+        );
     }
 
     public function update(UpdateRoomRequest $request, Room $room): RoomResource
@@ -72,7 +88,9 @@ class RoomController extends Controller
 
         $room->update($request->validated());
 
-        return RoomResource::make($room->loadCount('bookingsAktif'));
+        return RoomResource::make(
+            $room->load('penanggungJawab:id,name')->loadCount('bookingsAktif')
+        );
     }
 
     /**

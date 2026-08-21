@@ -311,13 +311,32 @@
   };
 
   /* =======================================================================
-     RUANGAN
+     RUANGAN — tersambung ke basis data
+
+     Layar pertama yang benar-benar membaca dan menulis ke server. Pola di
+     sini yang diikuti modul-modul berikutnya:
+
+       render()  hanya memasang kerangka + penanda memuat, tanpa data
+       mount()   mengambil data lewat Repo lalu mengisi kerangkanya
+
+     Router memanggil render() secara sinkron, jadi data tidak mungkin sudah
+     ada saat itu. Menunggu di render() akan membekukan seluruh aplikasi
+     selama jaringan lambat; mengisi di mount() membuat kerangkanya muncul
+     seketika dan datanya menyusul.
      ======================================================================= */
-  function roomGrid(filter) {
+
+  /**
+   * Grid ruangan versi PURWARUPA — masih membaca data.js.
+   *
+   * Dipakai view yang belum dikonversi ke API (Ruang Rapat, Auditorium).
+   * Namanya sengaja menyebut "purwarupa" supaya sisa pekerjaan terlihat dari
+   * kodenya sendiri, bukan hanya dari daftar tugas yang bisa tertinggal.
+   */
+  function roomGridPurwarupa(filter) {
     const rows = filter ? D.rooms.filter(filter) : D.rooms;
     return `<div class="grid g3">
       ${rows.map((r) => `
-        <div class="card res-card" onclick="showRoom('${r.id}')">
+        <div class="card res-card" onclick="showRoomPurwarupa('${r.id}')">
           <div class="thumb">${U.layoutDiagram(r.layout[0], 200, 112)}</div>
           <div class="rc-body">
             <div class="row"><div style="flex:1;min-width:0">
@@ -337,29 +356,411 @@
     </div>`;
   }
 
+  /** Keadaan layar ruangan. Di luar view supaya bertahan antar-render. */
+  const RUANG = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  const STATUS_TINT = { tersedia: "green", pemeliharaan: "amber", tidak_aktif: "slate" };
+  const SKEMA_TINT = {
+    internal: "brand", internal_gratis: "teal", berbayar: "amber", terbatas: "red"
+  };
+
+  function kartuRuangan(r) {
+    const fas = r.fasilitas || [];
+    const tl = r.tata_letak || [];
+
+    return `
+      <div class="card res-card" onclick="showRoom('${U.esc(String(r.id))}')">
+        <div class="thumb">${U.layoutDiagram(tl[0] || "Boardroom", 200, 112)}</div>
+        <div class="rc-body">
+          <div class="row"><div style="flex:1;min-width:0">
+            <div class="rc-title trunc">${U.esc(r.nama)}</div>
+            <div class="rc-meta">${U.esc(r.kode)}${r.jenis ? " • " + U.esc(r.jenis) : ""}</div></div>
+            <span class="badge ${STATUS_TINT[r.status.kode] || "slate"}">${U.esc(r.status.nama)}</span></div>
+          <div class="row mt-8 small muted gap-16">
+            <span>${U.icon("users", 13)} ${r.kapasitas || 0} pax</span>
+            ${r.gedung ? `<span>${U.icon("pin", 13)} ${U.esc(r.gedung)}${r.lantai ? "-" + U.esc(r.lantai) : ""}</span>` : ""}
+            ${r.luas_m2 ? `<span>${r.luas_m2} m²</span>` : ""}</div>
+          <div class="rc-facs">${fas.slice(0, 4).map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}
+            ${fas.length > 4 ? `<span class="fac">+${fas.length - 4}</span>` : ""}</div>
+          <div class="row mt-12" style="padding-top:10px;border-top:1px solid var(--border)">
+            <span class="badge ${SKEMA_TINT[r.tarif.skema] || "slate"}">${U.esc(r.tarif.skema_nama)}</span>
+            <div class="spacer"></div>
+            <b class="small">${r.tarif.skema === "berbayar" && r.tarif.nilai ? U.rpShort(r.tarif.nilai) : "Tanpa tarif"}</b></div>
+        </div>
+      </div>`;
+  }
+
+  function isiDaftarRuangan() {
+    const wadah = document.getElementById("ruangDaftar");
+    if (!wadah) return;
+
+    if (RUANG.memuat) {
+      wadah.innerHTML = `<div class="card" style="padding:32px;text-align:center" class="muted">
+        <span class="muted">Memuat ruangan…</span></div>`;
+      return;
+    }
+
+    if (RUANG.galat) {
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat ruangan.</b><br><span class="small">${U.esc(RUANG.galat)}</span></div></div>`;
+      return;
+    }
+
+    if (!RUANG.baris.length) {
+      // Kosong karena penapisan berbeda maknanya dari kosong karena memang
+      // belum ada data — yang pertama butuh tombol hapus tapis, yang kedua
+      // butuh tombol tambah.
+      const adaTapis = Object.keys(RUANG.tapis).some((k) => RUANG.tapis[k]);
+      wadah.innerHTML = `<div class="card" style="padding:40px;text-align:center">
+        <div class="muted mb-12">${adaTapis
+          ? "Tidak ada ruangan yang cocok dengan penyaringan ini."
+          : "Belum ada ruangan yang terdaftar."}</div>
+        ${adaTapis
+          ? `<button class="btn btn-sm" onclick="ruangHapusTapis()">Hapus penyaringan</button>`
+          : (Repo.dapatMenulis()
+            ? `<button class="btn btn-primary btn-sm" onclick="ruangForm()">${U.icon("plus")} Tambah Ruangan Pertama</button>`
+            : `<span class="small muted">Masuk dengan akun untuk menambahkan ruangan.</span>`)}
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="grid g3">${RUANG.baris.map(kartuRuangan).join("")}</div>`;
+  }
+
+  function isiRingkasanRuangan() {
+    const wadah = document.getElementById("ruangKpi");
+    if (!wadah) return;
+
+    const b = RUANG.baris;
+    const kapasitas = b.reduce((a, r) => a + (r.kapasitas || 0), 0);
+    const berbayar = b.filter((r) => r.tarif.skema === "berbayar").length;
+    const luas = b.reduce((a, r) => a + (r.luas_m2 || 0), 0);
+    const takTersedia = b.filter((r) => r.status.kode !== "tersedia").length;
+    const gedung = new Set(b.map((r) => r.gedung).filter(Boolean)).size;
+
+    // Angka dihitung dari baris yang benar-benar ada, bukan dari nilai tetap.
+    // Ringkasan yang tidak ikut berubah saat datanya berubah adalah cara
+    // paling halus membuat orang salah membaca keadaan.
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Total Ruangan", value: b.length, icon: "building", tint: "brand",
+                note: gedung ? gedung + " gedung" : "—" })}
+      ${U.kpi({ label: "Total Kapasitas", value: U.num(kapasitas), suffix: "kursi", icon: "users", tint: "teal", note: "Seluruh ruangan" })}
+      ${U.kpi({ label: "Ruangan Berbayar", value: berbayar, icon: "money", tint: "amber", note: "Dapat disewakan" })}
+      ${U.kpi({ label: "Total Luas", value: U.num(luas), suffix: "m²", icon: "grid", tint: "violet", note: "Seluruh ruangan" })}
+      ${U.kpi({ label: "Tidak Tersedia", value: takTersedia, icon: "wrench", tint: "red", note: "Pemeliharaan / tidak aktif" })}`;
+  }
+
+  async function muatRuangan() {
+    RUANG.memuat = true;
+    RUANG.galat = null;
+    isiDaftarRuangan();
+
+    try {
+      const hasil = await Repo.ruangan.daftar(RUANG.tapis);
+      RUANG.baris = hasil.data;
+    } catch (e) {
+      RUANG.baris = [];
+      RUANG.galat = e.message;
+    } finally {
+      RUANG.memuat = false;
+      isiDaftarRuangan();
+      isiRingkasanRuangan();
+      isiPilihanTapis();
+    }
+  }
+
+  function isiPilihanTapis() {
+    const selG = document.getElementById("ruangGedung");
+    const selJ = document.getElementById("ruangJenis");
+    if (!selG || !selJ) return;
+
+    // Pilihan penyaringan dibangun dari data yang ada, bukan dari daftar
+    // tetap: daftar tetap akan menawarkan gedung yang tidak punya satu pun
+    // ruangan, dan menyembunyikan gedung yang baru ditambahkan.
+    const isi = (sel, nilai, label) => {
+      const terpilih = sel.value;
+      sel.innerHTML = `<option value="">${label}</option>` +
+        nilai.map((v) => `<option${v === terpilih ? " selected" : ""}>${U.esc(v)}</option>`).join("");
+    };
+
+    isi(selG, [...new Set(RUANG.baris.map((r) => r.gedung).filter(Boolean))].sort(), "Semua Gedung");
+    isi(selJ, [...new Set(RUANG.baris.map((r) => r.jenis).filter(Boolean))].sort(), "Semua Jenis");
+  }
+
+  window.ruangTapis = function (kunci, nilai) {
+    if (nilai) RUANG.tapis[kunci] = nilai; else delete RUANG.tapis[kunci];
+    muatRuangan();
+  };
+
+  window.ruangHapusTapis = function () {
+    RUANG.tapis = {};
+    const c = document.getElementById("ruangCari");
+    if (c) c.value = "";
+    muatRuangan();
+  };
+
+  /* ------------------------------------------------------------- formulir */
+
+  const SKEMA_PILIHAN = [
+    ["internal", "Internal (tanpa tarif)"],
+    ["internal_gratis", "Internal gratis, eksternal berbayar"],
+    ["berbayar", "Berbayar"],
+    ["terbatas", "Terbatas / khusus"]
+  ];
+
+  const STATUS_PILIHAN = [
+    ["tersedia", "Tersedia"],
+    ["pemeliharaan", "Pemeliharaan"],
+    ["tidak_aktif", "Tidak aktif"]
+  ];
+
+  window.ruangForm = function (id) {
+    if (!Repo.dapatMenulis()) {
+      U.toast("Tidak tersedia", "Menyimpan ruangan hanya bisa setelah masuk dengan akun. Mode data contoh tidak menyimpan apa pun.");
+      return;
+    }
+
+    const r = id ? RUANG.baris.find((x) => String(x.id) === String(id)) : null;
+    const v = (x) => (x === null || x === undefined ? "" : U.esc(String(x)));
+
+    const pilih = (nama, daftar, terpilih) =>
+      `<select class="select" id="${nama}">${daftar
+        .map(([k, l]) => `<option value="${k}"${k === terpilih ? " selected" : ""}>${l}</option>`)
+        .join("")}</select>`;
+
+    U.drawer({
+      size: "wide",
+      title: r ? "Ubah Ruangan" : "Tambah Ruangan",
+      sub: r ? r.kode : "Isian bertanda * wajib diisi",
+      body: `
+        <div id="ruangFormGalat" class="alert err mb-16" hidden></div>
+        <div class="grid g2 gap-12">
+          <label class="fld"><span>Kode ruangan *</span>
+            <input class="input" id="fKode" value="${v(r && r.kode)}" placeholder="CR-B-401"></label>
+          <label class="fld"><span>Nama ruangan *</span>
+            <input class="input" id="fNama" value="${v(r && r.nama)}" placeholder="Conference Room Garuda"></label>
+          <label class="fld"><span>Jenis</span>
+            <input class="input" id="fJenis" value="${v(r && r.jenis)}" placeholder="Conference Room"></label>
+          <label class="fld"><span>Gedung</span>
+            <input class="input" id="fGedung" value="${v(r && r.gedung)}" placeholder="Gedung B"></label>
+          <label class="fld"><span>Lantai</span>
+            <input class="input" id="fLantai" value="${v(r && r.lantai)}" placeholder="4"></label>
+          <label class="fld"><span>Luas (m²)</span>
+            <input class="input" id="fLuas" type="number" min="0" value="${v(r && r.luas_m2)}"></label>
+          <label class="fld"><span>Kapasitas (kursi)</span>
+            <input class="input" id="fKapasitas" type="number" min="0" value="${v(r && r.kapasitas)}"></label>
+          <label class="fld"><span>Status</span>
+            ${pilih("fStatus", STATUS_PILIHAN, r ? r.status.kode : "tersedia")}</label>
+          <label class="fld"><span>Skema tarif</span>
+            ${pilih("fSkema", SKEMA_PILIHAN, r ? r.tarif.skema : "internal")}</label>
+          <label class="fld"><span>Tarif (Rp)</span>
+            <input class="input" id="fTarif" type="number" min="0" value="${v(r && r.tarif.nilai)}"
+                   placeholder="Wajib bila skemanya Berbayar"></label>
+        </div>
+        <label class="fld mt-12"><span>Tata letak yang didukung</span>
+          <input class="input" id="fTataLetak" value="${v(r && (r.tata_letak || []).join(', '))}"
+                 placeholder="Theater, Classroom, U-Shape"></label>
+        <label class="fld mt-12"><span>Fasilitas</span>
+          <input class="input" id="fFasilitas" value="${v(r && (r.fasilitas || []).join(', '))}"
+                 placeholder="Proyektor, Sound System, Video Conf, AC"></label>
+        <p class="small muted mt-6">Pisahkan dengan koma.</p>
+        <label class="fld mt-12"><span>Keterangan</span>
+          <textarea class="input" id="fKeterangan" rows="3">${v(r && r.keterangan)}</textarea></label>
+        <label class="fld-cek mt-12">
+          <input type="checkbox" id="fPersetujuan"${r && r.perlu_persetujuan ? " checked" : ""}>
+          Pemesanan ruangan ini perlu persetujuan</label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="ruangSimpan" onclick="ruangSimpan(${r ? "'" + U.esc(String(r.id)) + "'" : "null"})">
+               ${r ? "Simpan Perubahan" : "Simpan Ruangan"}</button>`
+    });
+  };
+
+  /** "a, b,, c" → ["a","b","c"]; kosong → null, bukan [""]. */
+  function daftarDariTeks(teks) {
+    const bagian = (teks || "").split(",").map((s) => s.trim()).filter(Boolean);
+    return bagian.length ? bagian : null;
+  }
+
+  function nilaiAngka(id) {
+    const el = document.getElementById(id);
+    if (!el || el.value === "") return null;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  window.ruangSimpan = async function (id) {
+    const teks = (x) => {
+      const el = document.getElementById(x);
+      const t = el ? el.value.trim() : "";
+      return t === "" ? null : t;
+    };
+
+    const isi = {
+      kode: teks("fKode"),
+      nama: teks("fNama"),
+      jenis: teks("fJenis"),
+      gedung: teks("fGedung"),
+      lantai: teks("fLantai"),
+      luas_m2: nilaiAngka("fLuas"),
+      kapasitas: nilaiAngka("fKapasitas"),
+      status: document.getElementById("fStatus").value,
+      skema_tarif: document.getElementById("fSkema").value,
+      tarif: nilaiAngka("fTarif"),
+      tata_letak: daftarDariTeks(document.getElementById("fTataLetak").value),
+      fasilitas: daftarDariTeks(document.getElementById("fFasilitas").value),
+      keterangan: teks("fKeterangan"),
+      perlu_persetujuan: document.getElementById("fPersetujuan").checked
+    };
+
+    const tombol = document.getElementById("ruangSimpan");
+    const kotak = document.getElementById("ruangFormGalat");
+    kotak.hidden = true;
+    tombol.disabled = true;
+    tombol.textContent = "Menyimpan…";
+
+    try {
+      await Repo.ruangan.simpan(isi, id);
+      U.closeDrawer();
+      U.toast(id ? "Ruangan diperbarui" : "Ruangan tersimpan", isi.nama + " tersimpan ke basis data.");
+      await muatRuangan();
+    } catch (e) {
+      // Galat validasi ditampilkan DI DALAM formulir, bukan sebagai toast
+      // yang lewat: pengguna perlu membacanya sambil memperbaiki isiannya,
+      // dan toast sudah hilang sebelum sempat dibaca ulang.
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan)
+          .map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else {
+        kotak.textContent = e.message || "Gagal menyimpan.";
+      }
+      kotak.hidden = false;
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = id ? "Simpan Perubahan" : "Simpan Ruangan";
+    }
+  };
+
+  window.ruangHapus = async function (id) {
+    const r = RUANG.baris.find((x) => String(x.id) === String(id));
+    if (!r) return;
+
+    U.modal({
+      title: "Hapus ruangan?",
+      body: `<p>Ruangan <b>${U.esc(r.nama)}</b> (${U.esc(r.kode)}) akan dihapus.</p>
+             <p class="small muted mt-8">Penghapusan bersifat lunak — datanya tetap tersimpan dan
+             pemesanan lama tetap dapat ditelusuri. Ruangan yang masih punya pemesanan terjadwal
+             tidak dapat dihapus.</p>`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn btn-danger" onclick="ruangHapusPasti('${U.esc(String(id))}')">Hapus</button>`
+    });
+  };
+
+  window.ruangHapusPasti = async function (id) {
+    try {
+      await Repo.ruangan.hapus(id);
+      U.closeModal();
+      U.closeDrawer();
+      U.toast("Ruangan dihapus", "Ruangan telah dihapus.");
+      await muatRuangan();
+    } catch (e) {
+      U.closeModal();
+      Repo.tampilkanGalat(e, "Tidak dapat menghapus");
+    }
+  };
+
+
+  /* --------------------------------------------------------------- detail */
+
+  window.showRoom = function (id) {
+    const r = RUANG.baris.find((x) => String(x.id) === String(id));
+    if (!r) return;
+
+    const baris = (label, isi) => isi === null || isi === undefined || isi === ""
+      ? "" : `<dt>${label}</dt><dd>${isi}</dd>`;
+
+    U.drawer({
+      size: "wide",
+      title: r.nama,
+      sub: [r.kode, r.jenis, r.gedung].filter(Boolean).join(" • "),
+      body: `
+        <div class="thumb mb-16" style="aspect-ratio:21/9">
+          ${U.layoutDiagram((r.tata_letak || [])[0] || "Boardroom", 220, 100)}</div>
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_TINT[r.status.kode] || "slate"}">${U.esc(r.status.nama)}</span>
+          <span class="badge ${SKEMA_TINT[r.tarif.skema] || "slate"}">${U.esc(r.tarif.skema_nama)}</span>
+          ${r.kapasitas ? `<span class="badge outline">${r.kapasitas} kursi</span>` : ""}
+          ${r.luas_m2 ? `<span class="badge outline">${r.luas_m2} m²</span>` : ""}
+          ${r.perlu_persetujuan ? `<span class="badge amber">Perlu persetujuan</span>` : ""}</div>
+        <div class="dl mb-16">
+          ${baris("Lokasi", [r.gedung, r.lantai ? "lantai " + U.esc(r.lantai) : null].filter(Boolean).join(", ") || null)}
+          ${baris("Jenis Ruangan", r.jenis ? U.esc(r.jenis) : null)}
+          ${baris("Kapasitas", r.kapasitas ? r.kapasitas + " orang" : null)}
+          ${baris("Luas", r.luas_m2 ? r.luas_m2 + " m²" : null)}
+          ${baris("Tata Letak", (r.tata_letak || []).length
+            ? r.tata_letak.map((l) => `<span class="fac">${U.esc(l)}</span>`).join(" ") : null)}
+          ${baris("Penanggung Jawab", r.penanggung_jawab ? U.esc(r.penanggung_jawab.nama) : null)}
+          ${baris("Tarif", r.tarif.skema === "berbayar" && r.tarif.nilai
+            ? U.rp(r.tarif.nilai) : r.tarif.skema_nama)}
+          ${baris("Pemesanan Terjadwal", r.jumlah_booking_aktif === null || r.jumlah_booking_aktif === undefined
+            ? null : r.jumlah_booking_aktif)}
+          ${baris("Keterangan", r.keterangan ? U.esc(r.keterangan) : null)}
+        </div>
+        ${(r.fasilitas || []).length ? `
+          <h4 class="mb-8 muted">FASILITAS RUANGAN</h4>
+          <div class="row wrap gap-6 mb-16">
+            ${r.fasilitas.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>` : ""}
+        <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
+          ${U.qrBox(r.kode)}<div class="small muted">QR di pintu ruangan menampilkan jadwal hari ini,
+            penanggung jawab, status, dan tombol check-in cepat.</div></div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
+             ${Repo.dapatMenulis() ? `
+               <button class="btn" onclick="ruangForm('${U.esc(String(r.id))}')">${U.icon("edit")} Ubah</button>
+               <button class="btn btn-danger" onclick="ruangHapus('${U.esc(String(r.id))}')">Hapus</button>` : ""}
+             <div class="spacer"></div>
+             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/booking/new'">Booking Ruangan</button>`
+    });
+  };
+
   V["rooms"] = {
     title: "Manajemen Ruangan",
     sub: "Seluruh ruangan: rapat, konferensi, training, workshop, VIP, dan serbaguna.",
-    actions: `<button class="btn btn-sm" onclick="location.hash='#/availability'">${U.icon("calendar")} Ketersediaan</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form tambah ruangan')">${U.icon("plus")} Tambah Ruangan</button>`,
+    get actions() {
+      // Tombol tambah hanya muncul bila memang dapat menyimpan. Menampilkannya
+      // lalu menolak saat ditekan hanya membuang waktu orang.
+      return `<button class="btn btn-sm" onclick="location.hash='#/availability'">${U.icon("calendar")} Ketersediaan</button>
+              ${Repo.dapatMenulis()
+                ? `<button class="btn btn-primary btn-sm" onclick="ruangForm()">${U.icon("plus")} Tambah Ruangan</button>`
+                : ""}`;
+    },
     render() {
       return `
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Total Ruangan", value: D.rooms.length, icon: "building", tint: "brand", note: "4 gedung" })}
-          ${U.kpi({ label: "Total Kapasitas", value: U.num(D.rooms.reduce((a, r) => a + r.cap, 0)), suffix: "kursi", icon: "users", tint: "teal", note: "Seluruh ruangan" })}
-          ${U.kpi({ label: "Ruangan Berbayar", value: D.rooms.filter((r) => r.pricing === "PAID").length, icon: "money", tint: "amber", note: "Dapat disewakan" })}
-          ${U.kpi({ label: "Utilisasi Rata-rata", value: Math.round(D.rooms.reduce((a, r) => a + r.util, 0) / D.rooms.length), suffix: "%", icon: "chart", tint: "violet", delta: 6, note: "30 hari terakhir" })}
-          ${U.kpi({ label: "Tidak Tersedia", value: D.rooms.filter((r) => r.status === "Maintenance").length, icon: "wrench", tint: "red", note: "Sedang maintenance" })}
-        </div>
+        <div class="grid g5 mb-16" id="ruangKpi"></div>
         <div class="card mb-16"><div class="tbl-toolbar">
-          <div class="tbl-search">${U.icon("search", 15, "faint")}<input placeholder="Cari ruangan…"></div>
-          <select class="select" style="width:auto"><option>Semua Gedung</option>${D.org.buildings.map((b) => `<option>${b.name}</option>`).join("")}</select>
-          <select class="select" style="width:auto"><option>Semua Jenis</option>${[...new Set(D.rooms.map((r) => r.type))].map((t) => `<option>${t}</option>`).join("")}</select>
-          <select class="select" style="width:auto"><option>Semua Skema Tarif</option><option>Gratis Internal</option><option>Berbayar</option><option>Terbatas</option></select>
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="ruangCari" placeholder="Cari nama, kode, atau gedung…"></div>
+          <select class="select" style="width:auto" id="ruangGedung"
+                  onchange="ruangTapis('gedung', this.value)"><option value="">Semua Gedung</option></select>
+          <select class="select" style="width:auto" id="ruangJenis"
+                  onchange="ruangTapis('jenis', this.value)"><option value="">Semua Jenis</option></select>
           <div class="spacer"></div>
-          <div class="seg"><button class="active">${U.icon("grid", 13)}</button><button onclick="UI.demo('Tampilan tabel')">${U.icon("list", 13)}</button></div>
         </div></div>
-        ${roomGrid()}`;
+        <div id="ruangDaftar"></div>`;
+    },
+    mount() {
+      const cari = document.getElementById("ruangCari");
+      if (cari) {
+        cari.value = RUANG.tapis.cari || "";
+
+        // Ditunda 300 ms. Tanpa penundaan, mengetik "auditorium" mengirim
+        // sepuluh permintaan yang jawabannya dapat tiba tidak berurutan —
+        // dan yang tampil akhirnya jawaban untuk kata yang sudah usang.
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => ruangTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatRuangan();
     }
   };
 
@@ -395,7 +796,7 @@
             <div class="alert ai small mt-8">${U.icon("sparkle", 15)}<div>AI dapat menyusun draf MoM otomatis dari rekaman rapat dan agenda yang terdaftar.</div></div>
           </div>`)}
         </div>
-        ${roomGrid((r) => ["Meeting Room", "Conference Room", "VIP"].includes(r.type))}`;
+        ${roomGridPurwarupa((r) => ["Meeting Room", "Conference Room", "VIP"].includes(r.type))}`;
     }
   };
 
@@ -457,7 +858,7 @@
     }
   };
 
-  window.showRoom = function (id) {
+  window.showRoomPurwarupa = function (id) {
     const r = D.byId(D.rooms, id);
     const bk = D.bookings.filter((b) => b.res === id);
     U.drawer({

@@ -92,7 +92,11 @@ class RoomApiTest extends TestCase
             ->patchJson("/api/rooms/{$room->id}", ['nama' => 'Nama Baru', 'status' => 'pemeliharaan'])
             ->assertOk()
             ->assertJsonPath('data.nama', 'Nama Baru')
-            ->assertJsonPath('data.status', 'pemeliharaan');
+            // Status dikirim sebagai {kode, nama} — sama seperti `kondisi`
+            // pada aset — supaya antarmuka tidak perlu memelihara salinan
+            // daftar yang pasti menyimpang.
+            ->assertJsonPath('data.status.kode', 'pemeliharaan')
+            ->assertJsonPath('data.status.nama', 'Pemeliharaan');
     }
 
     public function test_mengirim_kode_sendiri_saat_mengubah_diizinkan(): void

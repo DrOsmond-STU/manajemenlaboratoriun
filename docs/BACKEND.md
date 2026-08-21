@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-356 uji lulus, 1.053 asersi, 0 gagal — dijalankan di PostgreSQL 16
+371 uji lulus, 1.104 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,24 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Tabel yang menyusul layar, bukan layar yang dipangkas.** Tabel `rooms`
+  semula dibuat untuk melayani pemesanan saja — kode, nama, gedung, lantai,
+  kapasitas. Purwarupa yang sudah ditinjau menampilkan lebih banyak: jenis
+  ruangan, luas, skema tarif, penanggung jawab, tata letak, fasilitas.
+  Menyambungkan layar ke tabel yang lebih tipis akan menghilangkan kolom-kolom
+  itu dari antarmuka tanpa ada yang meminta — bentuk kemunduran yang paling
+  mudah lolos, karena tidak menimbulkan galat apa pun, hanya isian yang
+  diam-diam berkurang.
+- **Skema tarif dipisahkan dari nilainya.** Ruangan internal bertarif nol
+  berbeda maknanya dari ruangan berbayar yang tarifnya belum ditetapkan; satu
+  kolom angka tidak dapat membedakannya, dan yang kedua adalah kesalahan yang
+  harus ketahuan sebelum tagihan pertama terbit. Ditegakkan CHECK:
+  `skema_tarif <> 'berbayar' OR tarif IS NOT NULL`.
+- **Jawaban `store` memantulkan baris tersimpan, bukan objek di memori.**
+  Sebagian kolom punya nilai bawaan di basis data, dan objek hasil `create()`
+  tidak mengetahuinya — tanpa `refresh()` antarmuka menampilkan ruangan tanpa
+  status sampai halamannya dimuat ulang. Ketahuan dari uji, bukan dari
+  laporan pengguna.
 - **CORS lintas subdomain dengan kredensial, dan asalnya tegas.** Antarmuka
   di `lab.` dan API di `api.lab.` adalah **asal yang berbeda** bagi peramban.
   Tanpa `config/cors.php` berlaku bawaan Laravel `supports_credentials =>

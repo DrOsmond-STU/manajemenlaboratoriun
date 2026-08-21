@@ -22,6 +22,7 @@ class AssetController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = Asset::query()
+            ->dalamCakupan($request->user())
             ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
             ->latest('id');
 

@@ -244,6 +244,8 @@ backend/
 │   ├── Models/{Room,Booking,User,Asset,BmnKodeBarang,AssetMutation}.php
 │   ├── Policies/RoomPolicy.php               izin gabungan: master-data ATAU booking
 │   ├── Support/MatriksAkses.php              matriks peran × modul, sumber kebenaran
+│   ├── Support/CakupanData.php               sumbu kedua: objek mana yang terlihat
+│   ├── Models/Concerns/DapatDibatasiCakupan.php  scope ->dalamCakupan()
 │   ├── Services/
 │   │   ├── BookingService.php               menerjemahkan galat basis data → pesan pengguna
 │   │   ├── AssetService.php                 pendaftaran aset dalam satu transaksi
@@ -274,7 +276,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-156 uji lulus, 437 asersi, 0 gagal — dijalankan di PostgreSQL 16
+167 uji lulus, 466 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -336,6 +338,24 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Cakupan data (sumbu kedua otorisasi):
+
+| Uji | Yang dijaga |
+|---|---|
+| Ruangan dibatasi gedung yang diampu | PIC gedung A tidak melihat gedung B |
+| Boleh mengampu beberapa gedung | tabel `user_gedung`, bukan daftar bertanda koma |
+| Aset dibatasi lewat gedung ruangannya | penelusuran relasi, bukan kolom yang digandakan |
+| **Aset belum ditempatkan tetap terlihat** | barang baru atau sedang di bengkel tidak hilang dari daftar |
+| Aset dibatasi unit kerja | aset tanpa unit kerja adalah milik bersama |
+| **Pengajuan sendiri selalu terlihat** | pemohon harus dapat memantau pengajuannya |
+| Unit kerja pemesanan dari pemohon | tidak diterima dari permintaan, agar cakupan tidak dapat dilewati |
+| Peran lintas gedung tetap melihat semua | Asset Manager perlu itu untuk audit BMN satker |
+| **Cakupan tidak menggantikan izin** | employee bergedung A tetap ditolak pada modul aset |
+
+Uji-uji ini diperiksa benar-benar menangkap ketiadaan cakupan: dengan
+penapisannya dilumpuhkan sementara, 6 dari 11 gagal — `ukuran 2` padahal
+seharusnya `1`, dan aset unit lain ikut terlihat.
 
 **Cacat yang ditangkap uji ini.** `bmn_id` sempat terbaca `null` pada tanggapan
 API: kolomnya dibentuk basis data, sehingga instance hasil `create()` belum

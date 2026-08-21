@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DapatDibatasiCakupan;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Room extends Model
 {
-    use HasFactory, SoftDeletes;
+    use DapatDibatasiCakupan, HasFactory, SoftDeletes;
 
     protected $fillable = [
         'kode', 'nama', 'gedung', 'lantai', 'kapasitas', 'status', 'perlu_persetujuan',
@@ -41,5 +43,15 @@ class Room extends Model
         return $this->bookings()
             ->whereNotIn('status', Booking::STATUS_TIDAK_MEMBLOKIR)
             ->where('selesai', '>', now());
+    }
+
+    /**
+     * Ruangan dibatasi gedung yang diampu pengguna.
+     */
+    protected static function terapkanCakupan(Builder $query, User $pengguna): Builder
+    {
+        $gedung = static::gedungPengguna($pengguna);
+
+        return $gedung === [] ? $query : $query->whereIn('gedung', $gedung);
     }
 }

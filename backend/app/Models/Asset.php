@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DapatDibatasiCakupan;
 use App\Services\Penyusutan;
+use App\Support\CakupanData;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class Asset extends Model
 {
-    use HasFactory, SoftDeletes;
+    use DapatDibatasiCakupan, HasFactory, SoftDeletes;
 
     /** Kondisi barang menurut penatausahaan BMN. */
     public const KONDISI = [
@@ -27,7 +29,7 @@ class Asset extends Model
     ];
 
     protected $fillable = [
-        'kode_lokasi', 'kode_barang', 'nup', 'kode_internal',
+        'kode_lokasi', 'kode_barang', 'nup', 'kode_internal', 'unit_kerja',
         'nama', 'merk', 'tipe', 'serial_number', 'spesifikasi',
         'cara_perolehan', 'tgl_perolehan', 'sumber_dana', 'no_bukti', 'no_kontrak',
         'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat',
@@ -98,5 +100,32 @@ class Asset extends Model
     public function scopeKondisi(Builder $query, string $kondisi): Builder
     {
         return $query->where('kondisi', $kondisi);
+    }
+
+    /**
+     * Aset dibatasi dua sumbu sekaligus.
+     *
+     * Gedung ditelusuri lewat ruangan tempat aset berada. Aset yang BELUM
+     * ditempatkan di ruangan mana pun sengaja tetap terlihat — barang yang
+     * baru didaftarkan atau sedang di bengkel tidak boleh menghilang dari
+     * daftar hanya karena penempatannya kosong.
+     */
+    protected static function terapkanCakupan(Builder $query, User $pengguna): Builder
+    {
+        $gedung = static::gedungPengguna($pengguna);
+
+        if ($gedung !== []) {
+            $query->where(fn (Builder $q) => $q
+                ->whereNull('room_id')
+                ->orWhereHas('room', fn (Builder $r) => $r->whereIn('gedung', $gedung)));
+        }
+
+        if (CakupanData::dibatasiUnitKerja($pengguna)) {
+            $query->where(fn (Builder $q) => $q
+                ->whereNull('unit_kerja')
+                ->orWhere('unit_kerja', $pengguna->unit_kerja));
+        }
+
+        return $query;
     }
 }

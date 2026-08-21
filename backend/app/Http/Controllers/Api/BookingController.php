@@ -17,7 +17,10 @@ class BookingController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = Booking::query()->with(['room:id,kode,nama', 'user:id,name'])->latest('mulai');
+        $query = Booking::query()
+            ->dalamCakupan($request->user())
+            ->with(['room:id,kode,nama', 'user:id,name'])
+            ->latest('mulai');
 
         if ($request->filled('room_id')) {
             $query->where('room_id', $request->integer('room_id'));
@@ -35,6 +38,10 @@ class BookingController extends Controller
         $booking = $this->bookings->buat([
             ...$request->validated(),
             'user_id' => $request->user()->id,
+            // Unit kerja disalin dari pemohon, bukan diterima dari permintaan:
+            // bila dikirim pemanggil, penapisan cakupan dapat dilewati hanya
+            // dengan mengaku berasal dari unit lain.
+            'unit_kerja' => $request->user()->unit_kerja,
             'status' => 'menunggu',
         ]);
 

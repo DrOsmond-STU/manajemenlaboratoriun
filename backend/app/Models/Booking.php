@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DapatDibatasiCakupan;
+use App\Support\CakupanData;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,13 +11,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Booking extends Model
 {
-    use HasFactory;
+    use DapatDibatasiCakupan, HasFactory;
 
     /** Status yang tidak lagi memblokir slot — harus sama dengan klausa WHERE batasan eksklusi. */
     public const STATUS_TIDAK_MEMBLOKIR = ['dibatalkan', 'ditolak'];
 
     protected $fillable = [
-        'room_id', 'user_id', 'keperluan', 'jumlah_peserta', 'mulai', 'selesai', 'status', 'catatan',
+        'room_id', 'user_id', 'keperluan', 'unit_kerja', 'jumlah_peserta',
+        'mulai', 'selesai', 'status', 'catatan',
     ];
 
     /**
@@ -52,5 +55,41 @@ class Booking extends Model
     public function scopeBersinggungan(Builder $query, string $mulai, string $selesai): Builder
     {
         return $query->where('mulai', '<', $selesai)->where('selesai', '>', $mulai);
+    }
+
+    /**
+     * Pemesanan dibatasi gedung dan unit kerja — TETAPI pengajuan milik
+     * sendiri selalu terlihat.
+     *
+     * Aturan kepemilikan itu bukan kelonggaran: pemohon yang tidak dapat
+     * melihat pengajuannya sendiri tidak punya cara mengetahui apakah
+     * pengajuannya disetujui, dan akan mengajukan ulang berkali-kali.
+     * Pengecualian ini disebut eksplisit pada SECURITY.md §4.2.
+     */
+    protected static function terapkanCakupan(Builder $query, User $pengguna): Builder
+    {
+        $gedung = static::gedungPengguna($pengguna);
+        $dibatasiUnit = CakupanData::dibatasiUnitKerja($pengguna);
+
+        if ($gedung === [] && ! $dibatasiUnit) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($gedung, $dibatasiUnit, $pengguna) {
+            // Selalu terlihat: pengajuan sendiri.
+            $q->where('user_id', $pengguna->id);
+
+            $q->orWhere(function (Builder $lain) use ($gedung, $dibatasiUnit, $pengguna) {
+                if ($gedung !== []) {
+                    $lain->whereHas('room', fn (Builder $r) => $r->whereIn('gedung', $gedung));
+                }
+
+                if ($dibatasiUnit) {
+                    $lain->where(fn (Builder $u) => $u
+                        ->whereNull('unit_kerja')
+                        ->orWhere('unit_kerja', $pengguna->unit_kerja));
+                }
+            });
+        });
     }
 }

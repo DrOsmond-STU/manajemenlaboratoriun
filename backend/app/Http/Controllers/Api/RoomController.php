@@ -23,7 +23,8 @@ class RoomController extends Controller
     {
         $this->authorize('viewAny', Room::class);
 
-        $query = Room::query()->withCount('bookingsAktif')->orderBy('kode');
+        $query = Room::query()->dalamCakupan($request->user())
+            ->withCount('bookingsAktif')->orderBy('kode');
 
         if ($request->filled('cari')) {
             $kata = $request->string('cari')->toString();

@@ -250,8 +250,56 @@
     }
   };
 
+
+  /* ------------------------------------------------------------------ aset */
+
+  const aset = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        // Purwarupa memakai bentuknya sendiri untuk aset; daftar penuh belum
+        // dipetakan. Yang dipetakan baru jalur tulis, yang memang tidak
+        // tersedia di mode contoh.
+        return { data: [], total: 0, purwarupa: true };
+      }
+      const j = await API.get("/api/assets" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mendaftarkan aset");
+
+      return id
+        ? API.patch("/api/assets/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/assets", isi).then((j) => j.data);
+    },
+
+    /**
+     * Mengunggah satu foto.
+     *
+     * Memakai FormData, jadi TIDAK lewat API.post() yang selalu mengirim JSON.
+     * Content-Type sengaja tidak diisi: peramban harus menentukannya sendiri
+     * supaya batas multipart-nya ikut tertulis — mengisinya manual
+     * menghasilkan permintaan yang tidak dapat diurai server.
+     */
+    async unggahFoto(asetId, berkas, keterangan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengunggah foto");
+
+      const form = new FormData();
+      form.append("foto", berkas);
+      if (keterangan) form.append("keterangan", keterangan);
+
+      return API.kirimForm("/api/assets/" + encodeURIComponent(asetId) + "/foto", form);
+    },
+
+    kodeBarang(awalan) {
+      if (!langsungKeApi()) return Promise.resolve({ data: [] });
+      return API.get("/api/bmn/kode-barang" + qs({ awalan: awalan }));
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    aset: aset,
     laboratorium: laboratorium,
     pengguna: pengguna,
     NAMA_SKEMA: NAMA_SKEMA,

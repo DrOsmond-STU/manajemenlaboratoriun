@@ -213,6 +213,67 @@
     patch: (jalur, isi, opsi) => panggil("PATCH", jalur, isi, opsi),
     hapus: (jalur, opsi) => panggil("DELETE", jalur, undefined, opsi),
 
+    /**
+     * Mengirim FormData (unggah berkas).
+     *
+     * Jalur terpisah karena panggil() selalu mengubah isinya menjadi JSON.
+     * Content-Type sengaja TIDAK diisi: peramban harus menentukannya sendiri
+     * supaya batas multipart ikut tertulis — mengisinya manual menghasilkan
+     * permintaan yang tidak dapat diurai server sama sekali.
+     */
+    async kirimForm(jalur, form) {
+      await pastikanCsrf();
+
+      const tajuk = {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest"
+      };
+      const token = bacaKuki("XSRF-TOKEN");
+      if (token) tajuk["X-XSRF-TOKEN"] = token;
+
+      let jawaban;
+      try {
+        jawaban = await fetch(BASIS + jalur, {
+          method: "POST",
+          credentials: "include",
+          headers: tajuk,
+          body: form
+        });
+      } catch (e) {
+        throw new GalatApi(0, "Server tidak terjangkau saat mengunggah berkas.");
+      }
+
+      const data = await jawaban.json().catch(() => null);
+
+      if (jawaban.ok) return data;
+
+      if (jawaban.status === 401) {
+        API.saatSesiHabis();
+        throw new GalatApi(401, "Sesi Anda telah berakhir.");
+      }
+
+      // 413 datang dari server web, bukan dari aplikasi, sehingga jawabannya
+      // sering bukan JSON dan pesannya tidak berbahasa Indonesia. Diterjemahkan
+      // di sini supaya pengguna tahu yang harus diperbaiki adalah ukuran
+      // berkasnya, bukan sesuatu yang tak jelas.
+      if (jawaban.status === 413) {
+        throw new GalatApi(413, "Berkas terlalu besar untuk diunggah.");
+      }
+
+      if (jawaban.status === 422) {
+        throw new GalatApi(
+          422,
+          (data && data.message) || "Berkas tidak dapat diterima.",
+          (data && data.errors) || null
+        );
+      }
+
+      throw new GalatApi(
+        jawaban.status,
+        (data && data.message) || "Gagal mengunggah (HTTP " + jawaban.status + ")."
+      );
+    },
+
     /* ------------------------------------------------------------- sesi */
 
     async masuk(email, sandi, ingat) {

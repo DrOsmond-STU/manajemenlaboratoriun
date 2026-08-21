@@ -503,6 +503,18 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **NUP tidak pernah dikirim peramban.** Wizard registrasi menampilkan
+  pratinjau NUP, tetapi nomor yang tersimpan diterbitkan server: peramban
+  menghitungnya dari data yang sudah dimuatnya sendiri, dan dua petugas yang
+  mendaftarkan barang bersamaan akan memperoleh angka yang sama. Ketahuannya
+  baru saat rekonsiliasi SIMAK-BMN — setelah labelnya telanjur tercetak dan
+  tertempel. Pratinjaunya karena itu ditandai tegas sebagai **perkiraan**,
+  dan uji peramban mengunci selisihnya: tebakan 00003 versus terbitan server
+  00007, yang ditampilkan harus milik server.
+- **Kegagalan unggah foto tidak membatalkan registrasi.** Barangnya sudah sah
+  tercatat; memutar balik pendaftaran karena satu gambar gagal akan membuang
+  NUP yang sudah terpakai, dan NUP tidak pernah dipakai ulang. Kegagalannya
+  dilaporkan, fotonya dapat ditambahkan kemudian.
 - **Foto aset disimpan di luar docroot dan dilayani lewat rute.** Foto alat
   laboratorium memperlihatkan nomor seri, label BMN, dan tata letak ruangan
   tempat alat mahal disimpan. Di direktori publik, seluruhnya dapat diambil

@@ -305,7 +305,13 @@
     lab: "LAB-001", gedung: "GA", lantai: 2, pic: "EMP-0003",
     kondisi: "B", status: "Digunakan untuk Operasional Satker",
     noPsp: "", tglPsp: D.shift(0), ket: "",
-    kodeInternal: "", foto: []
+    kodeInternal: "", foto: [],
+
+    // Id sungguhan dari server, diisi saat tersambung. Dipisahkan dari
+    // `lab`/`pic` yang berisi id purwarupa ("LAB-001", "EMP-0003"): mengirim
+    // id purwarupa ke server akan ditolak, dan menimpanya membuat mode data
+    // contoh berhenti bekerja.
+    roomId: null, labId: null, picId: null
   };
 
   const kbInfo = (k) => D.bmnRef.kodeBarang.find((x) => x.k === k) || { n: "—", mm: 5 };
@@ -327,8 +333,70 @@
     sub: "Isian data mengacu pada kebutuhan pendataan Barang Milik Negara (PMK 29/PMK.06/2010 dan PMK 181/PMK.06/2016).",
     actions: `<button class="btn btn-sm" onclick="bmnRefModal(regPickKode)">${U.icon("list")} Cari Kode Barang</button>
               <button class="btn btn-sm" onclick="UI.demo('Disimpan sebagai draf')">Simpan Draf</button>
-              <button class="btn btn-primary btn-sm" onclick="regSave()">${U.icon("check")} Simpan &amp; Registrasi</button>`,
-    render() { return regHTML(); }
+              <button class="btn btn-primary btn-sm" id="regSimpanBtn" onclick="regSave()">${U.icon("check")} Simpan &amp; Registrasi</button>`,
+    render() { return regHTML(); },
+    mount() { regIsiPilihan(); }
+  };
+
+  /**
+   * Mengisi pemilih laboratorium, ruangan, dan penanggung jawab.
+   *
+   * Dijalankan pada mount(), sesudah kerangkanya terpasang. Di mode data
+   * contoh diisi dari data.js supaya purwarupa tetap dapat ditelusuri; saat
+   * tersambung, diisi dari server sehingga id yang tersimpan adalah id
+   * sungguhan.
+   */
+  window.regIsiPilihan = async function () {
+    const selLab = document.getElementById("regLab");
+    const selRuang = document.getElementById("regRuang");
+    const selPic = document.getElementById("regPic");
+    if (!selLab || !selRuang || !selPic) return;
+
+    const isi = (sel, daftar, terpilih, kosong) => {
+      sel.innerHTML = `<option value="">${kosong}</option>` +
+        daftar.map((o) => `<option value="${U.esc(String(o.id))}"${
+          terpilih && String(terpilih) === String(o.id) ? " selected" : ""
+        }>${U.esc(o.nama)}</option>`).join("");
+    };
+
+    if (!window.Repo || !Repo.dapatMenulis()) {
+      isi(selLab, (D.labs || []).map((l) => ({ id: l.id, nama: l.name })), REG.lab, "— pilih laboratorium —");
+      isi(selRuang, (D.rooms || []).map((r) => ({ id: r.id, nama: r.name })), null, "— pilih ruangan —");
+      isi(selPic, (D.people || []).map((p) => ({ id: p.id, nama: p.name + " — " + p.role })), REG.pic, "— pilih penanggung jawab —");
+      return;
+    }
+
+    // Ketiganya diambil bersamaan, bukan berurutan: tiga permintaan yang
+    // tidak saling bergantung dijalankan serentak menghemat dua kali waktu
+    // tunggu jaringan pada formulir yang baru dibuka.
+    const [lab, ruang, orang] = await Promise.all([
+      Repo.laboratorium.daftar().catch(() => ({ data: [] })),
+      Repo.ruangan.daftar().catch(() => ({ data: [] })),
+      Repo.pengguna.daftar().catch(() => ({ data: [] }))
+    ]);
+
+    isi(selLab, lab.data.map((l) => ({ id: l.id, nama: l.nama })), REG.labId, "— tanpa laboratorium —");
+    isi(selRuang, ruang.data.map((r) => ({ id: r.id, nama: r.nama + " (" + r.kode + ")" })), REG.roomId, "— tanpa ruangan —");
+    isi(selPic, orang.data.map((o) => ({
+      id: o.id, nama: o.nama + (o.unit_kerja ? " — " + o.unit_kerja : "")
+    })), REG.picId, "— belum ditetapkan —");
+
+    if (!lab.data.length && !ruang.data.length) {
+      U.toast("Belum ada penempatan",
+        "Daftarkan ruangan atau laboratorium lebih dulu agar barang dapat ditempatkan.");
+    }
+  };
+
+  window.regPilihLab = function (v) {
+    if (window.Repo && Repo.dapatMenulis()) REG.labId = v ? Number(v) : null;
+    else REG.lab = v;
+  };
+  window.regPilihRuang = function (v) {
+    if (window.Repo && Repo.dapatMenulis()) REG.roomId = v ? Number(v) : null;
+  };
+  window.regPilihPic = function (v) {
+    if (window.Repo && Repo.dapatMenulis()) REG.picId = v ? Number(v) : null;
+    else REG.pic = v;
   };
 
   function sec(title, note, body) {
@@ -417,13 +485,15 @@
             <div class="field"><label>Gedung</label><select class="select" onchange="regSet('gedung',this.value)">
               ${D.org.buildings.map((b) => `<option value="${b.code}" ${b.code === REG.gedung ? "selected" : ""}>${b.name}</option>`).join("")}</select></div>
             <div class="field"><label>Lantai</label><input type="number" class="input" value="${REG.lantai}" onchange="regSet('lantai',+this.value)"></div>
-            <div class="field"><label>Ruangan / Laboratorium <span class="req">*</span></label>
-              <select class="select" onchange="regSet('lab',this.value)">
-                ${D.labs.map((l) => `<option value="${l.id}" ${l.id === REG.lab ? "selected" : ""}>${l.name}</option>`).join("")}
-                ${D.rooms.map((r) => `<option value="${r.id}">${r.name}</option>`).join("")}</select></div>
-            <div class="field"><label>Penanggung Jawab <span class="req">*</span></label>
-              <select class="select" onchange="regSet('pic',this.value)">
-                ${D.people.map((p) => `<option value="${p.id}" ${p.id === REG.pic ? "selected" : ""}>${p.name} — ${p.role}</option>`).join("")}</select></div>
+            <div class="field"><label>Laboratorium</label>
+              <select class="select" id="regLab" onchange="regPilihLab(this.value)">
+                <option value="">— memuat… —</option></select></div>
+            <div class="field"><label>Ruangan</label>
+              <select class="select" id="regRuang" onchange="regPilihRuang(this.value)">
+                <option value="">— memuat… —</option></select></div>
+            <div class="field"><label>Penanggung Jawab</label>
+              <select class="select" id="regPic" onchange="regPilihPic(this.value)">
+                <option value="">— memuat… —</option></select></div>
           </div>`)}
 
         ${sec("6 · Kondisi &amp; Status Penggunaan", "Wajib diperbarui saat inventarisasi", `
@@ -490,6 +560,10 @@
       <div class="tiny faint">PENOMORAN 1 — BMN (KUNCI UTAMA)</div>
       <div class="mono bold mb-4" style="word-break:break-all;font-size:12.5px">${bmnId}</div>
       <div class="tiny muted mb-12">${D.satker.kodeLokasi} · ${REG.kodeBarang} · NUP ${String(nextNup(REG.kodeBarang)).padStart(5, "0")}</div>
+      ${window.Repo && Repo.dapatMenulis() ? `<div class="alert warn small mb-12">${U.icon("alert", 14)}<div>
+        NUP di atas masih <b>perkiraan</b>. Nomor yang sebenarnya diterbitkan server saat disimpan,
+        supaya dua petugas yang mendaftarkan barang bersamaan tidak memperoleh nomor yang sama.
+        Cetak label hanya setelah barangnya tersimpan.</div></div>` : ""}
 
       <div class="tiny faint">PENOMORAN 2 — INTERNAL</div>
       <div class="mono bold mb-12" style="font-size:12.5px">${U.esc(internal)}</div>
@@ -520,12 +594,21 @@
 
   window.regSet = function (k, v) {
     REG[k] = v;
-    if (k === "kondisi") { document.getElementById("viewBody").innerHTML = regHTML(); return; }
+    if (k === "kondisi") {
+      // Render ulang seluruh formulir menghapus isi pemilih yang dimuat dari
+      // server, jadi harus diisi ulang. Tanpa ini, mengubah kondisi barang
+      // diam-diam mengosongkan penempatan dan penanggung jawab yang sudah
+      // dipilih.
+      document.getElementById("viewBody").innerHTML = regHTML();
+      regIsiPilihan();
+      return;
+    }
     regRefresh();
   };
   window.regPickKode = function (kode) {
     REG.kodeBarang = kode;
     document.getElementById("viewBody").innerHTML = regHTML();
+    regIsiPilihan();
     U.toast("Kode barang dipilih", kode + " — " + kbInfo(kode).n);
   };
 
@@ -541,7 +624,11 @@
       }
       const r = new FileReader();
       r.onload = () => {
-        REG.foto.push({ src: r.result, name: f.name, size: f.size, main: REG.foto.length === 0 });
+        // Berkas aslinya ikut disimpan. `src` hanya untuk pratinjau; yang
+        // diunggah ke server harus objek File-nya sendiri — data URL berarti
+        // mengirim ulang gambar dalam bentuk base64 yang 33% lebih besar,
+        // lewat jalur JSON yang tidak dirancang untuk itu.
+        REG.foto.push({ src: r.result, berkas: f, name: f.name, size: f.size, main: REG.foto.length === 0 });
         if (--pending <= 0) { regFotoRefresh(); U.toast("Foto ditambahkan", list.length + " berkas diunggah."); }
       };
       r.onerror = () => { if (--pending <= 0) regFotoRefresh(); };
@@ -571,30 +658,162 @@
     regFotoRefresh();
   };
 
-  window.regSave = function () {
+  /**
+   * Menyusun muatan aset dari keadaan wizard.
+   *
+   * `nup`, `kode_lokasi`, dan `bmn_id` SENGAJA TIDAK DIKIRIM. Ketiganya
+   * ditentukan server: NUP dialokasikan secara aman-balapan, kode lokasi
+   * dirakit dari identitas satker di konfigurasi, dan bmn_id adalah kolom
+   * hitungan basis data. Mengirimnya dari peramban berarti dua petugas yang
+   * mendaftarkan barang bersamaan dapat memperoleh nomor yang sama — dan
+   * ketahuannya baru saat rekonsiliasi SIMAK-BMN, setelah labelnya telanjur
+   * tercetak dan tertempel.
+   */
+  function regMuatan() {
+    const daftar = (t) => {
+      const b = (t || "").split(",").map((x) => x.trim()).filter(Boolean);
+      return b.length ? b : null;
+    };
+    const kosongJadiNull = (v) => (v === "" || v === undefined ? null : v);
+
+    return {
+      kode_barang: REG.kodeBarang,
+      nama: REG.nama,
+      merk: kosongJadiNull(REG.merk),
+      tipe: kosongJadiNull(REG.tipe),
+      serial_number: kosongJadiNull(REG.sn),
+      spesifikasi: kosongJadiNull(REG.spesifikasi),
+      kapasitas_ukur: kosongJadiNull(REG.kapasitas),
+      kelengkapan: daftar(REG.kelengkapan),
+
+      cara_perolehan: kosongJadiNull(REG.cara),
+      tgl_perolehan: REG.tgl,
+      sumber_dana: kosongJadiNull(REG.dana),
+      no_bukti: kosongJadiNull(REG.noBukti),
+      no_kontrak: kosongJadiNull(REG.noKontrak),
+
+      kuantitas: Number(REG.kuantitas) || 1,
+      satuan: kosongJadiNull(REG.satuan),
+      nilai_perolehan: Number(REG.nilai) || 0,
+
+      kondisi: REG.kondisi,
+      status_penggunaan: kosongJadiNull(REG.status),
+      no_psp: kosongJadiNull(REG.noPsp),
+      tgl_psp: REG.noPsp ? REG.tglPsp : null,
+
+      // Kode internal hanya dikirim bila petugas mengisinya sendiri.
+      // Dikosongkan berarti server yang membentuknya dari polanya — dan pola
+      // itu memuat kode ruangan serta tahun perolehan yang hanya diketahui
+      // server setelah relasinya terpasang.
+      kode_internal: kosongJadiNull(REG.kodeInternal),
+
+      room_id: REG.roomId || null,
+      laboratory_id: REG.labId || null,
+      penanggung_jawab_id: REG.picId || null,
+
+      keterangan: kosongJadiNull(REG.ket)
+    };
+  }
+
+  window.regSave = async function () {
     if (!REG.nama || !REG.merk || !REG.sn) {
       U.toast("Data belum lengkap", "Nama barang, merk, dan nomor seri wajib diisi.", "warn");
       return;
     }
-    const bmnId = regBmnId(), internal = regKodeInternal();
+
+    /* ---- Mode data contoh: jangan berpura-pura menyimpan ---- */
+    if (!window.Repo || !Repo.dapatMenulis()) {
+      U.modal({
+        title: "Simulasi registrasi",
+        sub: "Mode data contoh — tidak ada yang tersimpan",
+        body: `<div class="alert warn mb-16">${U.icon("alert", 15)}<div>
+            <b>Barang ini TIDAK tersimpan ke mana pun.</b> Anda sedang menelusuri purwarupa,
+            jadi nomor BMN di bawah hanyalah contoh bentuknya — bukan nomor yang diterbitkan.
+            Masuk dengan akun untuk mendaftarkan barang sungguhan.</div></div>
+          <div class="grid g2" style="gap:10px">
+            <div class="card"><div class="card-body tight"><div class="tiny faint">CONTOH KODE BMN</div>
+              <div class="mono bold" style="font-size:12px;word-break:break-all">${regBmnId()}</div></div></div>
+            <div class="card"><div class="card-body tight"><div class="tiny faint">CONTOH KODE INTERNAL</div>
+              <div class="mono bold" style="font-size:12px">${U.esc(regKodeInternal())}</div></div></div>
+          </div>`,
+        foot: `<button class="btn btn-primary" onclick="UI.closeModal()">Mengerti</button>`
+      });
+      return;
+    }
+
+    /* ---- Tersambung: simpan sungguhan ---- */
+    const tombol = document.getElementById("regSimpanBtn");
+    if (tombol) { tombol.disabled = true; tombol.textContent = "Menyimpan…"; }
+
+    let aset;
+    try {
+      aset = await Repo.aset.simpan(regMuatan());
+    } catch (e) {
+      if (tombol) { tombol.disabled = false; tombol.textContent = "Simpan & Terbitkan Label"; }
+
+      if (e.status === 422 && e.perMedan) {
+        U.modal({
+          title: "Registrasi belum dapat disimpan",
+          body: `<div class="alert err">${U.icon("alert", 15)}<div>${Object.keys(e.perMedan)
+            .map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("")}</div></div>`,
+          foot: `<button class="btn btn-primary" onclick="UI.closeModal()">Perbaiki</button>`
+        });
+      } else {
+        Repo.tampilkanGalat(e, "Gagal menyimpan");
+      }
+      return;
+    }
+
+    // Foto diunggah SETELAH asetnya ada, karena tiap foto perlu id asetnya.
+    // Kegagalan unggah TIDAK membatalkan registrasi: barangnya sudah sah
+    // tercatat, dan memutar balik pendaftaran hanya karena satu gambar gagal
+    // akan membuang nomor NUP yang sudah terpakai — NUP tidak pernah dipakai
+    // ulang.
+    const gagalFoto = [];
+    for (const f of REG.foto) {
+      if (!f.berkas) continue;               // foto contoh, bukan berkas nyata
+      try {
+        await Repo.aset.unggahFoto(aset.id, f.berkas);
+      } catch (e) {
+        gagalFoto.push(f.name + ": " + (e.message || "gagal"));
+      }
+    }
+
+    if (tombol) { tombol.disabled = false; tombol.textContent = "Simpan & Terbitkan Label"; }
+
+    const bmn = aset.bmn || {};
+
     U.modal({
-      title: "Barang berhasil diregistrasi", sub: "Tercatat pada Register BMN — KIB B",
+      title: "Barang berhasil diregistrasi",
+      sub: "Tersimpan pada Register BMN — KIB B",
       body: `<div class="center mb-16">
           <div class="tint-green" style="width:58px;height:58px;border-radius:50%;display:grid;place-items:center;margin:0 auto 14px">${U.icon("check", 28)}</div>
-          <h3 class="mb-4">${U.esc(REG.nama)}</h3>
+          <h3 class="mb-4">${U.esc(aset.nama)}</h3>
           <div class="small muted">${U.esc(kbInfo(REG.kodeBarang).n)}</div>
         </div>
         <div class="grid g2 mb-16" style="gap:10px">
           <div class="card"><div class="card-body tight"><div class="tiny faint">KODE BMN</div>
-            <div class="mono bold" style="font-size:12px;word-break:break-all">${bmnId}</div></div></div>
+            <div class="mono bold" style="font-size:12px;word-break:break-all">${U.esc(bmn.id || "—")}</div></div></div>
           <div class="card"><div class="card-body tight"><div class="tiny faint">KODE INTERNAL</div>
-            <div class="mono bold" style="font-size:12px">${U.esc(internal)}</div></div></div>
+            <div class="mono bold" style="font-size:12px">${U.esc(aset.kode_internal || "—")}</div></div></div>
         </div>
-        <div class="alert info small">${U.icon("bell", 15)}<div>Data akan masuk ke Daftar Barang Ruangan (DBR) ruangan terpilih
-          dan tercatat pada audit trail. Label dapat langsung dicetak dari Studio Label.</div></div>`,
+        ${gagalFoto.length ? `<div class="alert warn small mb-12">${U.icon("alert", 15)}<div>
+          <b>Barang tersimpan, tetapi ${gagalFoto.length} foto gagal diunggah.</b>
+          Fotonya dapat ditambahkan kemudian dari halaman detail aset.
+          <div class="tiny mt-4">${gagalFoto.map(U.esc).join("<br>")}</div></div></div>` : ""}
+        <div class="alert info small">${U.icon("bell", 15)}<div>Nomor di atas diterbitkan server dan
+          sudah tercatat pada jejak audit. Label aman dicetak sekarang.</div></div>`,
       foot: `<button class="btn" onclick="UI.closeModal();location.hash='#/bmn'">Buka Register BMN</button>
              <button class="btn btn-primary" onclick="UI.closeModal();location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>`
     });
+
+    // Keadaan wizard dibersihkan agar barang berikutnya tidak mewarisi nomor
+    // seri dan foto barang sebelumnya — kesalahan yang menghasilkan dua aset
+    // dengan nomor seri sama.
+    REG.nama = ""; REG.merk = ""; REG.tipe = ""; REG.sn = "";
+    REG.spesifikasi = ""; REG.kapasitas = ""; REG.kelengkapan = "";
+    REG.noBukti = ""; REG.noKontrak = ""; REG.kodeInternal = "";
+    REG.ket = ""; REG.foto = [];
   };
 
   /* =======================================================================

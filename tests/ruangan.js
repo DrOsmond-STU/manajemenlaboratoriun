@@ -16,6 +16,9 @@ function apiTiruan() {
   let urut = 0;
   let idRuang = 0;
   let idLab = 0;
+  let idAset = 0;
+  let nupBerjalan = 0;
+  const aset = [];
   const ruangan = [];
   const lab = [];
   const orang = [
@@ -133,6 +136,63 @@ function apiTiruan() {
           ruangan.push(isi);
           return kirim(201, { data: bentuk(isi) });
         });
+      }
+    }
+
+    if (req.url.startsWith('/api/bmn/kode-barang')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      return kirim(200, { data: [{ kode: '3.08.01.03.001', uraian: 'Unit Alat Laboratorium' }] });
+    }
+
+    if (/^\/api\/assets\/\d+\/foto/.test(req.url)) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      if (req.method === 'POST') {
+        let n = 0;
+        req.on('data', (d) => { n += d.length; });
+        return req.on('end', () => kirim(201, {
+          data: { id: 1, url: '/x', mime: 'image/jpeg', ukuran: n, utama: true }
+        }));
+      }
+    }
+
+    if (req.url.startsWith('/api/assets')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+
+      if (req.method === 'POST') {
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+
+          // Server MENOLAK nup/kode_lokasi kiriman: keduanya wewenangnya.
+          if (isi.nup !== undefined || isi.kode_lokasi !== undefined || isi.bmn_id !== undefined) {
+            return kirim(422, { message: 'x',
+              errors: { nup: ['NUP diterbitkan server, tidak boleh dikirim.'] } });
+          }
+          if (!isi.nama) return kirim(422, { message: 'x', errors: { nama: ['Nama barang wajib diisi.'] } });
+
+          isi.id = ++idAset;
+          // NUP diterbitkan di sini — sengaja mulai dari 7 supaya berbeda dari
+          // tebakan peramban, sehingga uji dapat membuktikan yang ditampilkan
+          // memang datang dari server.
+          isi.nup = (nupBerjalan += 1) + 6;
+          aset.push(isi);
+
+          return kirim(201, { data: {
+            id: isi.id,
+            nama: isi.nama,
+            kode_internal: 'STU/SRV/' + String(isi.nup).padStart(4, '0'),
+            bmn: {
+              id: '024.05.0100.652431.000.' + isi.kode_barang + '.' + String(isi.nup).padStart(5, '0'),
+              kode_barang: isi.kode_barang,
+              nup: isi.nup
+            },
+            foto: { utama: null, jumlah: 0 }
+          } });
+        });
+      }
+
+      if (req.method === 'GET') {
+        return kirim(200, { data: aset.map((a) => ({ id: a.id, nama: a.nama })), meta: { total: aset.length } });
       }
     }
 
@@ -371,6 +431,77 @@ function apiTiruan() {
     'Menyunting kapasitas tidak menghapus penugasan teknisi');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada modul laboratorium', errs.join(' | '));
+
+  /* ============ 8. REGISTRASI ASET (BMN) ============ */
+  console.log('\n--- 8. Registrasi aset tersimpan sungguhan ---');
+  await page.evaluate(() => { UI.closeDrawer(); location.hash = '#/equipment/new'; });
+  await page.waitForTimeout(1200);
+
+  // Pemilih penempatan terisi dari server, bukan dari data purwarupa.
+  const opsiLab = await page.$$eval('#regLab option', (e) => e.map((x) => x.textContent.trim()));
+  ok(opsiLab.some((t) => /Laboratorium Kimia Analitik/.test(t)),
+    'Pemilih laboratorium terisi dari basis data', opsiLab.join(' | ').slice(0, 80));
+
+  const opsiRuang = await page.$$eval('#regRuang option', (e) => e.map((x) => x.textContent.trim()));
+  ok(opsiRuang.some((t) => /Conference Room Garuda/.test(t)),
+    'Pemilih ruangan terisi dari basis data');
+
+  // Peringatan bahwa NUP pratinjau hanyalah perkiraan.
+  const badanReg = await page.textContent('#viewBody');
+  ok(/perkiraan/i.test(badanReg),
+    'Pratinjau NUP ditandai sebagai perkiraan, bukan nomor final');
+
+  await page.evaluate(() => {
+    regSet('nama', 'HPLC Shimadzu LC-2050');
+    regSet('merk', 'Shimadzu');
+    regSet('sn', 'SHZ-LC-88421');
+    regSet('nilai', 850000000);
+  });
+  await page.selectOption('#regLab', { index: 1 });
+  await page.selectOption('#regPic', { index: 1 });
+  await page.waitForTimeout(200);
+
+  // NUP yang ditebak peramban sebelum menyimpan.
+  const nupTebakan = await page.evaluate(() => {
+    const m = document.getElementById('regPreview').textContent.match(/NUP\s+(\d+)/);
+    return m ? m[1] : null;
+  });
+
+  await page.click('#regSimpanBtn');
+  await page.waitForTimeout(1200);
+
+  // Dibaca dari elemen MODAL-nya saja. Versi pertama uji ini membaca seluruh
+  // body, sehingga regex kode BMN menangkap kartu pratinjau di halaman —
+  // yang justru memuat NUP tebakan peramban — dan uji "nomor datang dari
+  // server" lulus-palsu terhadap angka yang salah.
+  const modal = await page.textContent('.overlay .modal');
+  ok(/berhasil diregistrasi/i.test(modal), 'Registrasi berhasil');
+  ok(!/Simulasi registrasi/.test(modal), 'Bukan simulasi — benar-benar tersimpan');
+
+  const bmnTampil = (modal.match(/024\.05\.0100\.652431\.000\.[0-9.]+/) || [])[0];
+  ok(!!bmnTampil, 'Kode BMN tampil', bmnTampil);
+  ok(/00007$/.test(bmnTampil || ''),
+    'Kode BMN memakai NUP terbitan SERVER, bukan tebakan peramban',
+    'tebakan=' + nupTebakan + ' tampil=' + bmnTampil);
+
+  ok(/STU\/SRV\/0007/.test(modal),
+    'Kode internal juga datang dari server');
+
+  // Bukti tersimpan di server.
+  const jumlahAset = await page.evaluate(async (p) => {
+    const r = await fetch('http://127.0.0.1:' + p + '/api/assets', { credentials: 'include' });
+    return (await r.json()).data.length;
+  }, port);
+  ok(jumlahAset === 1, 'Aset benar-benar tersimpan di server', 'jumlah=' + jumlahAset);
+
+  // Wizard dibersihkan supaya barang berikutnya tidak mewarisi nomor seri.
+  await page.evaluate(() => UI.closeModal());
+  await page.waitForTimeout(300);
+  const snTersisa = await page.evaluate(() => window.REG ? REG.sn : null);
+  ok(snTersisa === '' || snTersisa === null,
+    'Nomor seri dibersihkan setelah simpan, agar tidak terbawa ke barang berikutnya');
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada registrasi aset', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

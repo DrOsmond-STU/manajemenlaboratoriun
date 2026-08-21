@@ -140,11 +140,43 @@
   };
 
   /* ----------------------------------------------------------- pengguna */
+  /**
+   * Identitas yang sedang dipakai antarmuka.
+   *
+   * Dalam mode API isinya diganti oleh jawaban /api/saya; dalam mode data
+   * contoh isinya tetap nilai purwarupa di bawah. Yang TIDAK boleh terjadi
+   * adalah keduanya tercampur — antarmuka yang menampilkan nama pengguna
+   * sungguhan di atas angka karangan adalah bentuk kebohongan yang paling
+   * meyakinkan.
+   */
   const SESSION = {
     name: localStorage.getItem("flms.user") || "Rahmat Hidayat",
     role: localStorage.getItem("flms.role") || "Facility Manager",
     unit: "Umum & Fasilitas"
   };
+
+  /** Nama peran yang terbaca, dari kode peran yang dipakai server. */
+  const NAMA_PERAN = {
+    "super-admin": "Super Admin",
+    "facility-manager": "Facility Manager",
+    "lab-manager": "Laboratory Manager",
+    "asset-manager": "Asset Manager",
+    "finance": "Finance",
+    "management": "Management",
+    "lab-technician": "Lab Technician",
+    "room-admin": "Room Administrator",
+    "event-manager": "Event Manager",
+    "pic": "PIC",
+    "external-user": "External User",
+    "employee": "Employee / User"
+  };
+
+  function pakaiPenggunaSungguhan(p) {
+    SESSION.name = p.nama || p.email;
+    SESSION.role = (p.peran || []).map((k) => NAMA_PERAN[k] || k).join(", ") || "—";
+    SESSION.unit = p.unit_kerja || "";
+    SESSION.izin = p.izin || [];
+  }
 
   /* -------------------------------------------------------------- router */
   function route() {
@@ -244,7 +276,7 @@
         </div>
         <div class="alert info small mt-16">${U.icon("shield", 15)}<div>Mengganti peran akan menyesuaikan menu, data, dan tindakan yang tersedia sesuai matriks hak akses.</div></div>`,
       foot: `<button class="btn btn-block" onclick="UI.demo('Halaman pengaturan akun')">Pengaturan Akun</button>
-             <button class="btn btn-danger btn-block" onclick="location.href='index.html'">${U.icon("logout")} Keluar</button>`
+             <button class="btn btn-danger btn-block" onclick="keluarAplikasi()">${U.icon("logout")} Keluar</button>`
     });
   };
 
@@ -275,6 +307,17 @@
     document.querySelector(".sidebar").classList.remove("open");
     const s = document.querySelector(".scrim"); if (s) s.remove();
   }
+
+  /* --------------------------------------------------------------- keluar */
+  window.keluarAplikasi = async function () {
+    U.closeDrawer();
+    if (window.API && API.mode === "api") await API.keluar();
+    // Muat ulang penuh, bukan sekadar mengganti tampilan: seluruh data yang
+    // sempat dimuat masih tertinggal di memori dan di DOM, dan pengguna yang
+    // menekan Keluar di komputer bersama berhak menganggapnya benar-benar
+    // hilang.
+    location.reload();
+  };
 
   /* --------------------------------------------------------------- init */
   function init() {
@@ -322,6 +365,48 @@
     route();
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
+  /**
+   * Urutan yang dijalankan sebelum apa pun ditampilkan.
+   *
+   * Sesi diperiksa LEBIH DAHULU, sebelum satu piksel aplikasi dipasang.
+   * Memasang kerangkanya dulu lalu menimpanya dengan layar masuk membuat
+   * seluruh menu dan judul modul sempat berada di DOM — dan daftar modul
+   * saja sudah memberi tahu orang yang belum masuk apa yang ada di dalam.
+   */
+  async function mulai() {
+    const tema = localStorage.getItem("flms.theme");
+    if (tema) document.documentElement.setAttribute("data-theme", tema);
+
+    if (!window.API) { init(); return; }
+
+    const keadaan = await API.periksaSesi();
+
+    if (keadaan === "masuk") {
+      pakaiPenggunaSungguhan(API.pengguna);
+      API.saatSesiHabis = function () {
+        // Sesi habis di tengah pemakaian: kembali ke layar masuk, bukan
+        // membiarkan tabel kosong yang membingungkan.
+        U.toast("Sesi berakhir", "Silakan masuk kembali.");
+        setTimeout(() => location.reload(), 1200);
+      };
+      init();
+      return;
+    }
+
+    if (keadaan === "tamu") {
+      Masuk.pasang(function () {
+        pakaiPenggunaSungguhan(API.pengguna);
+        init();
+      });
+      return;
+    }
+
+    // 'tidak-terjangkau' — purwarupa tetap dapat ditelusuri, tetapi dengan
+    // spanduk yang menyatakan datanya karangan.
+    Masuk.spandukContoh(API.alasanTidakTerjangkau);
+    init();
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mulai);
+  else mulai();
 })();

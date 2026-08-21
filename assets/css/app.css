@@ -918,3 +918,75 @@ html[data-theme="dark"] .badge.outline { color: var(--text-muted); }
 .ck-sign { border: 1.5px dashed var(--border-strong); border-radius: 9px; height: 74px; display: grid; place-items: center;
   color: var(--text-faint); font-size: 12px; cursor: pointer; background: var(--surface-2); }
 .ck-sign.signed { border-style: solid; border-color: var(--green-500); color: var(--green-500); font-family: cursive; font-size: 20px; }
+
+/* ==========================================================================
+   Gerbang masuk & penanda mode data
+   ========================================================================== */
+
+/* Spanduk mode data contoh.
+   Sengaja `position: sticky` di puncak halaman dan TANPA tombol tutup:
+   spanduk yang bisa ditutup akan ditutup pada menit pertama lalu tidak
+   pernah terlihat lagi selama sisa sesi — persis ketika ia paling
+   dibutuhkan. Warnanya sengaja mencolok dan tidak mengikuti palet merek,
+   supaya tidak pernah terbaca sebagai bagian normal antarmuka. */
+.mode-banner {
+  position: sticky; top: 0; z-index: 999;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px;
+  padding: 9px 16px;
+  background: repeating-linear-gradient(135deg,#7c2d12 0 14px,#9a3412 14px 28px);
+  color: #fff; font-size: 12.5px; line-height: 1.45;
+  border-bottom: 2px solid #451a03;
+}
+.mode-banner b { letter-spacing: .06em; font-size: 11.5px; }
+.mode-banner span { opacity: .93; }
+.mode-banner code {
+  font-size: 11px; opacity: .8;
+  background: rgba(0,0,0,.28); padding: 1px 6px; border-radius: 4px;
+}
+body.ada-spanduk #app { min-height: calc(100vh - 40px); }
+
+/* Layar masuk. Menggantikan seluruh isi halaman, bukan menutupinya —
+   modal menyisakan menu dan judul modul tetap terpasang di DOM, dan daftar
+   modul saja sudah memberi tahu orang yang belum masuk apa yang ada di
+   dalam. */
+.masuk-wrap {
+  min-height: 100vh; display: grid; place-items: center;
+  padding: 24px; background: var(--bg);
+}
+.masuk-kartu {
+  width: 100%; max-width: 380px;
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 28px 26px 24px; box-shadow: var(--shadow-lg, 0 10px 30px rgba(16,26,46,.12));
+}
+.masuk-merek { display: flex; align-items: center; gap: 11px; }
+.masuk-merek b { display: block; font-size: 15px; letter-spacing: .01em; }
+.masuk-merek span { display: block; font-size: 11.5px; color: var(--text-muted); }
+.masuk-kartu h1 { font-size: 20px; margin: 4px 0 0; }
+
+.masuk-kartu .fld { display: flex; flex-direction: column; gap: 5px; }
+.masuk-kartu .fld > span { font-size: 12.5px; color: var(--text-muted); font-weight: 600; }
+.masuk-kartu input[type="email"],
+.masuk-kartu input[type="password"] {
+  width: 100%; padding: 10px 12px; font-size: 14px;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+}
+.masuk-kartu input:focus-visible {
+  outline: 2px solid var(--brand-600); outline-offset: 1px;
+  border-color: var(--brand-600);
+}
+.masuk-kartu .fld-cek {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text-muted);
+}
+.masuk-kartu .alert.danger {
+  background: var(--red-100); color: var(--red-500);
+  display: block; font-size: 12.5px;
+}
+.masuk-kartu button[disabled] { opacity: .6; cursor: progress; }
+.masuk-kaki {
+  margin: 2px 0 0; font-size: 11.5px; line-height: 1.5;
+  color: var(--text-faint); text-align: center;
+}

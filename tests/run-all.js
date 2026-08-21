@@ -12,7 +12,8 @@ const SUITES = [
   ['bmntest',  'Fitur BMN — register, kode barang, foto, studio label'],
   ['tplcheck', 'Template label internal muat tanpa terpotong'],
   ['bmnlbl',   'Label BMN rapi dan terbaca di semua ukuran'],
-  ['feattest', 'Dashboard, BSC, checklist, notifikasi email']
+  ['feattest', 'Dashboard, BSC, checklist, notifikasi email'],
+  ['masuk',    'Gerbang masuk, mode data contoh, penghubung API']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

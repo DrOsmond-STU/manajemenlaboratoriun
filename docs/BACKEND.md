@@ -8,8 +8,8 @@ dan fondasi yang sudah berjalan.
 > `https://api.lab.semestateknologiutama.com` — lihat §6. Autentikasi, peran,
 > dan otorisasi sudah terpasang (§6.3). Yang berjalan barulah lima modul
 > — autentikasi, master data ruangan, master data laboratorium, pemesanan
-> ruangan, peminjaman alat, aset BMN, impor master — sehingga **belum boleh
-> diisi data nyata**. Lihat §8.
+> ruangan, peminjaman alat, pemeliharaan & kalibrasi, aset BMN, impor master
+> — sehingga **belum boleh diisi data nyata**. Lihat §8.
 
 ---
 
@@ -277,7 +277,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-206 uji lulus, 570 asersi, 0 gagal — dijalankan di PostgreSQL 16
+225 uji lulus, 618 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -339,6 +339,18 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Pemeliharaan & kalibrasi:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Kalibrasi selesai menuntut sertifikat & masa berlaku** | tanpa masa berlaku, alat dianggap sah selamanya dan tak pernah muncul kedaluwarsa |
+| **Alat kedaluwarsa kalibrasi tidak dapat dipinjam** | hasil ujinya tak dapat dipertanggungjawabkan; temuan audit ISO/IEC 17025 |
+| **Kalibrasi yang habis setelah pengajuan menahan serah terima** | masa berlaku dapat habis di antara keduanya |
+| Alat tidak wajib kalibrasi tidak pernah kedaluwarsa | meja dan lemari asam tidak dikalibrasi |
+| Kondisi setelah perbaikan memperbarui master + riwayat | pola yang sama dengan pengembalian peminjaman |
+| Izin kalibrasi dan pemeliharaan terpisah | facility manager: pemeliharaan PENUH, kalibrasi hanya LIHAT |
+| Keterlambatan dapat ditapis | daftar kerja harian teknisi |
 
 Peminjaman alat:
 

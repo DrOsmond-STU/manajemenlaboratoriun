@@ -137,6 +137,26 @@ class EquipmentLoanService
                 'asset_id' => "Alat {$asset->nama} sudah dihapuskan dan tidak dapat dipinjamkan.",
             ]);
         }
+
+        // Alat ukur yang kalibrasinya kedaluwarsa tidak boleh dipakai menguji:
+        // hasilnya tidak dapat dipertanggungjawabkan, dan pada laboratorium
+        // terakreditasi ISO/IEC 17025 hal itu temuan audit.
+        //
+        // Diperiksa di sini — jalur yang sama dengan pemeriksaan kondisi —
+        // sehingga berlaku baik saat pengajuan maupun saat serah terima. Masa
+        // berlaku dapat habis di antara keduanya.
+        if ($asset->kalibrasiKedaluwarsa()) {
+            $terakhir = $asset->kalibrasiTerakhir();
+
+            $keterangan = $terakhir
+                ? 'Kalibrasi terakhir berlaku sampai '.$terakhir->berlaku_sampai->format('d/m/Y').'.'
+                : 'Alat ini belum pernah dikalibrasi.';
+
+            throw ValidationException::withMessages([
+                'asset_id' => "Kalibrasi alat {$asset->nama} sudah kedaluwarsa. {$keterangan} "
+                    .'Jadwalkan kalibrasi ulang sebelum alat dipakai.',
+            ]);
+        }
     }
 
     /**

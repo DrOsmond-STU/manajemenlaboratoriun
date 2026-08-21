@@ -32,7 +32,7 @@ class Asset extends Model
         'kode_lokasi', 'kode_barang', 'nup', 'kode_internal', 'unit_kerja',
         'nama', 'merk', 'tipe', 'serial_number', 'spesifikasi',
         'cara_perolehan', 'tgl_perolehan', 'sumber_dana', 'no_bukti', 'no_kontrak',
-        'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat',
+        'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat', 'wajib_kalibrasi',
         'kondisi', 'status_penggunaan', 'no_psp', 'tgl_psp', 'kib',
         'room_id', 'laboratory_id', 'penanggung_jawab_id', 'keterangan',
     ];
@@ -49,6 +49,7 @@ class Asset extends Model
             'kuantitas' => 'integer',
             'nilai_perolehan' => 'integer',
             'masa_manfaat' => 'integer',
+            'wajib_kalibrasi' => 'boolean',
         ];
     }
 
@@ -75,6 +76,46 @@ class Asset extends Model
     public function mutations(): HasMany
     {
         return $this->hasMany(AssetMutation::class);
+    }
+
+    public function maintenances(): HasMany
+    {
+        return $this->hasMany(AssetMaintenance::class);
+    }
+
+    /**
+     * Kalibrasi terakhir yang benar-benar selesai.
+     *
+     * Sengaja TIDAK disimpan sebagai kolom pada tabel aset. Nilai turunan yang
+     * digandakan akan menyimpang begitu ada satu jalur yang memperbarui
+     * kalibrasi tanpa memperbarui salinannya — dan penyimpangan itu berarti
+     * alat yang kalibrasinya kedaluwarsa tetap dianggap sah.
+     */
+    public function kalibrasiTerakhir(): ?AssetMaintenance
+    {
+        return $this->maintenances()
+            ->kalibrasi()
+            ->where('status', 'selesai')
+            ->whereNotNull('berlaku_sampai')
+            ->orderByDesc('berlaku_sampai')
+            ->first();
+    }
+
+    /**
+     * Kalibrasinya kedaluwarsa (atau belum pernah ada sama sekali).
+     *
+     * Alat yang tidak wajib kalibrasi tidak pernah dianggap kedaluwarsa —
+     * meja dan lemari asam tidak dikalibrasi.
+     */
+    public function kalibrasiKedaluwarsa(): bool
+    {
+        if (! $this->wajib_kalibrasi) {
+            return false;
+        }
+
+        $terakhir = $this->kalibrasiTerakhir();
+
+        return $terakhir === null || $terakhir->berlaku_sampai->isPast();
     }
 
     /** NUP berformat lima digit sebagaimana lazim pada dokumen BMN. */

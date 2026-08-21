@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BmnKodeBarangController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
+use App\Http\Controllers\Api\MaintenanceController;
 use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +41,18 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Pemeliharaan & kalibrasi -----------------------------------------
+    // Izinnya diperiksa di dalam controller, bukan lewat middleware `can:`,
+    // karena bergantung pada JENIS pekerjaan: kalibrasi menuntut izin
+    // kalibrasi.*, pemeliharaan menuntut pemeliharaan.*.
+    Route::get('pemeliharaan/kalibrasi-kedaluwarsa', [MaintenanceController::class, 'kalibrasiKedaluwarsa'])
+        ->name('pemeliharaan.kalibrasi-kedaluwarsa');
+    Route::get('pemeliharaan', [MaintenanceController::class, 'index']);
+    Route::post('pemeliharaan', [MaintenanceController::class, 'store']);
+    Route::get('pemeliharaan/{pemeliharaan}', [MaintenanceController::class, 'show']);
+    Route::post('pemeliharaan/{pemeliharaan}/selesaikan', [MaintenanceController::class, 'selesaikan'])
+        ->name('pemeliharaan.selesaikan');
 
     // --- Peminjaman alat --------------------------------------------------
     Route::get('peminjaman', [EquipmentLoanController::class, 'index'])

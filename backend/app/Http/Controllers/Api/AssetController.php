@@ -23,7 +23,8 @@ class AssetController extends Controller
     {
         $query = Asset::query()
             ->dalamCakupan($request->user())
-            ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
+            ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+            ->withCount('photos')
             ->latest('id');
 
         if ($request->filled('cari')) {
@@ -54,15 +55,16 @@ class AssetController extends Controller
             Satker::kodeLokasi(),
         );
 
-        return AssetResource::make($asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama']))
-            ->response()
-            ->setStatusCode(201);
+        return AssetResource::make(
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'fotoUtama'])->loadCount('photos')
+        )->response()->setStatusCode(201);
     }
 
     public function show(Asset $asset): AssetResource
     {
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+                ->loadCount('photos')
         );
     }
 
@@ -75,7 +77,8 @@ class AssetController extends Controller
         $asset = $this->assets->ubah($asset, $data, $request->user(), $catatan);
 
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name'])
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+                ->loadCount('photos')
         );
     }
 
@@ -89,7 +92,9 @@ class AssetController extends Controller
             $request->string('catatan')->toString() ?: null,
         );
 
-        return AssetResource::make($asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama']));
+        return AssetResource::make(
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'fotoUtama'])->loadCount('photos')
+        );
     }
 
     /** Riwayat perubahan, terbaru lebih dahulu. */

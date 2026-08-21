@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-387 uji lulus, 1.151 asersi, 0 gagal — dijalankan di PostgreSQL 16
+402 uji lulus, 1.204 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,24 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Foto aset disimpan di luar docroot dan dilayani lewat rute.** Foto alat
+  laboratorium memperlihatkan nomor seri, label BMN, dan tata letak ruangan
+  tempat alat mahal disimpan. Di direktori publik, seluruhnya dapat diambil
+  siapa pun yang menebak nama berkasnya — dan nama berkas berpola membuat
+  menebaknya sepele. Rutenya juga memeriksa bahwa foto itu memang milik aset
+  pada jalurnya: tanpa itu, siapa pun yang boleh melihat satu aset dapat
+  mengambil foto aset mana pun hanya dengan mengganti angka pada URL.
+- **Jenis berkas ditentukan dari isinya, bukan dari ekstensi atau
+  Content-Type.** Keduanya sepenuhnya dikendalikan pengirim; berkas PHP
+  bernama `alat.jpg` dengan `Content-Type: image/jpeg` lolos pemeriksaan yang
+  memercayainya. Diperiksa dua kali — `getMimeType()` lalu `getimagesize()` —
+  karena berkas dengan header gambar sah di depan dan muatan lain di
+  belakangnya tetap dikenali yang pertama sebagai gambar. Nama berkasnya
+  dibangkitkan, tidak pernah memakai nama kiriman yang dapat memuat `../`.
+- **`kapasitas_ukur` adalah teks, bukan angka.** Yang ditulis petugas
+  berbentuk `0,1–500 mg/L`, `±0,0001 g`, `20–200 °C` — rentang bersatuan.
+  Memaksanya menjadi angka membuang satuan dan batas bawahnya, yaitu justru
+  bagian yang menentukan apakah alat itu cocok untuk sebuah pengujian.
 - **Fasilitas disimpan sebagai jsonb, teknisi sebagai tabel penghubung.**
   Keduanya "daftar", tetapi pertanyaannya berbeda. Fasilitas tidak pernah
   dikueri sendirian — selalu dibaca bersama laboratoriumnya. Teknisi

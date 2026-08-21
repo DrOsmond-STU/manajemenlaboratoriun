@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -31,7 +32,7 @@ class Asset extends Model
 
     protected $fillable = [
         'kode_lokasi', 'kode_barang', 'nup', 'kode_internal', 'unit_kerja',
-        'nama', 'merk', 'tipe', 'serial_number', 'spesifikasi',
+        'nama', 'merk', 'tipe', 'serial_number', 'spesifikasi', 'kapasitas_ukur', 'kelengkapan',
         'cara_perolehan', 'tgl_perolehan', 'sumber_dana', 'no_bukti', 'no_kontrak',
         'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat', 'wajib_kalibrasi',
         'kondisi', 'status_penggunaan', 'no_psp', 'tgl_psp', 'kib',
@@ -51,6 +52,7 @@ class Asset extends Model
             'nilai_perolehan' => 'integer',
             'masa_manfaat' => 'integer',
             'wajib_kalibrasi' => 'boolean',
+            'kelengkapan' => 'array',
         ];
     }
 
@@ -105,6 +107,16 @@ class Asset extends Model
     public function penanggungJawab(): BelongsTo
     {
         return $this->belongsTo(User::class, 'penanggung_jawab_id');
+    }
+
+    public function photos(): HasMany
+    {
+        return $this->hasMany(AssetPhoto::class)->orderBy('urutan');
+    }
+
+    public function fotoUtama(): HasOne
+    {
+        return $this->hasOne(AssetPhoto::class)->where('utama', true);
     }
 
     public function mutations(): HasMany

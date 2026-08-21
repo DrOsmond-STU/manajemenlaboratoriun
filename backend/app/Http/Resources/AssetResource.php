@@ -35,6 +35,21 @@ class AssetResource extends JsonResource
             'tipe' => $this->tipe,
             'serial_number' => $this->serial_number,
             'spesifikasi' => $this->spesifikasi,
+            'kapasitas_ukur' => $this->kapasitas_ukur,
+            'kelengkapan' => $this->kelengkapan ?? [],
+
+            'foto' => [
+                // URL foto utama saja pada daftar — memuat seluruh foto tiap
+                // aset berarti puluhan baris tambahan untuk gambar yang tidak
+                // ditampilkan sampai asetnya dibuka.
+                'utama' => $this->whenLoaded(
+                    'fotoUtama',
+                    fn () => $this->fotoUtama
+                        ? route('assets.foto.tampilkan', ['asset' => $this->id, 'foto' => $this->fotoUtama->id])
+                        : null,
+                ),
+                'jumlah' => $this->whenCounted('photos'),
+            ],
 
             'perolehan' => [
                 'cara' => $this->cara_perolehan,

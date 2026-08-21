@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\BscController;
 use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
+use App\Http\Controllers\Api\FotoAsetController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
 use App\Http\Controllers\Api\PenggunaController;
@@ -211,6 +212,22 @@ Route::middleware('auth:sanctum')->group(function () {
     // menolak UPDATE dan DELETE pada tabelnya lewat pemicu.
     Route::get('audit', [AuditController::class, 'index'])
         ->middleware('can:audit.lihat')->name('audit.index');
+
+    // --- Foto aset ---------------------------------------------------------
+    // Berkasnya dilayani lewat rute, BUKAN sebagai berkas statis di docroot:
+    // foto aset memperlihatkan nomor seri, label BMN, dan tata letak ruangan
+    // tempat alat mahal disimpan.
+    Route::get('assets/{asset}/foto', [FotoAsetController::class, 'index'])
+        ->middleware('can:aset.lihat')->name('assets.foto.index');
+    Route::get('assets/{asset}/foto/{foto}', [FotoAsetController::class, 'tampilkan'])
+        ->middleware('can:aset.lihat')->name('assets.foto.tampilkan');
+
+    Route::post('assets/{asset}/foto', [FotoAsetController::class, 'store'])
+        ->middleware('can:aset.ubah')->name('assets.foto.store');
+    Route::post('assets/{asset}/foto/{foto}/utama', [FotoAsetController::class, 'jadikanUtama'])
+        ->middleware('can:aset.ubah')->name('assets.foto.utama');
+    Route::delete('assets/{asset}/foto/{foto}', [FotoAsetController::class, 'destroy'])
+        ->middleware('can:aset.ubah')->name('assets.foto.destroy');
 
     // --- Master kode barang ----------------------------------------------
     // Hanya baca; diperlukan pemilih kode saat mendaftarkan aset, sehingga

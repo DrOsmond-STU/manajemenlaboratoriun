@@ -204,6 +204,42 @@ class AssetApiTest extends TestCase
             ->assertJsonPath('data.0.nama', 'HPLC Shimadzu');
     }
 
+    public function test_kapasitas_ukur_dan_kelengkapan_tersimpan(): void
+    {
+        $this->kodeBarang();
+
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->postJson('/api/assets', $this->isian([
+                // Rentang bersatuan, bukan bilangan. Memaksanya menjadi angka
+                // membuang satuan dan batas bawahnya — justru bagian yang
+                // menentukan apakah alat itu cocok untuk sebuah pengujian.
+                'kapasitas_ukur' => '0,1–500 mg/L',
+                'kelengkapan' => ['Kolom C18', 'Detektor UV-Vis', 'Software LabSolutions', 'Manual'],
+            ]))
+            ->assertCreated()
+            ->json('data');
+
+        $this->assertSame('0,1–500 mg/L', $data['kapasitas_ukur']);
+        $this->assertCount(4, $data['kelengkapan']);
+        $this->assertContains('Kolom C18', $data['kelengkapan']);
+    }
+
+    public function test_aset_tanpa_foto_melaporkan_nol_bukan_null(): void
+    {
+        $this->kodeBarang();
+
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->postJson('/api/assets', $this->isian())
+            ->assertCreated()
+            ->json('data');
+
+        // Antarmuka memakai angka ini untuk memutuskan menampilkan galeri
+        // atau ajakan mengunggah; null memaksanya menebak.
+        $this->assertSame(0, $data['foto']['jumlah']);
+        $this->assertNull($data['foto']['utama']);
+        $this->assertSame([], $data['kelengkapan']);
+    }
+
     public function test_master_kode_barang_dapat_ditelusuri(): void
     {
         $this->kodeBarang('3.08.01.03.001');

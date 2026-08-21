@@ -33,6 +33,15 @@ class UpdateAssetRequest extends FormRequest
             'serial_number' => ['nullable', 'string', 'max:100'],
             'spesifikasi' => ['nullable', 'string', 'max:5000'],
 
+            // Teks, bukan angka: yang ditulis petugas berbentuk rentang
+            // bersatuan — "0,1–500 mg/L", "±0,0001 g". Memaksanya menjadi
+            // angka membuang satuan dan batas bawahnya, yaitu justru bagian
+            // yang menentukan apakah alat itu cocok untuk sebuah pengujian.
+            'kapasitas_ukur' => ['nullable', 'string', 'max:120'],
+
+            'kelengkapan' => ['nullable', 'array', 'max:30'],
+            'kelengkapan.*' => ['string', 'max:100'],
+
             'cara_perolehan' => ['sometimes', 'string', 'max:100'],
             'tgl_perolehan' => ['sometimes', 'date', 'before_or_equal:today'],
             'sumber_dana' => ['nullable', 'string', 'max:100'],

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
+use App\Http\Controllers\Api\PenyewaanController;
 use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +44,23 @@ Route::middleware('auth:sanctum')->group(function () {
     // ruangan boleh dengan izin master-data ATAU booking-ruangan — pemesan
     // harus dapat melihat ruangan yang hendak dipesannya.
     Route::apiResource('rooms', RoomController::class);
+
+    // --- Penyewaan & penagihan ----------------------------------------------
+    // Seluruh modul ini milik peran Finance pada matriks akses; peran lain
+    // paling jauh hanya melihat.
+    Route::get('penyewaan', [PenyewaanController::class, 'daftarSewa'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('penyewaan', [PenyewaanController::class, 'buatSewa'])
+        ->middleware('can:penyewaan.buat');
+    Route::post('penyewaan/{sewa}/tagihan', [PenyewaanController::class, 'terbitkanTagihan'])
+        ->middleware('can:penyewaan.ubah')->name('penyewaan.terbitkan-tagihan');
+
+    Route::get('tagihan', [PenyewaanController::class, 'daftarTagihan'])
+        ->middleware('can:penyewaan.lihat');
+    Route::get('tagihan/{tagihan}', [PenyewaanController::class, 'lihatTagihan'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('tagihan/{tagihan}/pembayaran', [PenyewaanController::class, 'catatPembayaran'])
+        ->middleware('can:penyewaan.ubah')->name('tagihan.pembayaran');
 
     // --- Persetujuan --------------------------------------------------------
     // Izin diperiksa di dalam controller karena bergantung pada jenis antrean

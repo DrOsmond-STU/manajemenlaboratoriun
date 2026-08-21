@@ -9,8 +9,8 @@ dan fondasi yang sudah berjalan.
 > dan otorisasi sudah terpasang (§6.3). Sebelas modul berjalan —
 > autentikasi, peran & izin, cakupan data, master data ruangan, master data
 > laboratorium, pemesanan ruangan, peminjaman alat, pemeliharaan & kalibrasi,
-> checklist, persetujuan, notifikasi jadwal, aset BMN, impor master kode
-> barang — tetapi
+> checklist, persetujuan, penyewaan & penagihan, notifikasi jadwal, aset BMN,
+> impor master kode barang — tetapi
 > **belum boleh diisi
 > data nyata**: belum ada satu pun akun, dan master kode barang masih
 > cuplikan contoh. Lihat §8.
@@ -281,7 +281,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-274 uji lulus, 774 asersi, 0 gagal — dijalankan di PostgreSQL 16
+293 uji lulus, 838 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -343,6 +343,21 @@ Master data ruangan:
 | Employee tidak boleh menulis | buat/ubah/hapus ditolak 403 |
 | Facility manager ubah ≠ hapus | menghapus menuntut tingkat PENUH |
 | Kode ruangan boleh dipakai ulang | indeks unik parsial `WHERE deleted_at IS NULL` |
+
+Penyewaan & penagihan — modul uang:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Kenaikan tarif tidak mengubah tagihan terbit** | baris tagihan adalah cuplikan, bukan acuan ke tarif |
+| **Pembayaran melebihi tagihan ditolak** | kelebihan bayar = kewajiban kembalikan uang yang tak tercatat di mana pun |
+| Akumulasi pembayaran juga dijaga | 600rb + 300rb + 200rb pada tagihan 1jt ditolak |
+| **Dijaga pemicu basis data + kunci penasihat** | dua pembayaran bersamaan tak dapat sama-sama lolos |
+| Pembayaran negatif ditolak | koreksi lewat baris pembatalan, bukan angka minus |
+| Subtotal baris kolom `GENERATED` | mustahil menyimpang dari kuantitas × harga |
+| **Status dihitung ulang, tidak ditebak** | pembayaran dihapus → status mundur, bukan tetap "lunas" |
+| Nomor tagihan berurut & unik per tahun | memakai pencatat aman-balapan yang sama dengan NUP BMN |
+| Tagihan tanpa baris ditolak | tagihan bernilai nol hanya membingungkan saat ditagihkan |
+| Jatuh tempo tidak boleh mendahului tanggal terbit | dijaga `CHECK` |
 
 Persetujuan:
 

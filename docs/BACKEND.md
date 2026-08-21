@@ -742,6 +742,39 @@ dahulu:
 Melewatkan langkah 1 menghasilkan **419 CSRF token mismatch** — itu perilaku
 yang benar, bukan gangguan.
 
+Seluruh langkah itu diurus `assets/js/api.js` di sisi antarmuka. Tiga hal yang
+perlu diketahui saat merawatnya:
+
+- **`credentials: "include"` wajib pada setiap permintaan.** Tanpa itu cookie
+  sesi tidak menyeberang dari `lab.` ke `api.lab.`, dan gejalanya bukan galat
+  CORS melainkan 401 di mana-mana — seolah sandinya salah.
+- **Pengambilan cookie CSRF dikunci pada satu janji bersama.** Memuat
+  dashboard menembakkan belasan permintaan sekaligus; tanpa penguncian
+  semuanya berlomba mengambil token yang sama lalu sebagian gagal 419 —
+  kegagalan yang tampak acak dan sangat sulit ditelusuri.
+- **Alamat API diturunkan dari alamat halaman,** bukan ditulis mati. Untuk
+  menjalankan antarmuka lokal melawan API lokal, setel sekali di konsol
+  peramban: `localStorage.setItem('flms.api', 'http://localhost:8000')`.
+
+### 6.3.1 Mode data contoh
+
+Antarmuka dapat berjalan tanpa API sama sekali, memakai data purwarupa di
+`assets/js/data.js`. Mode itu **selalu** disertai spanduk merah yang tidak
+dapat ditutup.
+
+Itu bukan hiasan. Purwarupa ini berisi angka yang meyakinkan — nama alat yang
+masuk akal, rupiah yang wajar, jadwal yang rapi. Bila API tak terjangkau lalu
+antarmuka menampilkannya tanpa keterangan, yang terjadi bukan "aplikasi tetap
+jalan" melainkan seseorang mengambil keputusan di atas angka karangan tanpa
+pernah tahu. Tombol tutup sengaja tidak disediakan: spanduk yang bisa ditutup
+akan ditutup pada menit pertama lalu tidak pernah terlihat lagi selama sisa
+sesi — persis ketika ia paling dibutuhkan. Satu-satunya jalan keluar adalah
+benar-benar masuk memakai akun.
+
+Mode ini menyala bila salah satu berikut terjadi: API tidak terjangkau,
+alamat API belum diatur untuk host tersebut, atau pengguna memilihnya sendiri
+lewat tombol "Telusuri purwarupa" / pemilih peran di halaman depan.
+
 ### 6.4 Verifikasi pasca-penerapan
 
 Lingkungan kerja pengembang tidak dapat menjangkau domain ini (diblokir proksi

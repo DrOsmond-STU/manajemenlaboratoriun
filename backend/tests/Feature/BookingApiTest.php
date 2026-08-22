@@ -104,4 +104,19 @@ class BookingApiTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.ruangan.id', $a->id);
     }
+
+    public function test_daftar_pemesanan_dapat_disaring_rentang_tanggal(): void
+    {
+        Sanctum::actingAs($user = $this->penggunaBerperan('employee'));
+        $room = Room::factory()->create();
+
+        Booking::factory()->for($room)->for($user)->pada('2026-09-05 08:00:00', '2026-09-05 10:00:00')->create();
+        Booking::factory()->for($room)->for($user)->pada('2026-10-05 08:00:00', '2026-10-05 10:00:00')->create();
+
+        // Dipakai Kalender Terpadu: satu bulan sekaligus, bukan halaman
+        // teratas yang bisa saja tidak mencakup bulan yang sedang dilihat.
+        $this->getJson('/api/bookings?sejak=2026-09-01&sampai=2026-09-30')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
 }

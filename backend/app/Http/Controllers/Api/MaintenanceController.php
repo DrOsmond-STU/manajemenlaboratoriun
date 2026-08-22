@@ -67,6 +67,16 @@ class MaintenanceController extends Controller
             $query->jatuhTempo($request->integer('jatuh_tempo_hari'));
         }
 
+        // Rentang tanggal — dipakai Kalender Terpadu untuk mengambil satu
+        // bulan sekaligus, bukan mengandalkan halaman 50-teratas yang bisa
+        // saja tidak mencakup bulan yang sedang dilihat.
+        if ($request->filled('sejak')) {
+            $query->where('jadwal', '>=', $request->date('sejak'));
+        }
+        if ($request->filled('sampai')) {
+            $query->where('jadwal', '<=', $request->date('sampai'));
+        }
+
         return MaintenanceResource::collection($query->paginate(50));
     }
 

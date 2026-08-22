@@ -341,4 +341,24 @@ class PeminjamanAlatTest extends TestCase
 
         $this->assertSame('Lab Kimia', EquipmentLoan::first()->unit_kerja);
     }
+
+    public function test_daftar_peminjaman_dapat_disaring_rentang_tanggal(): void
+    {
+        $pemohon = $this->penggunaBerperan('employee');
+
+        EquipmentLoan::factory()->create([
+            'asset_id' => $this->alat()->id, 'user_id' => $pemohon->id,
+            'mulai' => '2026-09-05 09:00:00', 'selesai' => '2026-09-05 13:00:00',
+        ]);
+        EquipmentLoan::factory()->create([
+            'asset_id' => $this->alat()->id, 'user_id' => $pemohon->id,
+            'mulai' => '2026-10-05 09:00:00', 'selesai' => '2026-10-05 13:00:00',
+        ]);
+
+        // Dipakai Kalender Terpadu: satu bulan sekaligus.
+        $this->actingAs($pemohon)
+            ->getJson('/api/peminjaman?sejak=2026-09-01&sampai=2026-09-30')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
 }

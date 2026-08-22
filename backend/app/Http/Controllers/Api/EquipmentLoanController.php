@@ -84,7 +84,21 @@ class EquipmentLoanController extends Controller
             $query->where('status', 'dipinjam')->where('selesai', '<', now());
         }
 
-        return EquipmentLoanResource::collection($query->paginate(25));
+        // Rentang tanggal — dipakai Kalender Terpadu untuk mengambil satu
+        // bulan sekaligus, bukan mengandalkan halaman 25-teratas yang bisa
+        // saja tidak mencakup bulan yang sedang dilihat.
+        if ($request->filled('sejak')) {
+            $query->where('mulai', '>=', $request->date('sejak'));
+        }
+        if ($request->filled('sampai')) {
+            $query->where('mulai', '<=', $request->date('sampai')->endOfDay());
+        }
+
+        // Rentang yang dibatasi tanggal wajar dipertaruhkan lebih besar —
+        // lihat alasan yang sama pada BookingController::index.
+        $ukuranHalaman = ($request->filled('sejak') && $request->filled('sampai')) ? 200 : 25;
+
+        return EquipmentLoanResource::collection($query->paginate($ukuranHalaman));
     }
 
     public function store(StoreEquipmentLoanRequest $request): JsonResponse

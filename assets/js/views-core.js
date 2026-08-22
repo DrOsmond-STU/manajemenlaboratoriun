@@ -10,29 +10,108 @@ window.VIEWS = window.VIEWS || {};
      widget yang dapat disunting — lihat assets/js/dash.js dan views-dash.js. */
 
   /* =======================================================================
-     KALENDER
+     KALENDER — tersambung ke basis data (tampilan Bulan)
+
+     Menggabungkan tiga sumber yang sudah tersambung sendiri-sendiri —
+     Repo.booking, Repo.peminjaman, Repo.pemeliharaan — dengan filter
+     rentang tanggal (sejak/sampai) yang ditambahkan pada endpoint masing-
+     masing khusus untuk kebutuhan ini: mengambil satu bulan sekaligus,
+     bukan mengandalkan halaman N-teratas yang bisa saja tidak mencakup
+     bulan yang sedang dilihat.
+
+     PENYEDERHANAAN YANG DISENGAJA: pemesanan ruangan sungguhan hanya
+     mencakup ruangan (laboratorium tidak punya mekanisme pemesanan
+     sendiri di server — lihat catatan yang sama pada Dashboard), sehingga
+     legenda "Penggunaan Laboratorium" / "Event & Auditorium" purwarupa
+     tidak lagi punya padanan terpisah; seluruh pemesanan ruangan tampil
+     dengan satu warna.
+
+     TAMPILAN Hari/Minggu DAN PANEL FILTER DI SAMPING TETAP PURWARUPA —
+     keduanya dipakai bersama oleh V["availability"] (timelineHTML) dan
+     sudah tidak dapat difungsikan (chip filter purwarupa memang murni
+     dekoratif sejak awal, bukan yang baru dijatuhkan di sini). Bukan
+     dipangkas diam-diam: menyambungkannya butuh menyambungkan seluruh
+     modul Room Availability sekaligus, di luar cakupan kalender ini.
      ======================================================================= */
-  const CAL = { month: new Date().getMonth(), year: new Date().getFullYear(), mode: "Bulan" };
+
+  const CAL = { month: new Date().getMonth(), year: new Date().getFullYear(), mode: "Bulan", baris: [], memuat: true, galat: null };
 
   V["calendar"] = {
     title: "Kalender Terpadu",
-    sub: "Jadwal seluruh ruangan, laboratorium, alat, dan event dalam satu tampilan.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Sinkronisasi ke Google Calendar / Outlook')">${U.icon("link")} Sinkron Kalender</button>
-              <button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Booking Baru</button>`,
-    render() { return calendarHTML(); }
+    sub: "Jadwal ruangan, peminjaman alat, dan pemeliharaan dalam satu tampilan.",
+    get actions() {
+      return `${Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Booking Baru</button>` : ""}`;
+    },
+    render() { return `<div id="calHost">${calendarHTML()}</div>`; },
+    mount() { muatKalender(); }
   };
+
+  function rentangBulan() {
+    const awal = new Date(CAL.year, CAL.month, 1);
+    const akhir = new Date(CAL.year, CAL.month + 1, 0);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    return { sejak: iso(awal), sampai: iso(akhir) };
+  }
+
+  async function muatKalender() {
+    CAL.memuat = true; CAL.galat = null;
+    const host = document.getElementById("calHost");
+    if (host) host.innerHTML = calendarHTML();
+
+    try {
+      const rentang = rentangBulan();
+      const [booking, peminjaman, pemeliharaan] = await Promise.all([
+        Repo.booking.daftar(rentang).then((j) => j.data),
+        Repo.peminjaman.daftar(rentang).then((j) => j.data),
+        Repo.pemeliharaan.daftar(rentang).then((j) => j.data)
+      ]);
+      CAL.baris = [
+        ...booking.map((b) => ({
+          id: b.id, jenis: "booking", date: (b.mulai || "").slice(0, 10),
+          start: (b.mulai || "").slice(11, 16), end: (b.selesai || "").slice(11, 16),
+          agenda: b.keperluan || "Booking Ruangan", resName: b.ruangan ? b.ruangan.nama : "—",
+          type: "Ruangan", cancelled: b.status && b.status.kode === "dibatalkan"
+        })),
+        ...peminjaman.map((p) => ({
+          id: p.id, jenis: "peminjaman", date: (p.jadwal.mulai || "").slice(0, 10),
+          start: (p.jadwal.mulai || "").slice(11, 16), end: (p.jadwal.selesai || "").slice(11, 16),
+          agenda: p.keperluan || "Peminjaman Alat", resName: p.alat ? p.alat.nama : "—",
+          type: "Alat", cancelled: p.status && p.status.kode === "ditolak"
+        })),
+        ...pemeliharaan.map((m) => ({
+          id: m.id, jenis: "pemeliharaan", date: m.jadwal, start: "00:00", end: "23:59",
+          agenda: (m.jenis ? m.jenis.nama : "Pemeliharaan") + (m.sumber_daya ? ": " + m.sumber_daya.nama : ""),
+          resName: m.sumber_daya ? m.sumber_daya.nama : "—",
+          type: "Maintenance", cancelled: m.status && m.status.kode === "dibatalkan"
+        }))
+      ];
+    } catch (e) {
+      CAL.baris = [];
+      CAL.galat = e.message;
+    } finally {
+      CAL.memuat = false;
+      const h = document.getElementById("calHost");
+      if (h) h.innerHTML = calendarHTML();
+    }
+  }
 
   window.calNav = function (delta) {
     CAL.month += delta;
     if (CAL.month < 0) { CAL.month = 11; CAL.year--; }
     if (CAL.month > 11) { CAL.month = 0; CAL.year++; }
-    document.getElementById("calHost").innerHTML = calendarHTML();
+    muatKalender();
   };
   window.calMode = function (m) { CAL.mode = m; document.getElementById("calHost").innerHTML = calendarHTML(); };
 
-  function evTone(b) {
-    return { "Laboratorium": "ev-teal", "Auditorium": "ev-violet", "Ruangan": "ev-blue" }[b.type] ||
-      (b.status === "Cancelled" ? "ev-red" : "ev-slate");
+  window.calEventClick = function (jenis, id) {
+    if (jenis === "booking") return showBooking(id);
+    if (jenis === "peminjaman") return showLoan(id);
+    if (jenis === "pemeliharaan") return pmlLihat(id);
+  };
+
+  function evTone(e) {
+    if (e.cancelled) return "ev-red";
+    return { "Ruangan": "ev-blue", "Alat": "ev-teal", "Maintenance": "ev-amber" }[e.type] || "ev-slate";
   }
 
   function calendarHTML() {
@@ -42,14 +121,15 @@ window.VIEWS = window.VIEWS || {};
     const prevDays = new Date(CAL.year, CAL.month, 0).getDate();
     const todayISO = D.shift(0);
 
+    if (CAL.mode === "Bulan" && CAL.memuat) {
+      return `<div class="card"><div class="card-body" style="padding:48px;text-align:center"><span class="muted">Memuat kalender…</span></div></div>`;
+    }
+    if (CAL.mode === "Bulan" && CAL.galat) {
+      return `<div class="alert err">${U.icon("alert", 17)}<div><b>Gagal memuat kalender.</b><br><span class="small">${U.esc(CAL.galat)}</span></div></div>`;
+    }
+
     const evByDate = {};
-    D.bookings.forEach((b) => { (evByDate[b.date] = evByDate[b.date] || []).push(b); });
-    D.eqBookings.forEach((b) => {
-      (evByDate[b.date] = evByDate[b.date] || []).push({ id: b.id, date: b.date, start: b.start, end: b.end, agenda: b.eqName, resName: b.eqName, type: "Alat", status: b.status, requester: b.requester, people: 1, unit: b.unit, pic: b.operator, addons: [], cost: 0, layout: "-", kind: "Reservasi Alat", billing: "INTERNAL" });
-    });
-    D.maintenance.filter((m) => m.block).forEach((m) => {
-      (evByDate[m.sched] = evByDate[m.sched] || []).push({ id: m.id, date: m.sched, start: "00:00", end: "23:59", agenda: "Maintenance: " + m.targetName, resName: m.targetName, type: "Maintenance", status: m.status, requester: m.tech, people: 0, unit: "Fasilitas", pic: m.tech, addons: [], cost: m.cost, layout: "-", kind: "Maintenance", billing: "INTERNAL" });
-    });
+    CAL.baris.forEach((e) => { (evByDate[e.date] = evByDate[e.date] || []).push(e); });
 
     let cells = "";
     for (let i = 0; i < 42; i++) {
@@ -60,7 +140,7 @@ window.VIEWS = window.VIEWS || {};
       const evs = (evByDate[dISO] || []).sort((a, b) => a.start.localeCompare(b.start));
       const shown = evs.slice(0, 3).map((e) => {
         const cls = e.type === "Maintenance" ? "ev-amber" : evTone(e);
-        return `<div class="cal-ev ${cls}" onclick="showBooking('${e.id}')">${e.start !== "00:00" ? e.start + " " : ""}${U.esc(e.agenda)}</div>`;
+        return `<div class="cal-ev ${cls}" onclick="calEventClick('${e.jenis}',${JSON.stringify(e.id)})">${e.start !== "00:00" ? e.start + " " : ""}${U.esc(e.agenda)}</div>`;
       }).join("");
       const more = evs.length > 3 ? `<div class="cal-more">+${evs.length - 3} lainnya</div>` : "";
       cells += `<div class="cal-cell ${out ? "out" : ""} ${dISO === todayISO ? "today" : ""}">
@@ -103,10 +183,9 @@ window.VIEWS = window.VIEWS || {};
 
           ${U.card("Legenda", `<div class="col gap-8 small">
             <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--brand-400)"></i>Booking Ruangan</div>
-            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--teal-500)"></i>Penggunaan Laboratorium</div>
-            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--violet-500)"></i>Event / Auditorium</div>
-            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--amber-500)"></i>Maintenance / Kalibrasi</div>
-            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--red-500)"></i>Dibatalkan</div>
+            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--teal-500)"></i>Peminjaman Alat</div>
+            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--amber-500)"></i>Pemeliharaan / Kalibrasi</div>
+            <div class="row"><i style="width:11px;height:11px;border-radius:3px;background:var(--red-500)"></i>Dibatalkan / Ditolak</div>
           </div>`)}
         </div>
       </div>`;

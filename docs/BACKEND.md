@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-510 uji lulus, 1.515 asersi, 0 gagal — dijalankan di PostgreSQL 16
+513 uji lulus, 1.521 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -318,6 +318,7 @@ Yang dijamin oleh uji tersebut:
 | **Dua penulisan bersamaan** | hanya satu bertahan, walau keduanya lolos pemeriksaan |
 | API: tamu ditolak | `401`, tidak ada baris tersimpan |
 | API: bentrok | `422` dengan pesan berbahasa Indonesia |
+| **Daftar dapat disaring rentang tanggal (`sejak`/`sampai`)** | dipakai Kalender Terpadu: satu bulan sekaligus, bukan halaman teratas yang belum tentu mencakup bulan yang sedang dilihat |
 
 Modul aset BMN — irisan kedua:
 
@@ -475,6 +476,7 @@ Pemeliharaan & kalibrasi:
 | **Kalibrasi ditolak untuk ruangan/laboratorium** | `422` aplikasi, dan `CHECK` basis data menolak walau lapis aplikasi dilewati |
 | Menyelesaikan pekerjaan ruangan tidak menyentuh kondisi aset | tidak ada aset untuk diperbarui |
 | Widget dashboard ikut menghitung target ruangan & laboratorium | bukan hanya yang menempel pada alat |
+| **Daftar dapat disaring rentang tanggal (`sejak`/`sampai`) atas kolom `jadwal`** | dipakai Kalender Terpadu bersama filter serupa pada pemesanan & peminjaman |
 
 Peminjaman alat:
 
@@ -489,6 +491,7 @@ Peminjaman alat:
 | Pengembalian tanpa kondisi tidak mengubah master | kondisi yang dikarang lebih berbahaya daripada yang belum diisi |
 | Peminjam tidak boleh menyerahkan ke dirinya sendiri | serah terima menuntut izin UBAH, bukan BUAT |
 | Keterlambatan dapat ditapis | pertanyaan pertama pengelola alat tiap pagi |
+| **Daftar dapat disaring rentang tanggal (`sejak`/`sampai`)** | dipakai Kalender Terpadu untuk mengambil satu bulan sekaligus |
 
 Master data laboratorium:
 
@@ -1075,6 +1078,37 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   sekadar menyambungkan yang sudah ada, dan tidak proporsional untuk
   digabung dengan Manajemen Pengguna & Peran. Dijatuhkan dengan sengaja,
   bukan dipangkas diam-diam.
+
+- **Kalender Terpadu menggabungkan TIGA domain yang sudah tersambung
+  sendiri-sendiri** (`Repo.booking`, `Repo.peminjaman`, `Repo.pemeliharaan`)
+  dalam satu tampilan bulan, bukan tabel/endpoint kalender tersendiri —
+  kalender bukan sumber data baru, hanya cara menampilkan tiga sumber yang
+  sudah ada sekaligus.
+- **Filter rentang tanggal (`sejak`/`sampai`) ditambahkan pada ketiga
+  endpoint** (`BookingController`, `EquipmentLoanController`,
+  `MaintenanceController`) karena paginasi 25/50 baris tak dapat diandalkan
+  menjawab "semua acara bulan ini" — bulan yang ramai bisa saja terpotong
+  di halaman pertama. Batas halaman dinaikkan ke 200 KHUSUS ketika kedua
+  batas tanggal diisi, agar permintaan tanpa rentang (dipakai layar lain)
+  tetap terbatas seperti semula dan tidak disalahgunakan untuk menyedot
+  seluruh tabel.
+- **Ruangan/Laboratorium/Auditorium purwarupa DISATUKAN menjadi "Ruangan"
+  saja** — laboratorium tidak punya mekanisme pemesanan di server (lihat
+  §4.2 master data laboratorium), dan auditorium bukan entitas tersendiri,
+  hanya salah satu ruangan. Legenda kalender diperbarui dari 5 entri
+  purwarupa menjadi 4 entri sungguhan: Booking Ruangan, Peminjaman Alat,
+  Pemeliharaan & Kalibrasi, Dibatalkan/Ditolak.
+- **Tampilan Hari/Minggu (timeline per jam) dan bilah Filter di samping
+  kalender TETAP purwarupa, sengaja tidak disentuh** — keduanya dipakai
+  bersama oleh layar "Ketersediaan" (`V["availability"]`) di luar cakupan
+  modul ini, dan menyambungkannya di sini berisiko mengubah perilaku layar
+  lain tanpa diuji. Bukan potongan diam-diam — tampilan Bulan (yang jadi
+  pintu masuk kalender) sudah sepenuhnya sungguhan.
+- **Bug purwarupa asli tertangkap saat pengkabelan: `calNav()`/`calMode()`
+  merujuk `#calHost`, elemen yang sebelumnya tidak pernah ada di mana pun**
+  — berpindah bulan/tampilan diam-diam tidak melakukan apa-apa karena
+  `document.getElementById("calHost")` selalu `null`. Diperbaiki dengan
+  membungkus keluaran `render()` dalam `<div id="calHost">`.
 
 ---
 

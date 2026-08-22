@@ -433,4 +433,16 @@ class PemeliharaanKalibrasiTest extends TestCase
         // Ketiganya terhitung — bukan hanya yang melekat pada alat.
         $this->assertSame(3, $data['nilai']);
     }
+
+    public function test_daftar_pemeliharaan_dapat_disaring_rentang_tanggal(): void
+    {
+        AssetMaintenance::factory()->create(['asset_id' => $this->alat()->id, 'jadwal' => '2026-09-05']);
+        AssetMaintenance::factory()->create(['asset_id' => $this->alat()->id, 'jadwal' => '2026-10-05']);
+
+        // Dipakai Kalender Terpadu: satu bulan sekaligus.
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->getJson('/api/pemeliharaan?sejak=2026-09-01&sampai=2026-09-30')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
 }

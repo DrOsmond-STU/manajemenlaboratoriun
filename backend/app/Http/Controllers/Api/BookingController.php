@@ -73,7 +73,23 @@ class BookingController extends Controller
                 ->orWhereHas('user', fn ($u) => $u->where('name', 'ilike', "%{$kata}%")));
         }
 
-        return BookingResource::collection($query->paginate(25));
+        // Rentang tanggal — dipakai Kalender Terpadu untuk mengambil satu
+        // bulan sekaligus, bukan mengandalkan halaman 25-teratas yang bisa
+        // saja tidak mencakup bulan yang sedang dilihat.
+        if ($request->filled('sejak')) {
+            $query->where('mulai', '>=', $request->date('sejak'));
+        }
+        if ($request->filled('sampai')) {
+            $query->where('mulai', '<=', $request->date('sampai')->endOfDay());
+        }
+
+        // Rentang yang dibatasi tanggal wajar dipertaruhkan lebih besar:
+        // sebulan penuh lintas seluruh ruangan lazim melebihi 25 baris, dan
+        // kalender yang diam-diam terpotong lebih menyesatkan daripada
+        // permintaan yang sedikit lebih berat.
+        $ukuranHalaman = ($request->filled('sejak') && $request->filled('sampai')) ? 200 : 25;
+
+        return BookingResource::collection($query->paginate($ukuranHalaman));
     }
 
     public function store(StoreBookingRequest $request): JsonResponse

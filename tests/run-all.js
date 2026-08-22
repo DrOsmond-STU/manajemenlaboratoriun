@@ -19,7 +19,8 @@ const SUITES = [
   ['pemeliharaan', 'Pemeliharaan & Kalibrasi tersambung: satu tabel dua layar, kalibrasi hanya untuk alat'],
   ['penyewaan', 'Penyewaan & Tagihan tersambung: tarif, penawaran, invoice, verifikasi pembayaran'],
   ['audit', 'Audit Trail tersambung: entri, tapisan peristiwa, detail perubahan kolom'],
-  ['pengguna', 'Manajemen Pengguna & Peran tersambung: hanya super-admin, matriks sungguhan']
+  ['pengguna', 'Manajemen Pengguna & Peran tersambung: hanya super-admin, matriks sungguhan'],
+  ['kalender', 'Kalender Terpadu tersambung: rentang tanggal per bulan, tiga sumber digabung']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

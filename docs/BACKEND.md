@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-431 uji lulus, 1.289 asersi, 0 gagal — dijalankan di PostgreSQL 16
+451 uji lulus, 1.359 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -759,6 +759,84 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   `ckSelesaikanRun()`, bukan digantungkan ke navigasi yang belum tentu
   terjadi.
 
+- **BSC diberi lapis "sasaran strategis" yang sebelumnya tidak ada di basis
+  data.** Kartu skor semula dua tingkat: perspektif → indikator langsung.
+  Purwarupa yang sudah disetujui tiga tingkat — Kaplan & Norton memang
+  begitu: setiap perspektif berisi beberapa sasaran strategis, dan setiap
+  sasaran berisi indikatornya sendiri. Tabel `bsc_objectives` ditambahkan,
+  bukan dipangkas dari purwarupa. Sasaran sengaja TIDAK berbobot sendiri —
+  bobot tetap dijumlahkan per PERSPEKTIF seperti sebelumnya, ditegakkan
+  pemicu tertunda yang sama; sasaran murni pengelompokan tampilan.
+  `bsc_objective_id` pada indikator memakai `cascadeOnDelete`, supaya
+  menulis ulang satu perspektif (hapus sasaran lama, buat baru) ikut
+  membersihkan indikator lamanya lewat basis data, bukan lewat urutan
+  panggilan aplikasi yang harus selalu benar.
+- **Tren skor BSC mengikuti periode yang sungguhan tercatat, bukan bulan
+  kalender.** Purwarupa mengasumsikan riwayat bulanan; periode BSC di sini
+  tahunan atau triwulanan (lihat validasinya), dan tidak ada satu tempat pun
+  yang menyimpan "skor bulan Maret" terpisah. Mengarang angka bulanan dari
+  data yang sama sekali tidak berbutir bulan akan menjadi tren yang
+  kelihatan meyakinkan tapi dikarang — endpoint `GET /api/bsc/tren`
+  karenanya mengembalikan satu titik per periode yang pernah diisi.
+- **Katalog widget dashboard diperluas dari 13 menjadi 41 kunci**, supaya
+  cakupannya sedekat mungkin dengan Dashboard Operasional, Manajemen, dan
+  Analitik pada purwarupa. Dua bentuk data baru ditambahkan: `deret` (tren
+  bulanan) dan `matriks` (heatmap okupansi). Beberapa widget purwarupa
+  DIJATUHKAN dengan sengaja, bukan dipangkas diam-diam:
+  - **Utilisasi laboratorium** — laboratorium tidak punya mekanisme
+    pemesanan sendiri di server (hanya ruangan yang punya `bookings`),
+    sehingga tidak ada data sungguhan untuk dihitung.
+  - **Widget pengunjung/kunjungan** — domainnya belum punya model di
+    server sama sekali; menambahkannya berarti membangun modul baru, bukan
+    menyambungkan yang sudah ada.
+- **Utilisasi ruangan memakai asumsi jam operasional yang dinyatakan
+  tegas: 08.00–18.00 (10 jam), Senin–Sabtu.** Tidak ada satu pun tempat di
+  sistem ini yang menyimpan jam operasional fasilitas sesungguhnya. Angka
+  ini karenanya PERKIRAAN, bukan fakta tercatat — dicatat di kode dan di
+  sini supaya tidak diam-diam dianggap presisi. **Perlu dipastikan ke
+  satuan kerja** sebelum dipakai sebagai dasar keputusan (lihat §8.1).
+- **Dashboard bawaan pengguna baru tetap terkurasi walau katalognya
+  membesar.** `RegistriWidget::BAWAAN` adalah subset terpilih (14 kunci),
+  bukan "seluruh widget yang izinnya dipunyai peran ini" — tanpa kurasi itu,
+  Super Admin yang izinnya luas akan mendapat dashboard pertama berisi
+  puluhan widget sekaligus, sebaliknya dari maksud "berguna sejak login
+  pertama".
+- **Panel "Peringatan Operasional" (`sistem.peringatan`) tidak punya izin
+  tunggal.** Ia menggabungkan kondisi mendesak dari domain berbeda —
+  kalibrasi, pemeliharaan, checklist, penagihan — dan tiap butir di
+  dalamnya diperiksa izinnya sendiri-sendiri. Orang yang tidak berwenang
+  atas kalibrasi tetap dapat memasang panel ini tanpa pernah melihat butir
+  kalibrasinya, alih-alih panel itu ditolak seluruhnya.
+- **Widget "Catatan" (`catatan.bebas`) satu-satunya yang tidak menghitung
+  apa pun di server** — isinya murni teks yang diketik pengguna, tersimpan
+  di `opsi.catatan` milik widgetnya sendiri. Tidak butuh izin: menulis
+  catatan sendiri bukan akses ke data siapa pun.
+- **Dashboard & BSC di sisi antarmuka bercabang di TINGKAT HALAMAN, bukan
+  di tingkat data seperti modul lain.** Setiap modul lain memetakan data
+  purwarupa ke bentuk API yang sama persis, supaya satu tampilan melayani
+  dua sumber. Mesin widget purwarupa (drag-and-drop, `SOURCES`/`METRICS`
+  bebas komposisi) sudah berdiri sendiri sejak sebelum modul ini
+  tersambung, dan katalog widget server sengaja TIDAK dimaksudkan mencakup
+  seluruh sumber data purwarupa yang bebas — itu batas keamanan yang
+  disengaja (lihat `RegistriWidget`), bukan kekurangan untuk ditambal
+  dengan pemetaan. Karena itu rute yang sama memilih mesin purwarupa atau
+  mesin tersambung berdasarkan `Repo.dapatMenulis()`, dan mesin purwarupa
+  tidak disentuh sama sekali oleh pekerjaan ini.
+- **Susun-ulang dan ubah ukuran pada dashboard tersambung memakai tombol
+  naik/turun dan kolom angka, BUKAN seret-lepas seperti purwarupa.**
+  Penyederhanaan yang disengaja: fisika seret-lepas purwarupa terikat erat
+  pada penyimpanan `localStorage`-nya sendiri, dan menulis ulangnya untuk
+  menyimpan ke server adalah pekerjaan terpisah dari menyambungkan data
+  sungguhan. Yang dijaga adalah kebenarannya — tata letak benar-benar
+  tersimpan ke server dan bertahan setelah muat ulang — bukan kehalusan
+  interaksi seret-lepasnya.
+- **Bug tertangkap saat pengkabelan: `Repo.dashboard.utama()` tidak
+  dijaga try/catch pada jalur mount pertama kali.** Uji peramban yang
+  memakai server tiruan tanpa endpoint dashboard langsung menangkapnya
+  sebagai galat halaman tak tertangani begitu rute manapun dibuka setelah
+  masuk — karena rute bawaan aplikasi memang `#/dashboard`. Diperbaiki
+  dengan try/catch yang sama seperti jalur pemuatan dashboard lainnya.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada
@@ -1035,3 +1113,16 @@ satuan kerja Anda:
   `dashboard.ubah`. Matriksnya tidak diubah sepihak; bila Management memang
   harus dapat menyusun, tingkatnya perlu dinaikkan di `MatriksAkses` —
   perubahan satu baris.
+- **Asumsi jam operasional untuk widget utilisasi ruangan.** 08.00–18.00
+  Senin–Sabtu dipilih karena tidak ada satu pun tempat di sistem ini yang
+  menyimpan jam operasional fasilitas sesungguhnya. Dikurung di satu
+  konstanta (`DataWidget::JAM_OPERASIONAL_PER_HARI`) dan satu metode
+  (`hariKerja()`) supaya penyesuaiannya cukup di satu tempat, sama seperti
+  pola pada `Penyusutan`.
+- **Rute "Dashboard Manajemen" belum punya jenis dashboard sendiri.**
+  `Dashboard::JENIS` hanya `operasional`/`analitik`/`bsc` — tidak ada
+  `manajemen` terpisah seperti pasangan `DEFAULTS.ops`/`DEFAULTS.mgmt` pada
+  purwarupa. Rute `#/exec` untuk sekarang memilih dashboard `operasional`
+  yang sama dengan `#/dashboard`; menambah jenis `manajemen` sendiri berarti
+  migrasi baru dan perluasan `Dashboard::JENIS`, sengaja belum dilakukan
+  sampai ada kebutuhan nyata membedakan keduanya.

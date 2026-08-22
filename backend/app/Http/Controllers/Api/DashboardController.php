@@ -40,7 +40,10 @@ class DashboardController extends Controller
         $tersedia = [];
 
         foreach (RegistriWidget::WIDGET as $kunci => $ket) {
-            if (Gate::forUser($pengguna)->allows($ket['izin'])) {
+            // Izin null berarti widgetnya tidak dijaga izin modul manapun
+            // (mis. catatan bebas) — tersedia bagi siapa pun yang login,
+            // bukan dilewatkan ke Gate yang menuntut nama ability.
+            if ($ket['izin'] === null || Gate::forUser($pengguna)->allows($ket['izin'])) {
                 $tersedia[] = ['kunci' => $kunci] + $ket;
             }
         }

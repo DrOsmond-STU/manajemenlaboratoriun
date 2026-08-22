@@ -6,6 +6,7 @@ use App\Models\Concerns\Diaudit;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Satu indikator kinerja dalam Balanced Scorecard.
@@ -34,7 +35,7 @@ class BscIndikator extends Model
     ];
 
     protected $fillable = [
-        'perspektif', 'periode', 'nama', 'satuan', 'polaritas',
+        'perspektif', 'periode', 'bsc_objective_id', 'nama', 'satuan', 'polaritas',
         'target', 'realisasi', 'bobot', 'urutan', 'catatan',
     ];
 
@@ -106,5 +107,10 @@ class BscIndikator extends Model
     public function scopePeriode(Builder $query, string $periode): Builder
     {
         return $query->where('periode', $periode);
+    }
+
+    public function objective(): BelongsTo
+    {
+        return $this->belongsTo(BscObjective::class, 'bsc_objective_id');
     }
 }

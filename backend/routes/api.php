@@ -67,6 +67,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:dashboard.lihat')->name('bsc.kartu');
     Route::get('bsc/kerangka', [BscController::class, 'kerangka'])
         ->middleware('can:dashboard.lihat')->name('bsc.kerangka');
+    Route::get('bsc/tren', [BscController::class, 'tren'])
+        ->middleware('can:dashboard.lihat')->name('bsc.tren');
 
     Route::put('bsc/perspektif', [BscController::class, 'simpanPerspektif'])
         ->middleware('can:dashboard.kelola')->name('bsc.simpan-perspektif');

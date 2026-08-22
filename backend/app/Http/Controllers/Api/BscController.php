@@ -36,10 +36,16 @@ class BscController extends Controller
         $data = $request->validated();
 
         $this->scorecard->simpanPerspektif(
-            $data['periode'], $data['perspektif'], $data['indikator'],
+            $data['periode'], $data['perspektif'], $data['objectives'],
         );
 
         return response()->json(['data' => $this->scorecard->kartu($data['periode'])]);
+    }
+
+    /** Skor total tiap periode yang pernah tercatat — tren scorecard. */
+    public function tren(): JsonResponse
+    {
+        return response()->json(['data' => $this->scorecard->tren()]);
     }
 
     /**

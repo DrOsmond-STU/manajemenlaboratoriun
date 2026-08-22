@@ -46,6 +46,10 @@ class SimpanDashboardRequest extends FormRequest
             'widgets.*.opsi.hari' => ['nullable', 'integer', 'between:1,365'],
             'widgets.*.opsi.batas' => ['nullable', 'integer', 'between:1,50'],
 
+            // Isi widget "Catatan" (catatan.bebas) — satu-satunya widget
+            // yang isinya murni ditulis pengguna, bukan dihitung server.
+            'widgets.*.opsi.catatan' => ['nullable', 'string', 'max:2000'],
+
             // Geometri divalidasi di sini untuk pesan yang terbaca, dan
             // ditegakkan lagi oleh batasan CHECK di basis data — yang berlaku
             // juga bagi jalur yang tidak lewat sini sama sekali.

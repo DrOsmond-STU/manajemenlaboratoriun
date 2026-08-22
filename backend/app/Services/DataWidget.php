@@ -6,9 +6,16 @@ use App\Models\Asset;
 use App\Models\AssetMaintenance;
 use App\Models\Booking;
 use App\Models\ChecklistAssignment;
+use App\Models\ChecklistRun;
+use App\Models\ChecklistTemplate;
 use App\Models\DashboardWidget;
 use App\Models\EquipmentLoan;
 use App\Models\Invoice;
+use App\Models\Laboratory;
+use App\Models\NotificationLog;
+use App\Models\Payment;
+use App\Models\Rental;
+use App\Models\Room;
 use App\Models\User;
 use App\Support\RegistriWidget;
 use Illuminate\Support\Collection;
@@ -32,12 +39,27 @@ use Illuminate\Support\Facades\Gate;
  *      yang seharusnya hanya melihat gedungnya sendiri sudah memberi tahu
  *      ada sesuatu di luar sana. Model yang tidak punya cakupan sendiri
  *      dibatasi lewat relasinya ke aset.
+ *
+ *      Pengecualian yang SUDAH ADA sebelum perluasan ini, dan dipertahankan
+ *      apa adanya: widget penagihan (Invoice/Payment/Rental) tidak menerapkan
+ *      cakupan gedung sama sekali. Modul Penyewaan & Penagihan memang belum
+ *      punya sumbu cakupan gedung di mana pun — lihat SECURITY.md §4.2 dan
+ *      docs/BACKEND.md §8.1. Widget baru pada domain itu mengikuti perilaku
+ *      yang sudah berjalan, bukan diam-diam memperbaikinya di sini.
+ *
+ * ASUMSI UTILISASI RUANGAN, DINYATAKAN TEGAS: jam operasional 08.00–18.00
+ * (10 jam), Senin–Sabtu dihitung hari kerja. Tidak ada satu pun tempat di
+ * sistem ini yang menyimpan jam operasional fasilitas sesungguhnya — angka
+ * ini karenanya PERKIRAAN, bukan fakta tercatat, dan perlu dipastikan ke
+ * satuan kerja sebelum dijadikan dasar keputusan (lihat docs/BACKEND.md).
  */
 class DataWidget
 {
     private const BATAS_DAFTAR = 8;
 
     private const HARI_BAWAAN = 30;
+
+    private const JAM_OPERASIONAL_PER_HARI = 10;
 
     /**
      * @return array<string,mixed>
@@ -98,24 +120,99 @@ class DataWidget
             'aset.tanpa-penanggung-jawab' => $this->angka(
                 Asset::query()->dalamCakupan($pengguna)->whereNull('penanggung_jawab_id')->count()
             ),
+            'aset.nilai-buku' => $this->nilaiMentah(
+                app(RingkasanAset::class)->untuk($pengguna)['nilai_buku'] ?? 0
+            ),
+
+            'ruangan.jumlah' => $this->angka(Room::query()->dalamCakupan($pengguna)->count()),
+            'ruangan.status' => $this->sebaranDari(
+                Room::query()->dalamCakupan($pengguna)
+                    ->selectRaw('status, count(*) as jumlah')->groupBy('status')->pluck('jumlah', 'status'),
+                Room::STATUS
+            ),
+            'ruangan.utilisasi' => $this->ruanganUtilisasi($pengguna),
+            'ruangan.tren-utilisasi' => $this->ruanganTrenUtilisasi($pengguna),
+            'ruangan.heatmap-okupansi' => $this->heatmapOkupansi($pengguna),
 
             'booking.hari-ini' => $this->bookingHariIni($pengguna, $batas),
+            'booking.mendatang' => $this->bookingMendatang($pengguna, $batas),
             'booking.menunggu' => $this->angka(
                 Booking::query()->dalamCakupan($pengguna)->where('status', 'menunggu')->count()
+            ),
+            'booking.status' => $this->sebaranDari(
+                Booking::query()->dalamCakupan($pengguna)
+                    ->selectRaw('status, count(*) as jumlah')->groupBy('status')->pluck('jumlah', 'status'),
+                Booking::STATUS
             ),
 
             'peminjaman.aktif' => $this->angka(
                 EquipmentLoan::query()->dalamCakupan($pengguna)->where('status', 'dipinjam')->count()
             ),
             'peminjaman.terlambat' => $this->peminjamanTerlambat($pengguna, $batas),
+            'peminjaman.status' => $this->sebaranDari(
+                EquipmentLoan::query()->dalamCakupan($pengguna)
+                    ->selectRaw('status, count(*) as jumlah')->groupBy('status')->pluck('jumlah', 'status'),
+                EquipmentLoan::STATUS
+            ),
+
+            'laboratorium.jumlah' => $this->angka(Laboratory::query()->dalamCakupan($pengguna)->count()),
+            'laboratorium.status' => $this->sebaranDari(
+                Laboratory::query()->dalamCakupan($pengguna)
+                    ->selectRaw('status, count(*) as jumlah')->groupBy('status')->pluck('jumlah', 'status'),
+                Laboratory::STATUS
+            ),
+            'laboratorium.tanpa-penanggung-jawab' => $this->angka(
+                Laboratory::query()->dalamCakupan($pengguna)->whereNull('penanggung_jawab_id')->count()
+            ),
 
             'kalibrasi.kedaluwarsa' => $this->kalibrasiKedaluwarsa($pengguna, $batas),
             'pemeliharaan.terjadwal' => $this->pemeliharaanTerjadwal($pengguna, $batas, $hari),
+            'pemeliharaan.aktif' => $this->angka(
+                AssetMaintenance::query()->whereIn('status', ['dijadwalkan', 'berjalan'])
+                    ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->count()
+            ),
+            'pemeliharaan.jenis' => $this->sebaranDari(
+                AssetMaintenance::query()->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))
+                    ->selectRaw('jenis, count(*) as jumlah')->groupBy('jenis')->pluck('jumlah', 'jenis'),
+                AssetMaintenance::JENIS
+            ),
+            'pemeliharaan.biaya-ytd' => $this->angka((int) AssetMaintenance::query()
+                ->where('status', 'selesai')->whereYear('dikerjakan_pada', now()->year)
+                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->sum('biaya')),
+            'pemeliharaan.tren-biaya' => $this->pemeliharaanTrenBiaya($pengguna),
 
             'checklist.tugas-saya' => $this->tugasSaya($pengguna, $batas),
+            'checklist.jatuh-tempo' => $this->checklistJatuhTempo($batas),
+            'checklist.per-jenis' => $this->checklistPerJenis(),
 
             'tagihan.piutang' => $this->piutang(),
             'tagihan.jatuh-tempo' => $this->tagihanJatuhTempo($batas),
+            'tagihan.status' => $this->sebaranDari(
+                Invoice::query()->selectRaw('status, count(*) as jumlah')->groupBy('status')->pluck('jumlah', 'status'),
+                Invoice::STATUS
+            ),
+            'penyewaan.jumlah-aktif' => $this->angka(
+                Rental::query()->whereIn('status', ['dikonfirmasi', 'berjalan'])->count()
+            ),
+            'penyewaan.pendapatan-ytd' => $this->angka(
+                (int) Payment::query()->whereYear('tanggal', now()->year)->sum('jumlah')
+            ),
+            'penyewaan.tren-pendapatan' => $this->penyewaanTrenPendapatan(),
+
+            'notifikasi.terkirim-hari-ini' => $this->angka(
+                NotificationLog::query()->where('status', 'terkirim')->whereDate('dikirim_pada', today())->count()
+            ),
+            'notifikasi.gagal' => $this->angka(
+                NotificationLog::query()->where('status', 'gagal')->count()
+            ),
+
+            'bsc.skor' => $this->nilaiMentah(app(Scorecard::class)->kartu((string) now()->year)['skor']),
+            'bsc.per-perspektif' => $this->bscPerPerspektif(),
+            'bsc.tren-skor' => $this->bscTrenSkor(),
+            'bsc.kartu' => app(Scorecard::class)->kartu((string) now()->year),
+
+            'sistem.peringatan' => $this->sistemPeringatan($pengguna, $batas),
+            'catatan.bebas' => ['nilai' => null],
 
             // Kunci ada di registri tetapi belum ada hitungannya. Tidak
             // mungkin terjadi selama registri dan berkas ini dijaga sejalan;
@@ -133,10 +230,42 @@ class DataWidget
         return ['nilai' => $nilai];
     }
 
+    /**
+     * Seperti angka(), tapi menerima desimal dan null — dipakai widget yang
+     * nilainya sungguhan pecahan (skor BSC, persentase utilisasi) atau bisa
+     * benar-benar tidak terdefinisi (belum ada data sama sekali).
+     *
+     * @return array<string,mixed>
+     */
+    private function nilaiMentah(int|float|null $nilai): array
+    {
+        return ['nilai' => $nilai];
+    }
+
     /** @return array<string,mixed> */
     private function kosong(string $pesan): array
     {
         return ['nilai' => null, 'pesan' => $pesan];
+    }
+
+    /**
+     * Sebaran per kategori, ditelusuri dari daftar kode yang SAH — bukan
+     * dari hasil kueri — supaya kategori yang jumlahnya nol tetap tampil.
+     * Menghilangkannya membuat grafik berubah bentuk dari waktu ke waktu dan
+     * menyembunyikan kabar baik ("tidak ada yang rusak berat").
+     *
+     * @param  Collection<string,int>  $hitung  kode => jumlah
+     * @param  array<string,string>  $namaPerKode
+     * @return array<string,mixed>
+     */
+    private function sebaranDari(Collection $hitung, array $namaPerKode): array
+    {
+        $bagian = [];
+        foreach ($namaPerKode as $kode => $nama) {
+            $bagian[] = ['kode' => $kode, 'nama' => $nama, 'jumlah' => (int) ($hitung[$kode] ?? 0)];
+        }
+
+        return ['bagian' => $bagian, 'nilai' => array_sum(array_column($bagian, 'jumlah'))];
     }
 
     // --- Aset ----------------------------------------------------------------
@@ -149,17 +278,110 @@ class DataWidget
             ->groupBy('kondisi')
             ->pluck('jumlah', 'kondisi');
 
-        $bagian = [];
+        return $this->sebaranDari($hitung, Asset::KONDISI);
+    }
 
-        // Ditelusuri dari daftar kondisi yang sah, bukan dari hasil kueri.
-        // Kondisi yang jumlahnya nol tetap harus muncul sebagai nol —
-        // menghilangkannya membuat grafik berubah bentuk dari waktu ke waktu
-        // dan menyembunyikan kabar baik ("tidak ada yang rusak berat").
-        foreach (Asset::KONDISI as $kode => $nama) {
-            $bagian[] = ['kode' => $kode, 'nama' => $nama, 'jumlah' => (int) ($hitung[$kode] ?? 0)];
+    // --- Ruangan & utilisasi ---------------------------------------------------
+
+    /** @return array<string,mixed> */
+    private function ruanganUtilisasi(User $pengguna): array
+    {
+        $jumlahRuangan = Room::query()->dalamCakupan($pengguna)->count();
+
+        if ($jumlahRuangan === 0) {
+            return $this->nilaiMentah(null);
         }
 
-        return ['bagian' => $bagian, 'nilai' => array_sum(array_column($bagian, 'jumlah'))];
+        $awal = now()->startOfMonth();
+        $akhir = now()->min(now()->copy()->endOfMonth());
+
+        return $this->nilaiMentah($this->persenUtilisasi($pengguna, $jumlahRuangan, $awal, $akhir));
+    }
+
+    /** @return array<string,mixed> */
+    private function ruanganTrenUtilisasi(User $pengguna): array
+    {
+        $jumlahRuangan = Room::query()->dalamCakupan($pengguna)->count();
+        $titik = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $bulan = now()->subMonthsNoOverflow($i);
+            $awal = $bulan->copy()->startOfMonth();
+            $akhir = $bulan->copy()->endOfMonth()->min(now());
+
+            $titik[] = [
+                'label' => $bulan->translatedFormat('M Y'),
+                'nilai' => $jumlahRuangan > 0 ? $this->persenUtilisasi($pengguna, $jumlahRuangan, $awal, $akhir) : null,
+            ];
+        }
+
+        return ['titik' => $titik, 'satuan' => '%'];
+    }
+
+    private function persenUtilisasi(User $pengguna, int $jumlahRuangan, $awal, $akhir): ?float
+    {
+        $jamTerpakai = (float) Booking::query()->dalamCakupan($pengguna)
+            ->whereNotIn('status', Booking::STATUS_TIDAK_MEMBLOKIR)
+            ->whereBetween('mulai', [$awal, $akhir])
+            ->get(['mulai', 'selesai'])
+            ->sum(fn (Booking $b) => $b->mulai->diffInMinutes($b->selesai) / 60);
+
+        $kapasitasJam = $jumlahRuangan * self::JAM_OPERASIONAL_PER_HARI * $this->hariKerja($awal, $akhir);
+
+        return $kapasitasJam > 0 ? round(min(100, $jamTerpakai / $kapasitasJam * 100), 1) : null;
+    }
+
+    /** Senin–Sabtu dihitung hari kerja fasilitas; Minggu tidak. */
+    private function hariKerja($awal, $akhir): int
+    {
+        $n = 0;
+        for ($d = $awal->copy()->startOfDay(); $d->lte($akhir); $d->addDay()) {
+            if (! $d->isSunday()) {
+                $n++;
+            }
+        }
+
+        return $n;
+    }
+
+    /**
+     * Heatmap okupansi 90 hari terakhir: hari (Senin–Minggu) × jam.
+     * Dinormalkan terhadap sel tersibuk supaya tetap terbaca lintas satuan
+     * kerja — sel tersibuk selalu 100, bukan angka mentah yang mustahil
+     * dibandingkan tanpa konteks berapa jam operasionalnya.
+     *
+     * @return array<string,mixed>
+     */
+    private function heatmapOkupansi(User $pengguna): array
+    {
+        $kolomJam = ['07', '09', '10', '11', '13', '14', '15', '16', '17'];
+        $baris = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+        $sel = array_fill(0, count($baris), array_fill(0, count($kolomJam), 0));
+
+        $bookings = Booking::query()->dalamCakupan($pengguna)
+            ->whereNotIn('status', Booking::STATUS_TIDAK_MEMBLOKIR)
+            ->where('mulai', '>=', now()->subDays(90))
+            ->get(['mulai', 'selesai']);
+
+        foreach ($bookings as $b) {
+            $baris_ = $b->mulai->isoWeekday() - 1; // 0=Senin .. 6=Minggu
+            $j = $b->mulai;
+            while ($j->lt($b->selesai)) {
+                $idx = array_search($j->format('H'), $kolomJam, true);
+                if ($idx !== false) {
+                    $sel[$baris_][$idx]++;
+                }
+                $j = $j->addHour();
+            }
+        }
+
+        $maks = max(1, max(array_map('max', $sel)));
+        $ternormal = array_map(
+            fn (array $b) => array_map(fn (int $v) => (int) round($v / $maks * 100), $b),
+            $sel
+        );
+
+        return ['baris' => $baris, 'kolom' => $kolomJam, 'sel' => $ternormal];
     }
 
     // --- Booking -------------------------------------------------------------
@@ -183,6 +405,27 @@ class DataWidget
 
         return $this->daftar($baris, Booking::query()->dalamCakupan($pengguna)
             ->aktif()->whereDate('mulai', today())->count());
+    }
+
+    /** @return array<string,mixed> */
+    private function bookingMendatang(User $pengguna, int $batas): array
+    {
+        $kueri = fn () => Booking::query()->dalamCakupan($pengguna)
+            ->aktif()
+            ->where('mulai', '>', now());
+
+        $baris = $kueri()->with('room:id,kode,nama')
+            ->orderBy('mulai')
+            ->limit($batas)
+            ->get()
+            ->map(fn (Booking $b) => [
+                'id' => $b->id,
+                'judul' => $b->room?->nama ?? '—',
+                'keterangan' => $b->mulai->translatedFormat('j M, H:i').' · '.$b->keperluan,
+                'status' => $b->status,
+            ]);
+
+        return $this->daftar($baris, $kueri()->count());
     }
 
     // --- Peminjaman ----------------------------------------------------------
@@ -267,6 +510,27 @@ class DataWidget
         return $this->daftar($baris, $kueri()->count());
     }
 
+    /** @return array<string,mixed> */
+    private function pemeliharaanTrenBiaya(User $pengguna): array
+    {
+        $titik = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $bulan = now()->subMonthsNoOverflow($i);
+
+            $jumlah = AssetMaintenance::query()
+                ->where('status', 'selesai')
+                ->whereYear('dikerjakan_pada', $bulan->year)
+                ->whereMonth('dikerjakan_pada', $bulan->month)
+                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))
+                ->sum('biaya');
+
+            $titik[] = ['label' => $bulan->translatedFormat('M Y'), 'nilai' => (int) $jumlah];
+        }
+
+        return ['titik' => $titik, 'satuan' => 'rupiah'];
+    }
+
     // --- Checklist -----------------------------------------------------------
 
     /** @return array<string,mixed> */
@@ -287,7 +551,71 @@ class DataWidget
         return $this->daftar($baris, $kueri()->count());
     }
 
-    // --- Penagihan -----------------------------------------------------------
+    /**
+     * Penugasan aktif yang belum ada pelaksanaan SELESAI dalam jendela
+     * periodenya sendiri — harian belum ada yang selesai hari ini, mingguan
+     * belum ada yang selesai pekan ini, dan seterusnya. Insidental tidak
+     * pernah "jatuh tempo": tidak ada jadwal baku untuknya.
+     *
+     * @return array<string,mixed>
+     */
+    private function checklistJatuhTempo(int $batas): array
+    {
+        $sekarang = now();
+
+        $semua = ChecklistAssignment::query()->aktif()
+            ->where('periode', '!=', 'insidental')
+            ->with('template:id,nama')
+            ->get();
+
+        $jatuhTempo = $semua->filter(function (ChecklistAssignment $a) use ($sekarang) {
+            $mulaiPeriode = match ($a->periode) {
+                'harian' => $sekarang->copy()->startOfDay(),
+                'mingguan' => $sekarang->copy()->startOfWeek(),
+                'bulanan' => $sekarang->copy()->startOfMonth(),
+                'triwulanan' => $sekarang->copy()->startOfQuarter(),
+                'tahunan' => $sekarang->copy()->startOfYear(),
+                default => null,
+            };
+
+            if ($mulaiPeriode === null) {
+                return false;
+            }
+
+            return ! ChecklistRun::query()
+                ->where('checklist_template_id', $a->checklist_template_id)
+                ->where('room_id', $a->room_id)
+                ->where('laboratory_id', $a->laboratory_id)
+                ->where('asset_id', $a->asset_id)
+                ->where('status', 'selesai')
+                ->where('selesai_pada', '>=', $mulaiPeriode)
+                ->exists();
+        })->values();
+
+        $baris = $jatuhTempo->take($batas)->map(fn (ChecklistAssignment $a) => [
+            'id' => $a->id,
+            'judul' => $a->template?->nama ?? '—',
+            'keterangan' => (ChecklistAssignment::PERIODE[$a->periode] ?? $a->periode)
+                .' · '.($a->sumberDayaRingkas()['nama'] ?? '—'),
+            'status' => 'jatuh tempo',
+        ]);
+
+        return $this->daftar($baris, $jatuhTempo->count());
+    }
+
+    /** @return array<string,mixed> */
+    private function checklistPerJenis(): array
+    {
+        $hitung = ChecklistRun::query()
+            ->join('checklist_templates', 'checklist_templates.id', '=', 'checklist_runs.checklist_template_id')
+            ->selectRaw('checklist_templates.jenis as jenis, count(*) as jumlah')
+            ->groupBy('checklist_templates.jenis')
+            ->pluck('jumlah', 'jenis');
+
+        return $this->sebaranDari($hitung, ChecklistTemplate::JENIS);
+    }
+
+    // --- Penagihan & penyewaan -------------------------------------------------
 
     /**
      * Piutang: sisa seluruh tagihan yang belum lunas.
@@ -333,6 +661,122 @@ class DataWidget
             ]);
 
         return $this->daftar($baris, $kueri()->count());
+    }
+
+    /** @return array<string,mixed> */
+    private function penyewaanTrenPendapatan(): array
+    {
+        $titik = [];
+
+        for ($i = 5; $i >= 0; $i--) {
+            $bulan = now()->subMonthsNoOverflow($i);
+
+            $jumlah = Payment::query()
+                ->whereYear('tanggal', $bulan->year)
+                ->whereMonth('tanggal', $bulan->month)
+                ->sum('jumlah');
+
+            $titik[] = ['label' => $bulan->translatedFormat('M Y'), 'nilai' => (int) $jumlah];
+        }
+
+        return ['titik' => $titik, 'satuan' => 'rupiah'];
+    }
+
+    // --- Balanced Scorecard ------------------------------------------------------
+
+    /** @return array<string,mixed> */
+    private function bscPerPerspektif(): array
+    {
+        $kartu = app(Scorecard::class)->kartu((string) now()->year);
+
+        // Memakai bentuk sebaran yang sama dengan widget kategori lain, tapi
+        // `jumlah` di sini menyimpan SKOR, bukan cacahan — pembacanya
+        // (bentuk `sebaran` untuk widget BSC) tahu ini dari kuncinya
+        // (bsc.per-perspektif), sama seperti daftar kondisi/status lainnya
+        // tahu kuncinya dari konteks widget masing-masing.
+        $bagian = array_map(
+            fn (array $p) => ['kode' => $p['kode'], 'nama' => $p['nama'], 'jumlah' => $p['skor']],
+            $kartu['perspektif']
+        );
+
+        return ['bagian' => $bagian, 'nilai' => $kartu['skor']];
+    }
+
+    /** @return array<string,mixed> */
+    private function bscTrenSkor(): array
+    {
+        $titik = array_map(
+            fn (array $t) => ['label' => $t['periode'], 'nilai' => $t['skor']],
+            app(Scorecard::class)->tren()
+        );
+
+        return ['titik' => $titik, 'satuan' => '%'];
+    }
+
+    // --- Lintas modul --------------------------------------------------------
+
+    /**
+     * Menggabungkan kondisi mendesak dari beberapa domain berbeda ke satu
+     * panel. Widget ini sendiri tidak punya izin tunggal (lihat
+     * RegistriWidget) — setiap butir di dalamnya diperiksa izinnya masing-
+     * masing di sini, sehingga orang yang tidak berwenang atas kalibrasi
+     * tetap dapat memasang panel ini tanpa pernah melihat butir kalibrasinya.
+     *
+     * @return array<string,mixed>
+     */
+    private function sistemPeringatan(User $pengguna, int $batas): array
+    {
+        $butir = collect();
+
+        if (Gate::forUser($pengguna)->allows('kalibrasi.lihat')) {
+            $n = Asset::query()->dalamCakupan($pengguna)->where('wajib_kalibrasi', true)
+                ->whereDoesntHave('maintenances', fn ($q) => $q->kalibrasi()->where('status', 'selesai')
+                    ->whereNotNull('berlaku_sampai')->whereDate('berlaku_sampai', '>=', today()))
+                ->count();
+
+            if ($n > 0) {
+                $butir->push([
+                    'id' => 'kalibrasi', 'judul' => "{$n} alat kalibrasinya kedaluwarsa",
+                    'keterangan' => 'Alat otomatis diblokir dari reservasi.', 'status' => 'kedaluwarsa',
+                ]);
+            }
+        }
+
+        if (Gate::forUser($pengguna)->allows('pemeliharaan.lihat')) {
+            $n = AssetMaintenance::query()->terlambat()
+                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->count();
+
+            if ($n > 0) {
+                $butir->push([
+                    'id' => 'pemeliharaan', 'judul' => "{$n} pekerjaan pemeliharaan terlambat",
+                    'keterangan' => 'Melewati jadwal yang direncanakan.', 'status' => 'terlambat',
+                ]);
+            }
+        }
+
+        if (Gate::forUser($pengguna)->allows('checklist.lihat')) {
+            $n = $this->checklistJatuhTempo(0)['nilai'];
+
+            if ($n > 0) {
+                $butir->push([
+                    'id' => 'checklist', 'judul' => "{$n} checklist jatuh tempo",
+                    'keterangan' => 'Belum diselesaikan sesuai periodenya.', 'status' => 'jatuh tempo',
+                ]);
+            }
+        }
+
+        if (Gate::forUser($pengguna)->allows('penyewaan.lihat')) {
+            $n = Invoice::query()->belumLunas()->whereDate('jatuh_tempo', '<', today())->count();
+
+            if ($n > 0) {
+                $butir->push([
+                    'id' => 'tagihan', 'judul' => "{$n} tagihan lewat jatuh tempo",
+                    'keterangan' => 'Belum lunas melewati tanggal jatuh tempo.', 'status' => 'jatuh tempo',
+                ]);
+            }
+        }
+
+        return $this->daftar($butir->take($batas), $butir->count());
     }
 
     // --- Pembantu ------------------------------------------------------------

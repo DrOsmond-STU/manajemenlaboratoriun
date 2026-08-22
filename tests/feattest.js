@@ -172,7 +172,7 @@ const ok = (c, m, x) => { if (!c) fail++; console.log((c ? '✅ ' : '❌ ') + m 
   ok(after3 > before3, `Mengubah realisasi memperbarui skor: ${before3} → ${after3}`);
   await page.evaluate(() => { DB.bsc.perspectives[0].objectives[0].kpis[0].actual = 490; DASH.repaint(); });
 
-  await page.evaluate(() => bscManage()); await page.waitForTimeout(350);
+  await page.evaluate(() => bscManagePurwarupa()); await page.waitForTimeout(350);
   ok(await page.$('.modal') !== null, 'Panel kelola sasaran & KPI terbuka');
   await page.evaluate(() => UI.closeModal());
   clean('BSC tanpa error');

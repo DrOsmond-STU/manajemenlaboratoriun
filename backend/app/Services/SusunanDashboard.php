@@ -96,8 +96,10 @@ class SusunanDashboard
         $kolom = 0;
         $baris = 0;
 
-        foreach (RegistriWidget::WIDGET as $kunci => $ket) {
-            if (! Gate::forUser($pengguna)->allows($ket['izin'])) {
+        foreach (RegistriWidget::BAWAAN as $kunci) {
+            $ket = RegistriWidget::keterangan($kunci);
+
+            if ($ket['izin'] !== null && ! Gate::forUser($pengguna)->allows($ket['izin'])) {
                 continue;
             }
 
@@ -135,7 +137,7 @@ class SusunanDashboard
             return null;
         }
 
-        $bersih = array_intersect_key($opsi, array_flip(['hari', 'batas']));
+        $bersih = array_intersect_key($opsi, array_flip(['hari', 'batas', 'catatan']));
 
         return $bersih === [] ? null : $bersih;
     }

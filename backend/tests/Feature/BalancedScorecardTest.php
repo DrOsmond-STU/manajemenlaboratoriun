@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\BscIndikator;
+use App\Models\BscObjective;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -16,11 +17,22 @@ class BalancedScorecardTest extends TestCase
     /**
      * @return array<string,mixed>
      */
-    private function perspektif(array $indikator, array $ganti = []): array
+    private function perspektif(array $objectives, array $ganti = []): array
     {
         return array_merge([
             'periode' => '2026',
             'perspektif' => 'pelanggan',
+            'objectives' => $objectives,
+        ], $ganti);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function sasaran(array $indikator, array $ganti = []): array
+    {
+        return array_merge([
+            'nama' => 'Meningkatkan kepuasan pengguna',
             'indikator' => $indikator,
         ], $ganti);
     }
@@ -72,46 +84,135 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Salah tulis target', 'target' => 1, 'realisasi' => 90, 'bobot' => 50]),
-            $this->indikator(['nama' => 'Benar-benar gagal', 'target' => 100, 'realisasi' => 10, 'bobot' => 50]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Salah tulis target', 'target' => 1, 'realisasi' => 90, 'bobot' => 50]),
+                $this->indikator(['nama' => 'Benar-benar gagal', 'target' => 100, 'realisasi' => 10, 'bobot' => 50]),
+            ]),
         ]))->assertOk();
 
         $kartu = $this->actingAs($pengelola)->getJson('/api/bsc?periode=2026')->assertOk()->json('data');
         $pelanggan = collect($kartu['perspektif'])->firstWhere('kode', 'pelanggan');
+        $indikator = $pelanggan['sasaran'][0]['indikator'];
 
         // Capaian aslinya dilaporkan apa adanya...
-        $this->assertEqualsWithDelta(9000, $pelanggan['indikator'][0]['capaian'], 0.001);
+        $this->assertEqualsWithDelta(9000, $indikator[0]['capaian'], 0.001);
 
         // ...tetapi skornya memakai batas 120, supaya satu target salah tulis
         // tidak menutupi indikator yang benar-benar gagal.
         $this->assertEqualsWithDelta(65, $pelanggan['skor'], 0.001, '(120 + 10) / 2 = 65');
     }
 
-    // --- Bobot ---------------------------------------------------------------
+    // --- Sasaran strategis -----------------------------------------------------
+
+    public function test_indikator_dikelompokkan_di_dalam_sasarannya(): void
+    {
+        $pengelola = $this->penggunaBerperan('facility-manager');
+
+        $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
+            $this->sasaran([
+                $this->indikator(['nama' => 'Indeks kepuasan', 'bobot' => 60]),
+            ], ['nama' => 'Meningkatkan kepuasan pengguna']),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Booking terpenuhi', 'bobot' => 40]),
+            ], ['nama' => 'Menjamin ketersediaan fasilitas']),
+        ]))->assertOk();
+
+        $kartu = $this->actingAs($pengelola)->getJson('/api/bsc?periode=2026')->assertOk()->json('data');
+        $pelanggan = collect($kartu['perspektif'])->firstWhere('kode', 'pelanggan');
+
+        $this->assertCount(2, $pelanggan['sasaran']);
+        $this->assertSame('Meningkatkan kepuasan pengguna', $pelanggan['sasaran'][0]['nama']);
+        $this->assertSame('Indeks kepuasan', $pelanggan['sasaran'][0]['indikator'][0]['nama']);
+        $this->assertSame('Menjamin ketersediaan fasilitas', $pelanggan['sasaran'][1]['nama']);
+        $this->assertSame('Booking terpenuhi', $pelanggan['sasaran'][1]['indikator'][0]['nama']);
+    }
+
+    public function test_sasaran_tanpa_indikator_ditolak(): void
+    {
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->putJson('/api/bsc/perspektif', $this->perspektif([
+                $this->sasaran([], ['nama' => 'Sasaran kosong']),
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('objectives');
+    }
+
+    public function test_nama_sasaran_kembar_ditolak(): void
+    {
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->putJson('/api/bsc/perspektif', $this->perspektif([
+                $this->sasaran([$this->indikator(['nama' => 'A', 'bobot' => 50])], ['nama' => 'Sasaran Sama']),
+                $this->sasaran([$this->indikator(['nama' => 'B', 'bobot' => 50])], ['nama' => 'sasaran sama']),
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('objectives');
+    }
+
+    public function test_menghapus_sasaran_ikut_menghapus_indikator_di_dalamnya(): void
+    {
+        $pengelola = $this->penggunaBerperan('facility-manager');
+
+        $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
+            $this->sasaran([$this->indikator(['nama' => 'A'])], ['nama' => 'Sasaran A']),
+        ]))->assertOk();
+
+        $idSasaranLama = BscObjective::sole()->id;
+
+        // Tulis ulang tanpa Sasaran A sama sekali.
+        $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
+            $this->sasaran([$this->indikator(['nama' => 'B'])], ['nama' => 'Sasaran B']),
+        ]))->assertOk();
+
+        $this->assertDatabaseMissing('bsc_objectives', ['id' => $idSasaranLama]);
+        $this->assertSame(['B'], BscIndikator::pluck('nama')->all());
+    }
+
+    // --- Bobot (tetap per perspektif, bukan per sasaran) ----------------------
 
     public function test_bobot_yang_tidak_berjumlah_seratus_ditolak(): void
     {
         $this->actingAs($this->penggunaBerperan('facility-manager'))
             ->putJson('/api/bsc/perspektif', $this->perspektif([
-                $this->indikator(['nama' => 'A', 'bobot' => 60]),
-                $this->indikator(['nama' => 'B', 'bobot' => 55]),
+                $this->sasaran([
+                    $this->indikator(['nama' => 'A', 'bobot' => 60]),
+                    $this->indikator(['nama' => 'B', 'bobot' => 55]),
+                ]),
             ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('indikator');
+            ->assertJsonValidationErrors('objectives');
 
         $this->assertDatabaseCount('bsc_indikator', 0);
     }
 
+    public function test_bobot_dijumlahkan_lintas_sasaran_dalam_satu_perspektif(): void
+    {
+        // Sasaran murni pengelompokan tampilan — bobotnya tetap dijumlahkan
+        // untuk SELURUH perspektif, bukan per sasaran. 60 di satu sasaran +
+        // 40 di sasaran lain harus diterima sebagai 100.
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->putJson('/api/bsc/perspektif', $this->perspektif([
+                $this->sasaran([$this->indikator(['nama' => 'A', 'bobot' => 60])], ['nama' => 'Sasaran A']),
+                $this->sasaran([$this->indikator(['nama' => 'B', 'bobot' => 40])], ['nama' => 'Sasaran B']),
+            ]))
+            ->assertOk();
+
+        $this->assertDatabaseCount('bsc_indikator', 2);
+    }
+
     public function test_basis_data_menolak_bobot_timpang_walau_lapis_aplikasi_dilewati(): void
     {
+        $objective = BscObjective::create([
+            'periode' => '2026', 'perspektif' => 'keuangan', 'nama' => 'Sasaran', 'urutan' => 0,
+        ]);
+
         // Inti pemicu tertunda: baris ini sendirian TIDAK melanggar saat
         // ditulis — pelanggarannya baru ada ketika transaksi ditutup dengan
         // jumlah 60. Batasan per baris biasa tidak dapat menangkap ini, dan
         // itulah sebabnya penyusunan ulang satu perspektif utuh mungkin
         // dilakukan sama sekali.
         DB::table('bsc_indikator')->insert([
-            'periode' => '2026', 'perspektif' => 'keuangan', 'nama' => 'PNBP',
-            'polaritas' => 'naik-baik', 'target' => 100, 'bobot' => 60,
+            'periode' => '2026', 'perspektif' => 'keuangan', 'bsc_objective_id' => $objective->id,
+            'nama' => 'PNBP', 'polaritas' => 'naik-baik', 'target' => 100, 'bobot' => 60,
             'urutan' => 0, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -131,17 +232,21 @@ class BalancedScorecardTest extends TestCase
 
     public function test_pemicu_tertunda_meloloskan_keadaan_antara_yang_timpang(): void
     {
+        $objective = BscObjective::create([
+            'periode' => '2026', 'perspektif' => 'keuangan', 'nama' => 'Sasaran', 'urutan' => 0,
+        ]);
+
         // Sisi baiknya, yang membuat seluruh rancangan ini berguna: dua baris
         // yang masing-masing timpang tetapi berjumlah 100 pada akhirnya
         // diterima, walau setelah baris pertama jumlahnya baru 40.
         DB::table('bsc_indikator')->insert([
-            'periode' => '2026', 'perspektif' => 'keuangan', 'nama' => 'PNBP',
-            'polaritas' => 'naik-baik', 'target' => 100, 'bobot' => 40,
+            'periode' => '2026', 'perspektif' => 'keuangan', 'bsc_objective_id' => $objective->id,
+            'nama' => 'PNBP', 'polaritas' => 'naik-baik', 'target' => 100, 'bobot' => 40,
             'urutan' => 0, 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('bsc_indikator')->insert([
-            'periode' => '2026', 'perspektif' => 'keuangan', 'nama' => 'Efisiensi belanja',
-            'polaritas' => 'turun-baik', 'target' => 100, 'bobot' => 60,
+            'periode' => '2026', 'perspektif' => 'keuangan', 'bsc_objective_id' => $objective->id,
+            'nama' => 'Efisiensi belanja', 'polaritas' => 'turun-baik', 'target' => 100, 'bobot' => 60,
             'urutan' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -155,16 +260,20 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'A', 'bobot' => 50]),
-            $this->indikator(['nama' => 'B', 'bobot' => 50]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'A', 'bobot' => 50]),
+                $this->indikator(['nama' => 'B', 'bobot' => 50]),
+            ]),
         ]))->assertOk();
 
         // Menghapus B dan menambah C sekaligus. Di titik mana pun di tengah
         // transaksi jumlahnya bukan 100 — dan itu memang boleh, karena
         // pemeriksaannya tertunda sampai COMMIT.
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'A', 'bobot' => 30]),
-            $this->indikator(['nama' => 'C', 'bobot' => 70]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'A', 'bobot' => 30]),
+                $this->indikator(['nama' => 'C', 'bobot' => 70]),
+            ]),
         ]))->assertOk();
 
         $this->assertSame(
@@ -178,7 +287,7 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['bobot' => 100]),
+            $this->sasaran([$this->indikator(['bobot' => 100])]),
         ]))->assertOk();
 
         // Sebuah scorecard boleh belum menggarap satu perspektif. Yang tidak
@@ -188,6 +297,7 @@ class BalancedScorecardTest extends TestCase
             ->assertOk();
 
         $this->assertDatabaseCount('bsc_indikator', 0);
+        $this->assertDatabaseCount('bsc_objectives', 0);
     }
 
     public function test_realisasi_yang_sudah_ada_tidak_hilang_saat_bobot_diubah(): void
@@ -195,7 +305,7 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan', 'bobot' => 100]),
+            $this->sasaran([$this->indikator(['nama' => 'Kepuasan', 'bobot' => 100])]),
         ]))->assertOk();
 
         $id = BscIndikator::sole()->id;
@@ -203,11 +313,16 @@ class BalancedScorecardTest extends TestCase
             ->patchJson("/api/bsc/indikator/{$id}/realisasi", ['realisasi' => 87])
             ->assertOk();
 
-        // Mengubah bobot menulis ulang barisnya — id-nya berubah. Angka yang
+        // Mengubah bobot menulis ulang barisnya — id-nya berubah, dan
+        // sasarannya sengaja dipindah ke sasaran lain sekalian. Angka yang
         // sudah dikumpulkan sepanjang tahun tidak boleh ikut lenyap.
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan', 'bobot' => 40]),
-            $this->indikator(['nama' => 'Waktu tunggu', 'polaritas' => 'turun-baik', 'target' => 3, 'bobot' => 60]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Kepuasan', 'bobot' => 40]),
+            ], ['nama' => 'Sasaran Baru']),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Waktu tunggu', 'polaritas' => 'turun-baik', 'target' => 3, 'bobot' => 60]),
+            ], ['nama' => 'Sasaran Lain']),
         ]))->assertOk();
 
         $kepuasan = BscIndikator::where('nama', 'Kepuasan')->sole();
@@ -216,25 +331,25 @@ class BalancedScorecardTest extends TestCase
         $this->assertNotSame($id, $kepuasan->id, 'Barisnya memang ditulis ulang.');
     }
 
-    public function test_nama_indikator_kembar_ditolak(): void
+    public function test_nama_indikator_kembar_ditolak_walau_di_sasaran_berbeda(): void
     {
         $this->actingAs($this->penggunaBerperan('facility-manager'))
             ->putJson('/api/bsc/perspektif', $this->perspektif([
-                $this->indikator(['nama' => 'Kepuasan', 'bobot' => 50]),
-                $this->indikator(['nama' => 'KEPUASAN', 'bobot' => 50]),
+                $this->sasaran([$this->indikator(['nama' => 'Kepuasan', 'bobot' => 50])], ['nama' => 'Sasaran A']),
+                $this->sasaran([$this->indikator(['nama' => 'KEPUASAN', 'bobot' => 50])], ['nama' => 'Sasaran B']),
             ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('indikator');
+            ->assertJsonValidationErrors('objectives');
     }
 
     public function test_target_nol_ditolak(): void
     {
         $this->actingAs($this->penggunaBerperan('facility-manager'))
             ->putJson('/api/bsc/perspektif', $this->perspektif([
-                $this->indikator(['target' => 0]),
+                $this->sasaran([$this->indikator(['target' => 0])]),
             ]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('indikator.0.target');
+            ->assertJsonValidationErrors('objectives.0.indikator.0.target');
     }
 
     public function test_polaritas_wajib_diisi(): void
@@ -243,9 +358,9 @@ class BalancedScorecardTest extends TestCase
         unset($indikator['polaritas']);
 
         $this->actingAs($this->penggunaBerperan('facility-manager'))
-            ->putJson('/api/bsc/perspektif', $this->perspektif([$indikator]))
+            ->putJson('/api/bsc/perspektif', $this->perspektif([$this->sasaran([$indikator])]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('indikator.0.polaritas');
+            ->assertJsonValidationErrors('objectives.0.indikator.0.polaritas');
     }
 
     // --- Kartu skor ----------------------------------------------------------
@@ -255,7 +370,7 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(),
+            $this->sasaran([$this->indikator()]),
         ]))->assertOk();
 
         $kartu = $this->actingAs($pengelola)->getJson('/api/bsc?periode=2026')->assertOk()->json('data');
@@ -268,7 +383,7 @@ class BalancedScorecardTest extends TestCase
         $keuangan = collect($kartu['perspektif'])->firstWhere('kode', 'keuangan');
         $this->assertEqualsWithDelta(0, $keuangan['bobot_total'], 0.001);
         $this->assertNull($keuangan['skor']);
-        $this->assertSame([], $keuangan['indikator']);
+        $this->assertSame([], $keuangan['sasaran']);
     }
 
     public function test_indikator_tanpa_realisasi_tidak_dihitung_nol(): void
@@ -276,8 +391,10 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Sudah diisi', 'target' => 100, 'realisasi' => 80, 'bobot' => 50]),
-            $this->indikator(['nama' => 'Belum diisi', 'target' => 100, 'bobot' => 50]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Sudah diisi', 'target' => 100, 'realisasi' => 80, 'bobot' => 50]),
+                $this->indikator(['nama' => 'Belum diisi', 'target' => 100, 'bobot' => 50]),
+            ]),
         ]))->assertOk();
 
         $kartu = $this->actingAs($pengelola)->getJson('/api/bsc?periode=2026')->assertOk()->json('data');
@@ -293,11 +410,11 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif(
-            [$this->indikator(['target' => 100, 'realisasi' => 100])],
+            [$this->sasaran([$this->indikator(['target' => 100, 'realisasi' => 100])])],
         ))->assertOk();
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif(
-            [$this->indikator(['nama' => 'PNBP', 'target' => 100, 'realisasi' => 60])],
+            [$this->sasaran([$this->indikator(['nama' => 'PNBP', 'target' => 100, 'realisasi' => 60])])],
             ['perspektif' => 'keuangan'],
         ))->assertOk();
 
@@ -312,7 +429,7 @@ class BalancedScorecardTest extends TestCase
 
         foreach (['2025', '2026'] as $periode) {
             $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif(
-                [$this->indikator(['target' => 100, 'realisasi' => $periode === '2025' ? 50 : 100])],
+                [$this->sasaran([$this->indikator(['target' => 100, 'realisasi' => $periode === '2025' ? 50 : 100])])],
                 ['periode' => $periode],
             ))->assertOk();
         }
@@ -329,7 +446,7 @@ class BalancedScorecardTest extends TestCase
     {
         $this->actingAs($this->penggunaBerperan('facility-manager'))
             ->putJson('/api/bsc/perspektif', $this->perspektif(
-                [$this->indikator()], ['periode' => '2026-Q3'],
+                [$this->sasaran([$this->indikator()])], ['periode' => '2026-Q3'],
             ))
             ->assertOk();
 
@@ -340,10 +457,36 @@ class BalancedScorecardTest extends TestCase
     {
         $this->actingAs($this->penggunaBerperan('facility-manager'))
             ->putJson('/api/bsc/perspektif', $this->perspektif(
-                [$this->indikator()], ['periode' => 'kapan-kapan'],
+                [$this->sasaran([$this->indikator()])], ['periode' => 'kapan-kapan'],
             ))
             ->assertStatus(422)
             ->assertJsonValidationErrors('periode');
+    }
+
+    // --- Tren ------------------------------------------------------------------
+
+    public function test_tren_mengikuti_periode_yang_sungguhan_tercatat(): void
+    {
+        $pengelola = $this->penggunaBerperan('facility-manager');
+
+        // Kunci array numerik ("2025") otomatis dijadikan int oleh PHP; nilai
+        // periodenya dicetak ulang ke string di sini supaya tidak lolos
+        // sebagai integer ke permintaan yang menuntut string.
+        foreach (['2025' => 50, '2026' => 90] as $periode => $realisasi) {
+            $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif(
+                [$this->sasaran([$this->indikator(['target' => 100, 'realisasi' => $realisasi])])],
+                ['periode' => (string) $periode],
+            ))->assertOk();
+        }
+
+        $tren = $this->actingAs($pengelola)->getJson('/api/bsc/tren')->assertOk()->json('data');
+
+        // Satu titik per periode yang sungguhan pernah diisi — bukan satu
+        // titik per bulan kalender, karena tidak ada satu pun tempat yang
+        // menyimpan skor per bulan.
+        $this->assertSame(['2025', '2026'], array_column($tren, 'periode'));
+        $this->assertEqualsWithDelta(50, $tren[0]['skor'], 0.001);
+        $this->assertEqualsWithDelta(90, $tren[1]['skor'], 0.001);
     }
 
     // --- Akses & jejak -------------------------------------------------------
@@ -357,7 +500,7 @@ class BalancedScorecardTest extends TestCase
         // Management hanya berhak LIHAT menurut matriks — lihat catatan pada
         // routes/api.php; ini butir yang perlu dipastikan ke satuan kerja.
         $this->actingAs($manajemen)
-            ->putJson('/api/bsc/perspektif', $this->perspektif([$this->indikator()]))
+            ->putJson('/api/bsc/perspektif', $this->perspektif([$this->sasaran([$this->indikator()])]))
             ->assertForbidden();
     }
 
@@ -366,7 +509,7 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan', 'target' => 90]),
+            $this->sasaran([$this->indikator(['nama' => 'Kepuasan', 'target' => 90])]),
         ]))->assertOk();
 
         $id = BscIndikator::sole()->id;
@@ -390,14 +533,18 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan', 'target' => 90, 'bobot' => 50]),
-            $this->indikator(['nama' => 'Keluhan', 'polaritas' => 'turun-baik', 'target' => 10, 'bobot' => 50]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Kepuasan', 'target' => 90, 'bobot' => 50]),
+                $this->indikator(['nama' => 'Keluhan', 'polaritas' => 'turun-baik', 'target' => 10, 'bobot' => 50]),
+            ]),
         ]))->assertOk();
 
         // Hanya bobotnya yang digeser; tidak ada indikator baru.
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan', 'target' => 90, 'bobot' => 70]),
-            $this->indikator(['nama' => 'Keluhan', 'polaritas' => 'turun-baik', 'target' => 10, 'bobot' => 30]),
+            $this->sasaran([
+                $this->indikator(['nama' => 'Kepuasan', 'target' => 90, 'bobot' => 70]),
+                $this->indikator(['nama' => 'Keluhan', 'polaritas' => 'turun-baik', 'target' => 10, 'bobot' => 30]),
+            ]),
         ]))->assertOk();
 
         $entri = AuditLog::where('model', 'BscPerspektif')
@@ -410,8 +557,8 @@ class BalancedScorecardTest extends TestCase
 
         // Yang dicari pemeriksa: bobot bergeser dari 50/50 menjadi 70/30 —
         // bukan "dua indikator dibuat".
-        $this->assertSame(50, (int) $entri[1]->sebelum['indikator'][0]['bobot']);
-        $this->assertSame(70, (int) $entri[1]->sesudah['indikator'][0]['bobot']);
+        $this->assertSame(50, (int) $entri[1]->sebelum['sasaran'][0]['indikator'][0]['bobot']);
+        $this->assertSame(70, (int) $entri[1]->sesudah['sasaran'][0]['indikator'][0]['bobot']);
 
         $this->assertSame(
             0,
@@ -423,7 +570,7 @@ class BalancedScorecardTest extends TestCase
     public function test_penyimpanan_tanpa_perubahan_tidak_menambah_entri_audit(): void
     {
         $pengelola = $this->penggunaBerperan('facility-manager');
-        $isi = $this->perspektif([$this->indikator()]);
+        $isi = $this->perspektif([$this->sasaran([$this->indikator()])]);
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $isi)->assertOk();
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $isi)->assertOk();
@@ -438,7 +585,7 @@ class BalancedScorecardTest extends TestCase
         $pengelola = $this->penggunaBerperan('facility-manager');
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([
-            $this->indikator(['nama' => 'Kepuasan']),
+            $this->sasaran([$this->indikator(['nama' => 'Kepuasan'])]),
         ]))->assertOk();
 
         $this->actingAs($pengelola)->putJson('/api/bsc/perspektif', $this->perspektif([]))->assertOk();
@@ -446,7 +593,7 @@ class BalancedScorecardTest extends TestCase
         $entri = AuditLog::where('model', 'BscPerspektif')->latest('id')->first();
 
         $this->assertSame('dihapus', $entri->peristiwa);
-        $this->assertSame('Kepuasan', $entri->sebelum['indikator'][0]['nama']);
+        $this->assertSame('Kepuasan', $entri->sebelum['sasaran'][0]['indikator'][0]['nama']);
         $this->assertNull($entri->sesudah, 'Yang hilang harus tercatat, bukan diam-diam lenyap.');
     }
 

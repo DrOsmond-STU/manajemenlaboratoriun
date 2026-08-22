@@ -799,9 +799,102 @@
     }
   };
 
+  /* ------------------------------------------------------------ dashboard */
+  /*
+     TIDAK ADA PEMETAAN PURWARUPA DI SINI — sengaja.
+
+     Setiap modul lain di berkas ini memetakan data purwarupa ke bentuk
+     server yang sama persis, supaya satu kode tampilan melayani dua sumber.
+     Dashboard adalah pengecualian: mesin widget purwarupa (dash.js — SOURCES,
+     METRICS, WTYPES, tata letak seret-lepas) sudah berdiri sendiri sejak
+     sebelum modul ini tersambung, dan katalog widget server (RegistriWidget,
+     13 lalu 41 kunci) tidak pernah dimaksudkan mencakup seluruh puluhan
+     sumber data purwarupa yang bebas dikomposisi — itu justru batas keamanan
+     yang disengaja (lihat RegistriWidget). Memetakan satu ke bentuk yang lain
+     akan memalsukan salah satunya.
+
+     Karena itu Dashboard & BSC bercabang di TINGKAT HALAMAN, bukan di
+     tingkat data: `V["dashboard"]`/`V["exec"]`/`V["bsc"]` memilih mesin
+     purwarupa (dash.js, tidak berubah) atau mesin tersambung (di bawah ini)
+     berdasarkan Repo.dapatMenulis() — bukan menampilkan satu tampilan yang
+     diam-diam mengambil data dari dua bentuk berbeda.
+  */
+  const dashboard = {
+    utama() {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat dashboard");
+      return API.get("/api/dashboard/utama").then((j) => j.data);
+    },
+
+    daftar() {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat daftar dashboard");
+      return API.get("/api/dashboard");
+    },
+
+    lihat(id, denganData) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat dashboard");
+      return API.get("/api/dashboard/" + encodeURIComponent(id)).then((j) => j.data);
+    },
+
+    widgetTersedia() {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat daftar widget");
+      return API.get("/api/dashboard/widget-tersedia").then((j) => j.data);
+    },
+
+    buat(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Membuat dashboard");
+      return API.post("/api/dashboard", isi).then((j) => j.data);
+    },
+
+    simpan(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyimpan dashboard");
+      return API.put("/api/dashboard/" + encodeURIComponent(id), isi).then((j) => j.data);
+    },
+
+    hapus(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menghapus dashboard");
+      return API.hapus("/api/dashboard/" + encodeURIComponent(id));
+    }
+  };
+
+  /* ------------------------------------------------------------------ bsc */
+  const bsc = {
+    kartu(periode) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat kartu skor");
+      return API.get("/api/bsc" + qs({ periode: periode })).then((j) => j.data);
+    },
+
+    kerangka() {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat kerangka BSC");
+      return API.get("/api/bsc/kerangka").then((j) => j.data);
+    },
+
+    tren() {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memuat tren BSC");
+      return API.get("/api/bsc/tren").then((j) => j.data);
+    },
+
+    simpanPerspektif(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyimpan perspektif BSC");
+      return API.put("/api/bsc/perspektif", isi).then((j) => j.data);
+    },
+
+    hapusPeriode(periode) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menghapus periode BSC");
+      return API.hapus("/api/bsc/periode" + qs({ periode: periode }));
+    },
+
+    isiRealisasi(indikatorId, realisasi, catatan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengisi realisasi");
+      return API.patch("/api/bsc/indikator/" + encodeURIComponent(indikatorId) + "/realisasi",
+        { realisasi: realisasi, catatan: catatan || null }).then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     checklist: checklist,
+    dashboard: dashboard,
+    bsc: bsc,
     peminjaman: peminjaman,
     persetujuan: persetujuan,
     booking: booking,

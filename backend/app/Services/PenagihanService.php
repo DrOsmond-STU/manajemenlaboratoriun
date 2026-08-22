@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Quotation;
 use App\Models\Rental;
 use App\Models\Tariff;
 use App\Models\User;
@@ -66,6 +67,51 @@ class PenagihanService
 
             foreach ($baris as $b) {
                 $tagihan->lines()->create($b);
+            }
+
+            return $tagihan->refresh();
+        });
+    }
+
+    /**
+     * Terbitkan tagihan dari penawaran yang sudah disetujui.
+     *
+     * Barisnya disalin APA ADANYA dari quotation_lines — bukan diambil ulang
+     * dari tarif yang berlaku saat ini. Penawaran yang sudah disetujui klien
+     * adalah kesepakatan; tarif yang naik setelah negosiasi tidak boleh
+     * diam-diam mengubah angka yang sudah disepakati.
+     *
+     * @throws ValidationException
+     */
+    public function terbitkanDariPenawaran(Quotation $penawaran, User $penerbit, int $jatuhTempoHari = 14): Invoice
+    {
+        if (! $penawaran->dapatDiterbitkanInvoice()) {
+            throw ValidationException::withMessages([
+                'quotation_id' => $penawaran->invoice()->exists()
+                    ? 'Penawaran ini sudah diterbitkan menjadi invoice.'
+                    : 'Hanya penawaran berstatus "Disetujui" yang dapat diterbitkan menjadi invoice.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($penawaran, $penerbit, $jatuhTempoHari) {
+            $tagihan = Invoice::create([
+                'rental_id' => $penawaran->rental_id,
+                'quotation_id' => $penawaran->id,
+                'nomor' => $this->nomorBerikutnya(),
+                'tanggal' => now()->toDateString(),
+                'jatuh_tempo' => now()->addDays($jatuhTempoHari)->toDateString(),
+                'ppn_persen' => $penawaran->ppn_persen,
+                'status' => 'terbit',
+                'dibuat_oleh' => $penerbit->id,
+            ]);
+
+            foreach ($penawaran->lines as $baris) {
+                $tagihan->lines()->create([
+                    'deskripsi' => $baris->deskripsi,
+                    'kuantitas' => $baris->kuantitas,
+                    'satuan' => $baris->satuan,
+                    'harga_satuan' => $baris->harga_satuan,
+                ]);
             }
 
             return $tagihan->refresh();
@@ -148,9 +194,12 @@ class PenagihanService
     /**
      * Baris tagihan dari tarif yang berlaku untuk penyewaan ini.
      *
+     * Dipakai penerbitan invoice langsung DAN pembuatan penawaran — keduanya
+     * mengambil dasar harga yang sama dari tarif aktif.
+     *
      * @return list<array<string,mixed>>
      */
-    private function barisDariTarif(Rental $sewa): array
+    public function barisDariTarif(Rental $sewa): array
     {
         $tarif = Tariff::query()
             ->aktif()

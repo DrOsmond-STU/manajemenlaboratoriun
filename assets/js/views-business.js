@@ -229,216 +229,696 @@
   };
 
   /* =======================================================================
-     RENTAL & BILLING
+     RENTAL & BILLING — tersambung ke basis data
+
+     Enam layar purwarupa dipetakan ke lima sumber server lewat Repo.tarif /
+     Repo.penyewaan / Repo.penawaran / Repo.tagihan / Repo.pembayaran — lihat
+     catatan desain di repo.js tepat sebelum kelima modul itu.
+
+     PENYEDERHANAAN YANG DISENGAJA: alur 9 tahap purwarupa (Pilih Fasilitas →
+     … → Berita Acara) adalah dekorasi funnel, bukan status yang benar-benar
+     tersimpan — server hanya punya 5 status penyewaan (draf/dikonfirmasi/
+     berjalan/selesai/dibatalkan). Halaman tersambung menampilkan status
+     sungguhan itu apa adanya, tanpa memaksakan 9 tahap yang tidak berpadanan
+     dengan skema — pola yang sama dengan Dashboard mengganti seret-lepas
+     dengan tombol naik/turun.
      ======================================================================= */
+
+  const RTL = { baris: [], memuat: true, galat: null };
+  const TRF = { tarif: [], addon: [], memuat: true, galat: null };
+  const PKG = { baris: [], memuat: true, galat: null };
+  const QUO = { baris: [], memuat: true, galat: null };
+  const INV = { baris: [], memuat: true, galat: null };
+  const PAY = { baris: [], memuat: true, galat: null };
+
+  const STATUS_RTL_TINT = { draf: "slate", dikonfirmasi: "brand", berjalan: "amber", selesai: "green", dibatalkan: "red" };
+  const STATUS_QUO_TINT = { terkirim: "brand", negosiasi: "amber", disetujui: "green", ditolak: "red" };
+  const STATUS_INV_TINT = { terbit: "amber", sebagian: "brand", lunas: "green", dibatalkan: "slate" };
+  const STATUS_PAY_TINT = { menunggu_verifikasi: "amber", terverifikasi: "green" };
+
+  /* --------------------------------------------------------------- rental */
+
+  async function muatPenyewaan() {
+    RTL.memuat = true; RTL.galat = null; isiPenyewaan();
+    try {
+      const j = await Repo.penyewaan.daftar();
+      RTL.baris = (j.data && j.data.data) || [];
+    } catch (e) { RTL.baris = []; RTL.galat = e.message; }
+    finally { RTL.memuat = false; isiPenyewaan(); isiRingkasanPenyewaan(); }
+  }
+
+  function isiPenyewaan() {
+    const wadah = document.getElementById("rtlDaftar");
+    if (!wadah) return;
+    if (RTL.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RTL.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RTL.galat)}</span></div></div>`; return; }
+    if (!RTL.baris.length) { wadah.innerHTML = U.emptyState("Belum ada permohonan sewa", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk mengajukan."); return; }
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Penyewa</th><th>Fasilitas</th><th>Jadwal</th><th>Status</th><th></th></tr></thead>
+      <tbody>${RTL.baris.map((r) => `<tr>
+        <td><b class="small">${U.esc(r.penyewa)}</b>${r.instansi ? `<div class="tiny faint">${U.esc(r.instansi)}</div>` : ""}</td>
+        <td>${r.ruangan ? U.esc(r.ruangan.nama) : r.laboratorium ? U.esc(r.laboratorium.nama) : "—"}</td>
+        <td>${U.fdate(r.mulai, "short")}<div class="tiny faint">s/d ${U.fdate(r.selesai, "short")}</div></td>
+        <td><span class="badge ${STATUS_RTL_TINT[r.status.kode] || "slate"}">${U.esc(r.status.nama)}</span></td>
+        <td class="actions">${Repo.dapatMenulis() ? `
+          <button class="btn btn-sm" onclick="rtlBuatPenawaran(${r.id})">Penawaran</button>
+          <button class="btn btn-sm" onclick="rtlTagihLangsung(${r.id})">Tagih</button>` : ""}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPenyewaan() {
+    const wadah = document.getElementById("rtlKpi");
+    if (!wadah) return;
+    const b = RTL.baris;
+    const aktif = b.filter((r) => r.status.kode === "dikonfirmasi" || r.status.kode === "berjalan").length;
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Permohonan", value: b.length, icon: "doc", tint: "brand", note: "Seluruh status" })}
+      ${U.kpi({ label: "Aktif", value: aktif, icon: "clock", tint: "amber", note: "Dikonfirmasi/berjalan" })}
+      ${U.kpi({ label: "Selesai", value: b.filter((r) => r.status.kode === "selesai").length, icon: "check", tint: "green", note: "Penyewaan tuntas" })}
+      ${U.kpi({ label: "Dibatalkan", value: b.filter((r) => r.status.kode === "dibatalkan").length, icon: "x", tint: "red", note: "Tidak jadi berlangsung" })}`;
+  }
+
   V["rental"] = {
     title: "Permohonan Sewa Fasilitas",
-    sub: "Alur penyewaan: pilih fasilitas → cek availability → paket/add-on → quotation → invoice → pembayaran.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form permohonan sewa')">${U.icon("plus")} Permohonan Baru</button>`,
+    sub: "Penyewaan ruangan/laboratorium oleh klien internal maupun eksternal.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="rtlForm()">${U.icon("plus")} Permohonan Baru</button>` : "";
+    },
     render() {
-      const rents = D.bookings.filter((b) => b.billing === "PAID");
-      return `
-        <div class="card mb-16"><div class="card-body">
-          ${U.stepper(["Pilih Fasilitas", "Cek Availability", "Paket & Add-on", "Quotation", "Approval", "Invoice", "Pembayaran", "Penggunaan", "Berita Acara"], 3)}
-        </div></div>
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Permohonan Aktif", value: rents.length, icon: "doc", tint: "brand", note: "Dalam proses" })}
-          ${U.kpi({ label: "Nilai Pipeline", value: U.rpShort(rents.reduce((a, b) => a + b.cost, 0)), icon: "money", tint: "amber", note: "Belum terealisasi" })}
-          ${U.kpi({ label: "Conversion Rate", value: "68", suffix: "%", icon: "chart", tint: "green", delta: 7, note: "Quotation → invoice" })}
-          ${U.kpi({ label: "Klien Eksternal", value: 37, icon: "users", tint: "violet", delta: 12, note: "Terdaftar aktif" })}
-        </div>
-        ${U.card("Daftar Permohonan Sewa", U.toolbar({ ph: "Cari permohonan / klien…", filters: [["Semua Status", "Quotation", "Waiting Payment", "Approved", "Completed"]] }) +
-          U.table([
-            { t: "ID", w: "150px", render: (b) => `<span class="lnk mono" onclick="showBooking('${b.id}')">${b.id}</span>` },
-            { t: "Klien / Pemohon", render: (b) => `<b>${U.esc(D.personName(b.requester))}</b><div class="tiny faint">${U.esc(b.unit)}</div>` },
-            { t: "Fasilitas", render: (b) => `${U.esc(b.resName)}<div class="tiny faint">${U.esc(b.kind)}</div>` },
-            { t: "Tanggal Pakai", render: (b) => U.fdate(b.date, "short") },
-            { t: "Pax", cls: "center", render: (b) => U.num(b.people) },
-            { t: "Nilai", cls: "right", render: (b) => `<b>${U.rp(b.cost)}</b>` },
-            { t: "Status", render: (b) => U.badge(b.status) },
-            { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Lanjut ke tahap berikutnya')">Proses</button>` }
-          ], rents), { bodyCls: "flush" })}`;
-    }
+      return `<div class="grid g4 mb-16" id="rtlKpi"></div>
+        ${U.card("Daftar Permohonan Sewa", `<div id="rtlDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatPenyewaan(); }
   };
+
+  window.rtlForm = async function () {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengajukan permohonan hanya bisa setelah masuk dengan akun."); return; }
+    let ruangan = [], lab = [];
+    try {
+      [ruangan, lab] = await Promise.all([
+        Repo.ruangan.daftar().then((j) => j.data).catch(() => []),
+        Repo.laboratorium.daftar().then((j) => j.data).catch(() => [])
+      ]);
+    } catch (e) { /* pemilih tetap dibuka kosong */ }
+
+    U.drawer({
+      title: "Permohonan Sewa Baru", sub: "Data penyewa dan fasilitas yang diminta",
+      body: `
+        <div id="rtlFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama Penyewa *</span><input class="input" id="rtlPenyewa"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Instansi</span><input class="input" id="rtlInstansi"></label>
+          <label class="fld"><span>Kontak</span><input class="input" id="rtlKontak"></label>
+        </div>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Email</span><input type="email" class="input" id="rtlEmail"></label>
+          <label class="fld"><span>Segmen</span>
+            <select class="select" id="rtlSegmen">
+              <option value="umum">Umum</option><option value="internal">Internal</option><option value="pemerintah">Pemerintah</option>
+            </select></label>
+        </div>
+        <label class="fld mt-8"><span>Jenis Target *</span>
+          <select class="select" id="rtlJenisTarget" onchange="rtlGantiTarget()">
+            <option value="room_id">Ruangan</option><option value="laboratory_id">Laboratorium</option>
+          </select></label>
+        <label class="fld mt-8" id="rtlTargetWadah">
+          <select class="select" id="rtlTarget">
+            <option value="">— pilih ruangan —</option>
+            ${ruangan.map((r) => `<option value="${U.esc(String(r.id))}">${U.esc(r.nama)}</option>`).join("")}
+          </select></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Mulai *</span><input type="datetime-local" class="input" id="rtlMulai"></label>
+          <label class="fld"><span>Selesai *</span><input type="datetime-local" class="input" id="rtlSelesai"></label>
+        </div>
+        <label class="fld mt-8"><span>Keperluan</span><textarea class="input" id="rtlKeperluan" rows="2"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="rtlFormSimpan" onclick="rtlFormSimpan()">Simpan</button>`
+    });
+    window.__rtlPilihan = { room_id: ruangan, laboratory_id: lab };
+  };
+
+  window.rtlGantiTarget = function () {
+    const jenis = document.getElementById("rtlJenisTarget").value;
+    const daftar = (window.__rtlPilihan || {})[jenis] || [];
+    document.getElementById("rtlTargetWadah").innerHTML = `<span>${jenis === "room_id" ? "Ruangan" : "Laboratorium"} *</span>
+      <select class="select" id="rtlTarget"><option value="">— pilih —</option>
+        ${daftar.map((d) => `<option value="${U.esc(String(d.id))}">${U.esc(d.nama)}</option>`).join("")}</select>`;
+  };
+
+  window.rtlFormSimpan = async function () {
+    const kotak = document.getElementById("rtlFormGalat");
+    const tombol = document.getElementById("rtlFormSimpan");
+    kotak.hidden = true;
+
+    const isi = {
+      penyewa: document.getElementById("rtlPenyewa").value,
+      instansi: document.getElementById("rtlInstansi").value || null,
+      kontak: document.getElementById("rtlKontak").value || null,
+      email: document.getElementById("rtlEmail").value || null,
+      segmen: document.getElementById("rtlSegmen").value,
+      mulai: document.getElementById("rtlMulai").value,
+      selesai: document.getElementById("rtlSelesai").value,
+      keperluan: document.getElementById("rtlKeperluan").value || null
+    };
+    isi[document.getElementById("rtlJenisTarget").value] = Number(document.getElementById("rtlTarget").value) || null;
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.penyewaan.buat(isi);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Permohonan sewa berhasil diajukan.");
+      muatPenyewaan();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
+  };
+
+  window.rtlBuatPenawaran = function (rentalId) { quoForm(rentalId); };
+
+  window.rtlTagihLangsung = async function (rentalId) {
+    if (!confirm("Terbitkan tagihan langsung dari tarif aktif untuk penyewaan ini?")) return;
+    try {
+      await Repo.penyewaan.terbitkanTagihan(rentalId);
+      U.toast("Tagihan diterbitkan", "Lihat pada halaman Invoice & Tagihan.");
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal menerbitkan tagihan"); }
+  };
+
+  /* ------------------------------------------------------- tarif & add-on */
+
+  async function muatTarif() {
+    TRF.memuat = true; TRF.galat = null; isiTarif();
+    try {
+      const [t, a] = await Promise.all([
+        Repo.tarif.daftar({ jenis: "tarif" }).then((j) => j.data),
+        Repo.tarif.daftar({ jenis: "addon" }).then((j) => j.data)
+      ]);
+      TRF.tarif = t; TRF.addon = a;
+    } catch (e) { TRF.tarif = []; TRF.addon = []; TRF.galat = e.message; }
+    finally { TRF.memuat = false; isiTarif(); }
+  }
+
+  function tabelTarif(baris, kosong) {
+    if (!baris.length) return U.emptyState(kosong);
+    return `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Nama</th><th>Fasilitas</th><th>Satuan</th><th>Segmen</th><th class="right">Harga</th><th>Status</th></tr></thead>
+      <tbody>${baris.map((t) => `<tr>
+        <td><b class="small">${U.esc(t.nama)}</b></td>
+        <td>${t.sumber_daya ? U.esc(t.sumber_daya.nama) : `<span class="faint">—</span>`}</td>
+        <td>${U.esc(t.satuan_waktu.nama)}</td>
+        <td><span class="badge outline">${U.esc(t.segmen.nama)}</span></td>
+        <td class="right">${t.harga ? U.rp(t.harga) : `<span class="badge teal">Gratis</span>`}</td>
+        <td>${t.aktif ? U.badge("Aktif") : U.badge("Nonaktif")}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiTarif() {
+    const wt = document.getElementById("trfTabelTarif"), wa = document.getElementById("trfTabelAddon");
+    if (!wt) return;
+    if (TRF.memuat) { const s = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; wt.innerHTML = s; wa.innerHTML = s; return; }
+    if (TRF.galat) { const s = `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(TRF.galat)}</div></div>`; wt.innerHTML = s; wa.innerHTML = s; return; }
+    wt.innerHTML = tabelTarif(TRF.tarif, "Belum ada tarif fasilitas.");
+    wa.innerHTML = tabelTarif(TRF.addon, "Belum ada tarif add-on.");
+  }
 
   V["pricelist"] = {
     title: "Daftar Tarif",
-    sub: "Konfigurasi tarif per fasilitas: gratis internal, berbayar eksternal, per jam/hari/sesi/paket.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form tarif baru')">${U.icon("plus")} Tambah Tarif</button>`,
+    sub: "Konfigurasi tarif per fasilitas dan add-on, per segmen (internal/umum/pemerintah).",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="trfForm('tarif')">${U.icon("plus")} Tambah Tarif</button>` : "";
+    },
     render() {
-      return `
-        <div class="alert info mb-16">${U.icon("money", 17)}<div><b>Skema tarif fleksibel</b>
-          Setiap ruangan dapat dikonfigurasi sebagai FREE, PAID, INTERNAL, EXTERNAL, atau RESTRICTED.
-          Contoh: Meeting Room Alpha gratis untuk internal namun berbayar Rp 350.000/jam untuk pihak eksternal.</div></div>
-        ${U.card("Daftar Tarif Fasilitas", U.toolbar({ ph: "Cari fasilitas…" }) + U.table([
-          { t: "Kode", w: "90px", render: (p) => `<span class="mono small">${p.id}</span>` },
-          { t: "Fasilitas", render: (p) => `<b>${U.esc(p.resName)}</b>` },
-          { t: "Satuan", render: (p) => `<span class="badge outline">${U.esc(p.unitType)}</span>` },
-          { t: "Internal", cls: "right", render: (p) => p.internal ? U.rp(p.internal) : `<span class="badge teal">Gratis</span>` },
-          { t: "Eksternal", cls: "right", render: (p) => `<b>${U.rp(p.external)}</b>` },
-          { t: "Setengah Hari", cls: "right", render: (p) => p.halfday ? U.rp(p.halfday) : `<span class="faint">—</span>` },
-          { t: "Lembur / Jam", cls: "right", render: (p) => p.overtime ? U.rp(p.overtime) : `<span class="faint">—</span>` },
-          { t: "Status", cls: "center", render: (p) => p.active ? U.badge("Aktif") : U.badge("Draft") },
-          { t: "", cls: "actions", render: () => `<button class="icon-btn" onclick="UI.demo('Edit tarif')">${U.icon("edit", 15)}</button>` }
-        ], D.priceList), { bodyCls: "flush" })}
-        <div class="mt-16">${U.card("Tarif Add-on", U.table([
-          { t: "Add-on", render: (a) => `<b>${U.esc(a.name)}</b>` },
-          { t: "Satuan", render: (a) => `<span class="badge outline">${U.esc(a.unit)}</span>` },
-          { t: "Tarif", cls: "right", render: (a) => U.rp(a.price) }
-        ], D.addons), { bodyCls: "flush" })}</div>`;
-    }
+      return `${U.card("Daftar Tarif Fasilitas", `<div id="trfTabelTarif"></div>`, { bodyCls: "flush" })}
+        <div class="mt-16">${U.card("Tarif Add-on",
+          (Repo.dapatMenulis() ? `<div class="row" style="padding:12px 16px"><div class="spacer"></div>
+            <button class="btn btn-sm" onclick="trfForm('addon')">${U.icon("plus", 12)} Tambah Add-on</button></div>` : "") +
+          `<div id="trfTabelAddon"></div>`, { bodyCls: "flush" })}</div>`;
+    },
+    mount() { muatTarif(); }
   };
+
+  window.trfForm = function (jenisAwal) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola tarif hanya bisa setelah masuk dengan akun."); return; }
+    U.drawer({
+      title: jenisAwal === "paket" ? "Tambah Paket Layanan" : jenisAwal === "addon" ? "Tambah Tarif Add-on" : "Tambah Tarif Fasilitas",
+      body: `
+        <div id="trfFormGalat" class="alert err mb-16" hidden></div>
+        <input type="hidden" id="trfJenis" value="${jenisAwal}">
+        <label class="fld"><span>Nama *</span><input class="input" id="trfNama"></label>
+        ${jenisAwal === "tarif" ? `
+          <label class="fld mt-8"><span>Jenis Target *</span>
+            <select class="select" id="trfJenisTarget">
+              <option value="room_id">Ruangan</option><option value="laboratory_id">Laboratorium</option>
+            </select></label>
+          <label class="fld mt-8"><span>ID Fasilitas *</span><input type="number" class="input" id="trfTargetId" placeholder="ID ruangan/laboratorium"></label>` : ""}
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Satuan Waktu *</span>
+            <select class="select" id="trfSatuan">
+              <option value="jam">Per jam</option><option value="hari">Per hari</option><option value="paket" ${jenisAwal !== "tarif" ? "selected" : ""}>Per paket</option>
+            </select></label>
+          <label class="fld"><span>Harga (Rp) *</span><input type="number" class="input" id="trfHarga" value="0"></label>
+        </div>
+        <label class="fld mt-8"><span>Segmen *</span>
+          <select class="select" id="trfSegmen">
+            <option value="umum">Umum</option><option value="internal">Internal</option><option value="pemerintah">Pemerintah</option>
+          </select></label>
+        ${jenisAwal === "paket" ? `
+          <label class="fld mt-8"><span>Deskripsi (apa saja yang termasuk)</span><textarea class="input" id="trfDeskripsi" rows="2"></textarea></label>
+          <label class="fld mt-8"><span>Kapasitas Peserta</span><input type="number" class="input" id="trfKapasitas"></label>` : ""}`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="trfFormSimpan" onclick="trfFormSimpan()">Simpan</button>`
+    });
+  };
+
+  window.trfFormSimpan = async function () {
+    const kotak = document.getElementById("trfFormGalat");
+    const tombol = document.getElementById("trfFormSimpan");
+    kotak.hidden = true;
+    const jenis = document.getElementById("trfJenis").value;
+
+    const isi = {
+      nama: document.getElementById("trfNama").value,
+      jenis: jenis,
+      satuan_waktu: document.getElementById("trfSatuan").value,
+      harga: Number(document.getElementById("trfHarga").value) || 0,
+      segmen: document.getElementById("trfSegmen").value
+    };
+    if (jenis === "tarif") {
+      const targetId = Number(document.getElementById("trfTargetId").value) || null;
+      isi[document.getElementById("trfJenisTarget").value] = targetId;
+    }
+    if (jenis === "paket") {
+      isi.deskripsi = document.getElementById("trfDeskripsi").value || null;
+      isi.kapasitas = Number(document.getElementById("trfKapasitas").value) || null;
+    }
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.tarif.simpan(isi);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Tarif berhasil disimpan.");
+      muatTarif(); muatPaket();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
+  };
+
+  /* --------------------------------------------------------------- paket */
+
+  async function muatPaket() {
+    PKG.memuat = true; PKG.galat = null; isiPaket();
+    try { PKG.baris = (await Repo.tarif.daftar({ jenis: "paket" })).data; }
+    catch (e) { PKG.baris = []; PKG.galat = e.message; }
+    finally { PKG.memuat = false; isiPaket(); }
+  }
+
+  function isiPaket() {
+    const wadah = document.getElementById("pkgGrid");
+    if (!wadah) return;
+    if (PKG.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (PKG.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(PKG.galat)}</div></div>`; return; }
+    if (!PKG.baris.length) { wadah.innerHTML = U.emptyState("Belum ada paket layanan"); return; }
+    wadah.innerHTML = `<div class="grid g3">
+      ${PKG.baris.map((p, i) => `<div class="card"><div class="card-body">
+        <div class="row mb-12"><div class="kpi-ico tint-${["brand", "teal", "violet", "amber", "green"][i % 5]}">${U.icon("box", 17)}</div>
+          <div class="spacer"></div>${p.aktif ? U.badge("Aktif") : U.badge("Nonaktif")}</div>
+        <h3 class="mb-4">${U.esc(p.nama)}</h3>
+        <div class="small muted mb-16" style="min-height:56px">${U.esc(p.deskripsi || "—")}</div>
+        ${p.kapasitas ? `<div class="row small muted mb-12">${U.icon("users", 13)} Hingga ${p.kapasitas} peserta</div>` : ""}
+        <div class="row" style="padding-top:12px;border-top:1px solid var(--border)">
+          <div><div class="tiny faint">Harga Paket</div><h2>${U.rpShort(p.harga)}</h2></div>
+        </div>
+      </div></div>`).join("")}
+    </div>`;
+  }
 
   V["packages"] = {
     title: "Paket Layanan",
     sub: "Kombinasi fasilitas, peralatan, dan layanan dalam satu harga paket.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form paket baru')">${U.icon("plus")} Buat Paket</button>`,
-    render() {
-      return `<div class="grid g3">
-        ${D.packages.map((p, i) => `<div class="card"><div class="card-body">
-          <div class="row mb-12"><div class="kpi-ico tint-${["brand", "teal", "violet", "amber", "green"][i % 5]}">${U.icon("box", 17)}</div>
-            <div class="spacer"></div>${U.badge(p.active ? "Aktif" : "Draft")}</div>
-          <h3 class="mb-4">${U.esc(p.name)}</h3>
-          <div class="small muted mb-16" style="min-height:56px">${U.esc(p.incl)}</div>
-          ${p.cap ? `<div class="row small muted mb-12">${U.icon("users", 13)} Hingga ${p.cap} peserta</div>` : ""}
-          <div class="row" style="padding-top:12px;border-top:1px solid var(--border)">
-            <div><div class="tiny faint">Harga Paket</div><h2>${U.rpShort(p.price)}</h2></div>
-            <div class="spacer"></div>
-            <button class="btn btn-sm" onclick="UI.demo('Edit paket')">${U.icon("edit", 12)}</button>
-            <button class="btn btn-sm btn-primary" onclick="UI.demo('Buat quotation dari paket')">Gunakan</button></div>
-        </div></div>`).join("")}
-      </div>`;
-    }
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="trfForm('paket')">${U.icon("plus")} Buat Paket</button>` : "";
+    },
+    render() { return `<div id="pkgGrid"></div>`; },
+    mount() { muatPaket(); }
   };
+
+  /* ------------------------------------------------------------ penawaran */
+
+  async function muatPenawaran() {
+    QUO.memuat = true; QUO.galat = null; isiPenawaran();
+    try { QUO.baris = (await Repo.penawaran.daftar()).data; }
+    catch (e) { QUO.baris = []; QUO.galat = e.message; }
+    finally { QUO.memuat = false; isiPenawaran(); isiRingkasanPenawaran(); }
+  }
+
+  function isiPenawaran() {
+    const wadah = document.getElementById("quoDaftar");
+    if (!wadah) return;
+    if (QUO.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (QUO.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(QUO.galat)}</div></div>`; return; }
+    if (!QUO.baris.length) { wadah.innerHTML = U.emptyState("Belum ada penawaran"); return; }
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>No. Penawaran</th><th>Klien</th><th>Tanggal</th><th>Berlaku s/d</th><th class="right">Nilai</th><th>Status</th><th></th></tr></thead>
+      <tbody>${QUO.baris.map((q) => `<tr onclick="quoLihat(${q.id})" style="cursor:pointer">
+        <td><span class="mono small">${U.esc(q.nomor)}</span></td>
+        <td><b class="small">${q.penyewaan ? U.esc(q.penyewaan.penyewa) : "—"}</b></td>
+        <td>${U.fdate(q.tanggal, "short")}</td>
+        <td style="${q.kedaluwarsa ? "color:var(--red-500);font-weight:600" : ""}">${U.fdate(q.berlaku_sampai, "short")}${q.kedaluwarsa ? ` <span class="tiny">kedaluwarsa</span>` : ""}</td>
+        <td class="right"><b>${U.rp(q.nilai.total)}</b></td>
+        <td><span class="badge ${STATUS_QUO_TINT[q.status.kode] || "slate"}">${U.esc(q.status.nama)}</span></td>
+        <td class="actions"><button class="icon-btn" onclick="event.stopPropagation();quoLihat(${q.id})">${U.icon("eye", 15)}</button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPenawaran() {
+    const wadah = document.getElementById("quoKpi");
+    if (!wadah) return;
+    const b = QUO.baris;
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Aktif", value: b.filter((q) => (q.status.kode === "terkirim" || q.status.kode === "negosiasi") && !q.kedaluwarsa).length, icon: "doc", tint: "brand", note: "Menunggu keputusan" })}
+      ${U.kpi({ label: "Nilai Penawaran", value: U.rpShort(b.reduce((a, q) => a + q.nilai.total, 0)), icon: "money", tint: "amber", note: "Total pipeline" })}
+      ${U.kpi({ label: "Disetujui", value: b.filter((q) => q.status.kode === "disetujui").length, icon: "check", tint: "green", note: "Siap diterbitkan invoice" })}
+      ${U.kpi({ label: "Kedaluwarsa", value: b.filter((q) => q.kedaluwarsa).length, icon: "x", tint: "red", note: "Perlu penawaran ulang" })}`;
+  }
 
   V["quotation"] = {
     title: "Quotation / Penawaran",
-    sub: "Penawaran harga sewa fasilitas kepada klien internal maupun eksternal.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form quotation baru')">${U.icon("plus")} Buat Quotation</button>`,
+    sub: "Penawaran harga sewa fasilitas kepada klien, sebelum diterbitkan menjadi invoice.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="quoForm()">${U.icon("plus")} Buat Quotation</button>` : "";
+    },
     render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Quotation Aktif", value: D.quotations.filter((q) => ["Terkirim", "Negosiasi"].includes(q.status)).length, icon: "doc", tint: "brand", note: "Menunggu keputusan klien" })}
-          ${U.kpi({ label: "Nilai Penawaran", value: U.rpShort(D.quotations.reduce((a, q) => a + q.amount, 0)), icon: "money", tint: "amber", note: "Total pipeline" })}
-          ${U.kpi({ label: "Disetujui", value: D.quotations.filter((q) => q.status === "Disetujui").length, icon: "check", tint: "green", note: "Siap diterbitkan invoice" })}
-          ${U.kpi({ label: "Kadaluarsa", value: D.quotations.filter((q) => q.status === "Kadaluarsa").length, icon: "x", tint: "red", note: "Perlu penawaran ulang" })}
-        </div>
-        ${U.card("Daftar Quotation", U.toolbar({ ph: "Cari quotation / klien…", filters: [["Semua Status", "Terkirim", "Negosiasi", "Disetujui", "Kadaluarsa"]] }) +
-          U.table([
-            { t: "No. Quotation", w: "150px", render: (q) => `<span class="lnk mono" onclick="showQuote('${q.id}')">${q.id}</span>` },
-            { t: "Klien", render: (q) => `<b>${U.esc(q.client)}</b>` },
-            { t: "Referensi Booking", render: (q) => q.ref === "-" ? `<span class="faint">—</span>` : `<span class="mono small">${q.ref}</span>` },
-            { t: "Tanggal", render: (q) => U.fdate(q.date, "short") },
-            { t: "Berlaku s/d", render: (q) => { const exp = q.valid < D.shift(0);
-                return `<span class="${exp ? "" : ""}" style="${exp ? "color:var(--red-500)" : ""}">${U.fdate(q.valid, "short")}</span>`; } },
-            { t: "Nilai", cls: "right", render: (q) => `<b>${U.rp(q.amount)}</b>` },
-            { t: "PIC", render: (q) => `<span class="small">${U.esc(D.personName(q.pic))}</span>` },
-            { t: "Status", render: (q) => U.badge(q.status) },
-            { t: "", cls: "actions", render: (q) => `<button class="icon-btn" onclick="showQuote('${q.id}')">${U.icon("eye", 15)}</button>` }
-          ], D.quotations), { bodyCls: "flush" })}`;
-    }
+      return `<div class="grid g4 mb-16" id="quoKpi"></div>
+        ${U.card("Daftar Quotation", `<div id="quoDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatPenawaran(); }
   };
 
-  window.showQuote = function (id) {
-    const q = D.quotations.find((x) => x.id === id);
+  window.quoLihat = async function (id) {
+    U.modal({ title: "Memuat…", body: `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>` });
+    let q;
+    try { q = await Repo.penawaran.lihat(id); }
+    catch (e) { UI.closeModal(); Repo.tampilkanGalat(e, "Gagal memuat"); return; }
+    if (!q) { UI.closeModal(); return; }
+
     U.modal({
-      size: "wide", title: "Quotation " + q.id, sub: q.client + " • " + U.fdate(q.date, "long"),
+      size: "wide", title: "Penawaran " + q.nomor, sub: (q.penyewaan ? q.penyewaan.penyewa : "") + " • " + U.fdate(q.tanggal, "long"),
       body: `
         <div class="row mb-16" style="align-items:flex-start">
-          <div><div class="brand-mark" style="background:linear-gradient(140deg,var(--brand-500),var(--teal-500))">FL</div>
-            <div class="mt-8 bold">${U.esc(D.org.company)}</div>
-            <div class="tiny muted">Kampus Utama Cikarang<br>Jl. Teknologi Raya No. 88, Bekasi</div></div>
+          <div><div class="brand-mark" style="background:linear-gradient(140deg,var(--brand-500),var(--teal-500))">FL</div></div>
           <div class="spacer"></div>
-          <div class="right"><div class="tiny faint">NOMOR</div><div class="mono bold">${q.id}</div>
-            <div class="tiny faint mt-8">BERLAKU S/D</div><div class="bold">${U.fdate(q.valid, "long")}</div></div>
+          <div class="right"><div class="tiny faint">NOMOR</div><div class="mono bold">${U.esc(q.nomor)}</div>
+            <div class="tiny faint mt-8">BERLAKU S/D</div><div class="bold">${U.fdate(q.berlaku_sampai, "long")}</div></div>
         </div>
-        <div class="dl small mb-16" style="grid-template-columns:110px 1fr">
-          <dt>Kepada</dt><dd><b>${U.esc(q.client)}</b></dd>
-          <dt>Perihal</dt><dd>Penawaran Sewa Fasilitas</dd>
-          <dt>Referensi</dt><dd class="mono">${q.ref}</dd>
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_QUO_TINT[q.status.kode] || "slate"}">${U.esc(q.status.nama)}</span>
+          ${q.kedaluwarsa ? `<span class="badge red">Kedaluwarsa</span>` : ""}
         </div>
         ${U.table([
-          { t: "Deskripsi", render: (r) => `<b>${U.esc(r.n)}</b><div class="tiny faint">${U.esc(r.d)}</div>` },
-          { t: "Qty", cls: "center", render: (r) => r.q },
-          { t: "Harga", cls: "right", render: (r) => U.rp(r.p) },
-          { t: "Jumlah", cls: "right", render: (r) => `<b>${U.rp(r.p * r.qn)}</b>` }
-        ], [
-          { n: "Sewa Auditorium Wijaya Kusuma", d: "Kapasitas 450 kursi, layout theater", q: "1 hari", qn: 1, p: 12500000 },
-          { n: "Sound System & Lighting", d: "Line array 8ch + lighting rig", q: "1 paket", qn: 1, p: 2500000 },
-          { n: "Operator AV", d: "2 orang, 8 jam", q: "2 orang", qn: 2, p: 500000 },
-          { n: "Security Tambahan", d: "Pengamanan area lobby & parkir", q: "2 orang", qn: 2, p: 450000 }
-        ])}
+          { t: "Deskripsi", render: (r) => U.esc(r.deskripsi) },
+          { t: "Qty", cls: "center", render: (r) => r.kuantitas + " " + r.satuan },
+          { t: "Harga", cls: "right", render: (r) => U.rp(r.harga_satuan) },
+          { t: "Jumlah", cls: "right", render: (r) => `<b>${U.rp(r.subtotal)}</b>` }
+        ], q.baris || [])}
         <div class="row mt-16"><div class="spacer"></div><div style="width:260px">
-          <div class="row small"><span class="muted" style="flex:1">Subtotal</span><b>${U.rp(16400000)}</b></div>
-          <div class="row small mt-4"><span class="muted" style="flex:1">Diskon</span><b>Rp 0</b></div>
-          <div class="row small mt-4"><span class="muted" style="flex:1">PPN 11%</span><b>${U.rp(1804000)}</b></div>
-          <div class="row mt-8" style="padding-top:8px;border-top:1px solid var(--border)"><span style="flex:1">Total</span><h3>${U.rp(18204000)}</h3></div>
+          <div class="row small"><span class="muted" style="flex:1">Subtotal</span><b>${U.rp(q.nilai.subtotal)}</b></div>
+          <div class="row small mt-4"><span class="muted" style="flex:1">PPN ${q.nilai.ppn_persen}%</span><b>${U.rp(q.nilai.ppn)}</b></div>
+          <div class="row mt-8" style="padding-top:8px;border-top:1px solid var(--border)"><span style="flex:1">Total</span><h3>${U.rp(q.nilai.total)}</h3></div>
         </div></div>
-        <div class="alert info mt-16 small">${U.icon("doc", 15)}<div>Quotation berlaku 14 hari. Booking dikonfirmasi setelah pembayaran uang muka 50% diterima.</div></div>`,
+        ${q.invoice_nomor ? `<div class="alert info mt-16 small">${U.icon("doc", 15)}<div>Sudah diterbitkan sebagai invoice ${U.esc(q.invoice_nomor)}.</div></div>` : ""}
+        ${q.catatan ? `<div class="small muted mt-12">${U.esc(q.catatan)}</div>` : ""}`,
       foot: `<button class="btn" onclick="UI.closeModal()">Tutup</button>
-             <button class="btn" onclick="UI.demo('Unduh quotation PDF')">${U.icon("download")} Unduh PDF</button>
-             <button class="btn" onclick="UI.demo('Kirim ke email klien')">${U.icon("send")} Kirim</button>
-             <button class="btn btn-primary" onclick="UI.closeModal();UI.toast('Invoice dibuat','INV-2026-0232 diterbitkan dari quotation.')">Terbitkan Invoice</button>`
+        ${Repo.dapatMenulis() && !q.kedaluwarsa && (q.status.kode === "terkirim" || q.status.kode === "negosiasi") ? `
+          <button class="btn" onclick="quoPutuskan(${q.id},'ditolak')">Tolak</button>
+          <button class="btn" onclick="quoPutuskan(${q.id},'negosiasi')">Negosiasi</button>
+          <button class="btn btn-primary" onclick="quoPutuskan(${q.id},'disetujui')">Setujui</button>` : ""}
+        ${Repo.dapatMenulis() && q.dapat_diterbitkan_invoice ? `
+          <button class="btn btn-primary" onclick="quoTerbitkanInvoice(${q.id})">${U.icon("check")} Terbitkan Invoice</button>` : ""}`
     });
   };
 
+  window.quoPutuskan = async function (id, keputusan) {
+    try {
+      await Repo.penawaran.putuskan(id, keputusan);
+      UI.closeModal();
+      U.toast("Tersimpan", "Keputusan penawaran diperbarui.");
+      muatPenawaran();
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal memutuskan penawaran"); }
+  };
+
+  window.quoTerbitkanInvoice = async function (id) {
+    try {
+      await Repo.penawaran.terbitkanInvoice(id);
+      UI.closeModal();
+      U.toast("Invoice diterbitkan", "Lihat pada halaman Invoice & Tagihan.");
+      muatPenawaran();
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal menerbitkan invoice"); }
+  };
+
+  window.quoForm = async function (rentalIdAwal) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Membuat penawaran hanya bisa setelah masuk dengan akun."); return; }
+    let sewa = [];
+    try { sewa = ((await Repo.penyewaan.daftar()).data || {}).data || []; } catch (e) { /* pemilih kosong */ }
+
+    U.drawer({
+      title: "Buat Quotation", sub: "Penawaran dihitung otomatis dari tarif aktif fasilitas yang dipilih",
+      body: `
+        <div id="quoFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Penyewaan *</span>
+          <select class="select" id="quoRental">
+            <option value="">— pilih penyewaan —</option>
+            ${sewa.map((r) => `<option value="${U.esc(String(r.id))}" ${rentalIdAwal && Number(rentalIdAwal) === r.id ? "selected" : ""}>${U.esc(r.penyewa)} — ${U.fdate(r.mulai, "short")}</option>`).join("")}
+          </select></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>PPN (%)</span><input type="number" class="input" id="quoPpn" value="11"></label>
+          <label class="fld"><span>Berlaku (hari)</span><input type="number" class="input" id="quoBerlaku" value="14"></label>
+        </div>
+        <div class="small muted mt-8">Baris tambahan (add-on/paket) dapat ditambahkan setelah penawaran dibuat, melalui menyunting langsung dari Invoice bila disetujui.</div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="quoFormSimpan" onclick="quoFormSimpan()">Simpan</button>`
+    });
+  };
+
+  window.quoFormSimpan = async function () {
+    const kotak = document.getElementById("quoFormGalat");
+    const tombol = document.getElementById("quoFormSimpan");
+    kotak.hidden = true;
+
+    const rentalId = Number(document.getElementById("quoRental").value);
+    if (!rentalId) { kotak.textContent = "Pilih penyewaan terlebih dahulu."; kotak.hidden = false; return; }
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.penawaran.buat({
+        rental_id: rentalId,
+        ppn_persen: Number(document.getElementById("quoPpn").value) || 0,
+        berlaku_hari: Number(document.getElementById("quoBerlaku").value) || 14
+      });
+      U.closeDrawer();
+      U.toast("Tersimpan", "Penawaran berhasil dibuat.");
+      muatPenawaran();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
+  };
+
+  /* --------------------------------------------------------------- invoice */
+
+  async function muatTagihan() {
+    INV.memuat = true; INV.galat = null; isiTagihan();
+    try { INV.baris = (await Repo.tagihan.daftar()).data; }
+    catch (e) { INV.baris = []; INV.galat = e.message; }
+    finally { INV.memuat = false; isiTagihan(); isiRingkasanTagihan(); }
+  }
+
+  function isiTagihan() {
+    const wadah = document.getElementById("invDaftar");
+    if (!wadah) return;
+    if (INV.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (INV.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(INV.galat)}</div></div>`; return; }
+    if (!INV.baris.length) { wadah.innerHTML = U.emptyState("Belum ada invoice"); return; }
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>No. Invoice</th><th>Klien</th><th>Jatuh Tempo</th><th class="right">Total</th><th class="right">Sisa</th><th>Status</th><th></th></tr></thead>
+      <tbody>${INV.baris.map((i) => `<tr onclick="invLihat(${i.id})" style="cursor:pointer">
+        <td><span class="mono small">${U.esc(i.nomor)}</span></td>
+        <td><b class="small">${i.penyewaan ? U.esc(i.penyewaan.penyewa) : "—"}</b></td>
+        <td style="${i.terlewat_jatuh_tempo ? "color:var(--red-500);font-weight:600" : ""}">${U.fdate(i.jatuh_tempo, "short")}</td>
+        <td class="right"><b>${U.rp(i.nilai.total)}</b></td>
+        <td class="right">${U.rp(i.nilai.sisa)}</td>
+        <td><span class="badge ${STATUS_INV_TINT[i.status.kode] || "slate"}">${U.esc(i.status.nama)}</span>${i.terlewat_jatuh_tempo ? ` <span class="badge red">Terlambat</span>` : ""}</td>
+        <td class="actions"><button class="icon-btn" onclick="event.stopPropagation();invLihat(${i.id})">${U.icon("eye", 15)}</button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanTagihan() {
+    const wadah = document.getElementById("invKpi");
+    if (!wadah) return;
+    const b = INV.baris;
+    const total = b.reduce((a, i) => a + i.nilai.total, 0);
+    const terbayar = b.reduce((a, i) => a + i.nilai.terbayar, 0);
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Total Tagihan", value: U.rpShort(total), icon: "doc", tint: "brand", note: b.length + " invoice" })}
+      ${U.kpi({ label: "Sudah Dibayar", value: U.rpShort(terbayar), icon: "check", tint: "green", note: total ? Math.round((terbayar / total) * 100) + "% terbayar" : "—" })}
+      ${U.kpi({ label: "Outstanding", value: U.rpShort(total - terbayar), icon: "clock", tint: "amber", note: "Belum diterima" })}
+      ${U.kpi({ label: "Terlambat", value: U.rpShort(b.filter((i) => i.terlewat_jatuh_tempo).reduce((a, i) => a + i.nilai.sisa, 0)), icon: "alert", tint: "red", note: "Melewati jatuh tempo" })}`;
+  }
+
   V["invoice"] = {
     title: "Invoice & Tagihan",
-    sub: "Status transaksi: Draft → Invoice → Waiting Payment → Paid → Completed.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Kirim pengingat tagihan')">${U.icon("bell")} Ingatkan Jatuh Tempo</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form invoice baru')">${U.icon("plus")} Buat Invoice</button>`,
+    sub: "Tagihan resmi hasil penerbitan langsung atau dari penawaran yang disetujui.",
     render() {
-      const total = D.invoices.reduce((a, i) => a + i.total, 0);
-      const paid = D.invoices.reduce((a, i) => a + i.paid, 0);
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Total Tagihan", value: U.rpShort(total), icon: "doc", tint: "brand", note: D.invoices.length + " invoice" })}
-          ${U.kpi({ label: "Sudah Dibayar", value: U.rpShort(paid), icon: "check", tint: "green", note: Math.round((paid / total) * 100) + "% terbayar" })}
-          ${U.kpi({ label: "Outstanding", value: U.rpShort(total - paid), icon: "clock", tint: "amber", note: "Belum diterima" })}
-          ${U.kpi({ label: "Overdue", value: U.rpShort(D.invoices.filter((i) => i.status === "Overdue").reduce((a, i) => a + i.total, 0)), icon: "alert", tint: "red", note: "Melewati jatuh tempo" })}
+      return `<div class="grid g4 mb-16" id="invKpi"></div>
+        ${U.card("Daftar Invoice", `<div id="invDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatTagihan(); }
+  };
+
+  window.invLihat = async function (id) {
+    U.drawer({ title: "Memuat…", body: `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>` });
+    let i;
+    try { i = await Repo.tagihan.lihat(id); }
+    catch (e) { U.closeDrawer(); Repo.tampilkanGalat(e, "Gagal memuat"); return; }
+    if (!i) { U.closeDrawer(); return; }
+
+    U.drawer({
+      size: "wide", title: "Invoice " + i.nomor, sub: i.penyewaan ? i.penyewaan.penyewa : "",
+      body: `
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_INV_TINT[i.status.kode] || "slate"}">${U.esc(i.status.nama)}</span>
+          ${i.terlewat_jatuh_tempo ? `<span class="badge red">Terlambat</span>` : ""}
+          ${i.quotation_nomor ? `<span class="badge outline">Dari ${U.esc(i.quotation_nomor)}</span>` : ""}
         </div>
-        ${U.card("Daftar Invoice", U.toolbar({ ph: "Cari invoice / klien…", filters: [["Semua Status", "Waiting Payment", "Paid", "Overdue"]] }) +
-          U.table([
-            { t: "No. Invoice", w: "150px", render: (i) => `<span class="lnk mono" onclick="UI.demo('Buka invoice PDF')">${i.id}</span>` },
-            { t: "Klien", render: (i) => `<b>${U.esc(i.client)}</b><div class="tiny faint mono">${i.ref}</div>` },
-            { t: "Tanggal", render: (i) => U.fdate(i.date, "short") },
-            { t: "Jatuh Tempo", render: (i) => { const late = i.status === "Overdue";
-                return `<span style="${late ? "color:var(--red-500);font-weight:600" : ""}">${U.fdate(i.due, "short")}</span>`; } },
-            { t: "Subtotal", cls: "right", render: (i) => U.rp(i.sub) },
-            { t: "PPN 11%", cls: "right", render: (i) => U.rp(i.tax) },
-            { t: "Total", cls: "right", render: (i) => `<b>${U.rp(i.total)}</b>` },
-            { t: "Status", render: (i) => U.badge(i.status) },
-            { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Catat pembayaran')">Bayar</button>` }
-          ], D.invoices), { bodyCls: "flush" })}`;
+        ${U.table([
+          { t: "Deskripsi", render: (r) => U.esc(r.deskripsi) },
+          { t: "Qty", cls: "center", render: (r) => r.kuantitas + " " + r.satuan },
+          { t: "Harga", cls: "right", render: (r) => U.rp(r.harga_satuan) },
+          { t: "Jumlah", cls: "right", render: (r) => `<b>${U.rp(r.subtotal)}</b>` }
+        ], i.baris || [])}
+        <div class="row mt-16"><div class="spacer"></div><div style="width:260px">
+          <div class="row small"><span class="muted" style="flex:1">Subtotal</span><b>${U.rp(i.nilai.subtotal)}</b></div>
+          <div class="row small mt-4"><span class="muted" style="flex:1">PPN ${i.nilai.ppn_persen}%</span><b>${U.rp(i.nilai.ppn)}</b></div>
+          <div class="row mt-8" style="padding-top:8px;border-top:1px solid var(--border)"><span style="flex:1">Total</span><h3>${U.rp(i.nilai.total)}</h3></div>
+          <div class="row small mt-8"><span class="muted" style="flex:1">Sisa</span><b>${U.rp(i.nilai.sisa)}</b></div>
+        </div></div>
+        ${(i.pembayaran && i.pembayaran.length) ? `
+          <h4 class="mb-8 mt-16 muted">RIWAYAT PEMBAYARAN</h4>
+          ${U.table([
+            { t: "Tanggal", render: (p) => U.fdate(p.tanggal, "short") },
+            { t: "Metode", render: (p) => U.esc(p.metode) },
+            { t: "Jumlah", cls: "right", render: (p) => U.rp(p.jumlah) },
+            { t: "Status", render: (p) => `<span class="badge ${STATUS_PAY_TINT[p.status.kode] || "slate"}">${U.esc(p.status.nama)}</span>` }
+          ], i.pembayaran)}` : ""}
+        ${i.nilai.sisa > 0 && Repo.dapatMenulis() && i.status.kode !== "dibatalkan" ? `<div id="invBayarForm" class="mt-16"></div>` : ""}`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
+        ${i.nilai.sisa > 0 && Repo.dapatMenulis() && i.status.kode !== "dibatalkan" ? `<button class="btn btn-primary" onclick="invBukaBayar(${i.id},${i.nilai.sisa})">Catat Pembayaran</button>` : ""}`
+    });
+    window.__invAktif = i;
+  };
+
+  window.invBukaBayar = function (id, sisa) {
+    document.getElementById("invBayarForm").innerHTML = `
+      <div style="padding-top:16px;border-top:1px solid var(--border)">
+        <h4 class="mb-8 muted">CATAT PEMBAYARAN</h4>
+        <div id="invBayarGalat" class="alert err mb-12" hidden></div>
+        <div class="grid g2 gap-12">
+          <label class="fld"><span>Tanggal *</span><input type="date" class="input" id="invBayarTanggal" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label class="fld"><span>Jumlah (Rp) *</span><input type="number" class="input" id="invBayarJumlah" value="${sisa}"></label>
+        </div>
+        <label class="fld mt-8"><span>Metode</span>
+          <select class="select" id="invBayarMetode">
+            <option value="transfer">Transfer bank</option><option value="tunai">Tunai</option><option value="kartu">Kartu</option><option value="lainnya">Lainnya</option>
+          </select></label>
+        <label class="fld mt-8"><span>Referensi</span><input class="input" id="invBayarReferensi" placeholder="No. transaksi/kuitansi"></label>
+        <button class="btn btn-primary btn-block mt-12" onclick="invSimpanBayar(${id})">Simpan Pembayaran</button>
+      </div>`;
+  };
+
+  window.invSimpanBayar = async function (id) {
+    const kotak = document.getElementById("invBayarGalat");
+    kotak.hidden = true;
+    try {
+      await Repo.tagihan.catatPembayaran(id, {
+        tanggal: document.getElementById("invBayarTanggal").value,
+        jumlah: Number(document.getElementById("invBayarJumlah").value),
+        metode: document.getElementById("invBayarMetode").value,
+        referensi: document.getElementById("invBayarReferensi").value || null
+      });
+      U.closeDrawer();
+      U.toast("Tersimpan", "Pembayaran berhasil dicatat.");
+      muatTagihan();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
     }
   };
 
+  /* ------------------------------------------------------------ pembayaran */
+
+  async function muatPembayaran() {
+    PAY.memuat = true; PAY.galat = null; isiPembayaran();
+    try { PAY.baris = (await Repo.pembayaran.daftar()).data; }
+    catch (e) { PAY.baris = []; PAY.galat = e.message; }
+    finally { PAY.memuat = false; isiPembayaran(); isiRingkasanPembayaran(); }
+  }
+
+  function isiPembayaran() {
+    const wadah = document.getElementById("payDaftar");
+    if (!wadah) return;
+    if (PAY.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (PAY.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(PAY.galat)}</div></div>`; return; }
+    if (!PAY.baris.length) { wadah.innerHTML = U.emptyState("Belum ada pembayaran tercatat"); return; }
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Invoice</th><th>Klien</th><th>Tanggal</th><th>Metode</th><th class="right">Jumlah</th><th>Status</th><th></th></tr></thead>
+      <tbody>${PAY.baris.map((p) => `<tr>
+        <td><span class="mono small">${p.invoice ? U.esc(p.invoice.nomor) : "—"}</span></td>
+        <td><b class="small">${p.invoice ? U.esc(p.invoice.penyewa || "—") : "—"}</b></td>
+        <td>${U.fdate(p.tanggal, "short")}</td>
+        <td><span class="badge outline">${U.esc(p.metode)}</span></td>
+        <td class="right"><b>${U.rp(p.jumlah)}</b></td>
+        <td><span class="badge ${STATUS_PAY_TINT[p.status.kode] || "slate"}">${U.esc(p.status.nama)}</span></td>
+        <td class="actions">${p.status.kode !== "terverifikasi" && Repo.dapatMenulis()
+          ? `<button class="btn btn-sm btn-primary" onclick="payVerifikasi(${p.id})">Verifikasi</button>`
+          : `<span class="faint small">—</span>`}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPembayaran() {
+    const wadah = document.getElementById("payKpi");
+    if (!wadah) return;
+    const b = PAY.baris;
+    const terverifikasi = b.filter((p) => p.status.kode === "terverifikasi");
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Diterima (Terverifikasi)", value: U.rpShort(terverifikasi.reduce((a, p) => a + p.jumlah, 0)), icon: "money", tint: "green", note: terverifikasi.length + " transaksi" })}
+      ${U.kpi({ label: "Menunggu Verifikasi", value: b.filter((p) => p.status.kode !== "terverifikasi").length, icon: "clock", tint: "amber", note: "Perlu konfirmasi Finance" })}
+      ${U.kpi({ label: "Total Transaksi", value: b.length, icon: "doc", tint: "brand", note: "Seluruh riwayat" })}`;
+  }
+
   V["payment"] = {
     title: "Pembayaran",
-    sub: "Pencatatan dan verifikasi pembayaran, refund, serta penerbitan kuitansi.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form pencatatan pembayaran')">${U.icon("plus")} Catat Pembayaran</button>`,
+    sub: "Riwayat dan verifikasi pembayaran lintas tagihan.",
     render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Diterima Bulan Ini", value: U.rpShort(D.payments.reduce((a, p) => a + p.amount, 0)), icon: "money", tint: "green", delta: 22, note: D.payments.length + " transaksi" })}
-          ${U.kpi({ label: "Menunggu Verifikasi", value: D.payments.filter((p) => p.status !== "Terverifikasi").length, icon: "clock", tint: "amber", note: "Perlu konfirmasi Finance" })}
-          ${U.kpi({ label: "Metode Terbanyak", value: "Transfer", icon: "chart", tint: "brand", note: "72% dari transaksi" })}
-          ${U.kpi({ label: "Refund YTD", value: U.rpShort(3200000), icon: "refresh", tint: "violet", note: "2 transaksi" })}
-        </div>
-        ${U.card("Riwayat Pembayaran", U.toolbar({ ph: "Cari pembayaran…", filters: [["Semua Status", "Terverifikasi", "Menunggu Verifikasi"], ["Semua Metode", "Transfer", "Virtual Account", "Tunai"]] }) +
-          U.table([
-            { t: "No. Pembayaran", w: "150px", render: (p) => `<span class="mono small">${p.id}</span>` },
-            { t: "Invoice", render: (p) => `<span class="lnk mono small" onclick="UI.demo('Buka invoice')">${p.inv}</span>` },
-            { t: "Klien", render: (p) => `<b>${U.esc(p.client)}</b>` },
-            { t: "Tanggal", render: (p) => U.fdate(p.date, "short") },
-            { t: "Metode", render: (p) => `<span class="badge outline">${U.esc(p.method)}</span>` },
-            { t: "Jumlah", cls: "right", render: (p) => `<b>${U.rp(p.amount)}</b>` },
-            { t: "Status", render: (p) => U.badge(p.status) },
-            { t: "", cls: "actions", render: (p) => p.status === "Terverifikasi"
-                ? `<button class="btn btn-sm" onclick="UI.demo('Cetak kuitansi')">${U.icon("print", 12)} Kuitansi</button>`
-                : `<button class="btn btn-sm btn-primary" onclick="UI.demo('Verifikasi pembayaran')">Verifikasi</button>` }
-          ], D.payments), { bodyCls: "flush" })}`;
-    }
+      return `<div class="grid g3 mb-16" id="payKpi"></div>
+        ${U.card("Riwayat Pembayaran", `<div id="payDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatPembayaran(); }
+  };
+
+  window.payVerifikasi = async function (id) {
+    try {
+      await Repo.pembayaran.verifikasi(id);
+      U.toast("Terverifikasi", "Pembayaran dikonfirmasi dan dihitung sebagai uang masuk.");
+      muatPembayaran();
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal memverifikasi"); }
   };
 
   /* =======================================================================

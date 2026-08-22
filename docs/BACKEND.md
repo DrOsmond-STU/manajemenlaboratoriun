@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-459 uji lulus, 1.379 asersi, 0 gagal — dijalankan di PostgreSQL 16
+476 uji lulus, 1.451 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -374,6 +374,20 @@ Penyewaan & penagihan — modul uang:
 | Nomor tagihan berurut & unik per tahun | memakai pencatat aman-balapan yang sama dengan NUP BMN |
 | Tagihan tanpa baris ditolak | tagihan bernilai nol hanya membingungkan saat ditagihkan |
 | Jatuh tempo tidak boleh mendahului tanggal terbit | dijaga `CHECK` |
+| Tarif/add-on/paket satu tabel, ditapis `jenis` | tiga layar purwarupa, satu sumber server — lihat migrasi 2026_08_22_100000 |
+| Tarif nonaktif disembunyikan kecuali diminta | daftar tarif tidak dipenuhi baris usang secara diam-diam |
+| **Penawaran (quotation) dihitung dari tarif yang sama dengan invoice langsung** | satu logika harga, dua pintu masuk |
+| **Penawaran yang sudah disetujui tidak berubah walau tarif naik setelahnya** | barisnya disalin ke invoice, bukan dihitung ulang saat diterbitkan |
+| Nomor penawaran berurut & unik per tahun | pola sama dengan nomor invoice/NUP BMN |
+| **Kedaluwarsa dihitung dari tanggal, bukan disimpan sebagai status** | status tersimpannya tetap "terkirim" — sama dengan pola `terlambat()` pada pemeliharaan |
+| Penawaran kedaluwarsa tidak dapat diputuskan | klien perlu penawaran baru, bukan keputusan atas yang basi |
+| Penawaran final (disetujui/ditolak) tidak dapat diputuskan ulang | keputusan bukan draf — pola sama dengan Persetujuan |
+| Penawaran belum disetujui tidak dapat diterbitkan invoice | mencegah tagihan resmi dari kesepakatan yang belum final |
+| Penawaran tidak dapat diterbitkan invoice dua kali | satu penawaran → paling banyak satu invoice |
+| **Pembayaran bawaan langsung terverifikasi, tetapi dapat ditandai menunggu** | satu-satunya jalur saat ini adalah staf mengetik langsung |
+| **Pembayaran menunggu verifikasi belum dihitung lunas** | `Invoice::terbayar()` hanya menjumlah yang berstatus terverifikasi |
+| Memverifikasi pembayaran menghitungnya sebagai lunas | status tagihan disegarkan ulang, bukan ditebak |
+| Riwayat pembayaran dapat ditapis lintas tagihan | layar "Pembayaran" butuh daftar global, bukan per-tagihan satu-satu |
 
 Persetujuan:
 
@@ -890,6 +904,77 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   barunya sudah tampil di tabel. Diperbaiki dengan memanggil ulang
   `muatAlertKalibrasi()` di titik yang sama dengan penyegaran daftarnya,
   bukan hanya di `mount()`.
+
+- **`tariffs` diperluas dengan kolom `jenis` (`tarif`/`addon`/`paket`),
+  `deskripsi`, dan `kapasitas`, menyatukan tiga layar purwarupa (Daftar
+  Tarif, Tarif Add-on, Paket Layanan) menjadi satu tabel dengan satu
+  tapisan.** Ketiganya sama-sama "barang berharga yang dapat dijual" dengan
+  medan yang identik — nama, harga, satuan, status aktif — dan kelak akan
+  sama-sama dicari sebagai baris tagihan lewat mekanisme yang sama
+  (`PenagihanService::barisDariTarif`). Membuat tiga tabel terpisah berarti
+  menduplikasi logika itu tiga kali untuk nol manfaat struktural.
+- **Purwarupa memberi tiap fasilitas EMPAT angka harga sekaligus (internal,
+  eksternal, setengah-hari, lembur) dalam satu baris; server menyimpannya
+  sebagai baris terpisah per (fasilitas, segmen, satuan waktu).** Ini
+  PENYEDERHANAAN YANG DISENGAJA, bukan kealpaan: skema tarif per-baris
+  lebih fleksibel untuk segmen apa pun (bukan hanya internal/eksternal),
+  tetapi tidak mempunyai satuan "setengah-hari"/"lembur" tersendiri.
+  Menambah dua satuan waktu itu demi mereplikasi tata letak empat-kolom
+  purwarupa persis apa adanya tidak sepadan dengan manfaatnya — dicatat di
+  sini dan di komentar `Repo.tarif` supaya jelas ini keputusan, bukan
+  celah yang terlewat.
+- **Diskon tidak dimodelkan sebagai kolom atau baris tersendiri**, baik
+  pada `quotations` maupun `invoices`. Baik `invoice_lines` maupun
+  `quotation_lines` menegakkan `harga_satuan >= 0` — TIDAK ADA ANGKA UANG
+  NEGATIF, aturan yang sudah ditegakkan sejak migrasi penagihan pertama.
+  Diskon yang dinegosiasikan karenanya dituliskan langsung sebagai
+  penyesuaian harga satuan baris terkait sebelum penawaran dikirim, bukan
+  baris "Diskon" bernilai minus.
+- **Quotation adalah tabel sendiri, bukan status tambahan pada Invoice.**
+  Purwarupa memisahkan tegas keduanya: quotation BOLEH berubah sebelum
+  disetujui (harga baris dapat dinegosiasikan), invoice TIDAK BOLEH
+  berubah setelah terbit (baris adalah cuplikan permanen). Menyatukan
+  keduanya dalam satu tabel berarti kehilangan bedanya — status mana yang
+  "masih boleh diedit" akan bergantung pada nilai kolom lain, alih-alih
+  pada struktur tabelnya sendiri. `quotation_lines` bercermin persis pada
+  `invoice_lines`; saat penawaran diterbitkan jadi invoice, barisnya
+  disalin apa adanya (`PenagihanService::terbitkanDariPenawaran`), BUKAN
+  dihitung ulang dari tarif yang berlaku saat itu — supaya kenaikan tarif
+  setelah negosiasi tidak diam-diam mengubah angka yang sudah disepakati.
+- **Kedaluwarsa penawaran dihitung dari tanggal, bukan disimpan sebagai
+  status** — pola yang sama dengan `AssetMaintenance::terlambat()`.
+  Status tersimpannya tetap `terkirim`/`negosiasi` sampai staf mengambil
+  keputusan; "sudah lewat tanggal berlaku" adalah fakta tanggal yang
+  berubah sendiri seiring waktu, bukan keputusan yang perlu dicatat.
+  Penawaran yang sudah `disetujui` tidak pernah dianggap kedaluwarsa lagi,
+  bahkan setelah tanggal berlakunya lewat — persetujuan mengunci
+  kesepakatan terlepas dari jendela waktu keputusan klien.
+- **Pembayaran mendapat kolom `status` (`menunggu_verifikasi`/
+  `terverifikasi`), bawaan `terverifikasi`.** Purwarupa membedakan
+  keduanya karena staf mencatat transfer yang dilaporkan klien sebelum
+  benar-benar memastikan uangnya masuk. Baku mutu `terverifikasi` dipakai
+  sebagai bawaan karena satu-satunya jalur pencatatan saat ini adalah staf
+  mengetik langsung (bukan gerbang pembayaran daring yang melapor
+  sendiri) — `menunggu_verifikasi` tersedia eksplisit untuk staf yang
+  memang belum yakin. `Invoice::terbayar()` hanya menjumlah pembayaran
+  terverifikasi, supaya pembayaran yang belum dipastikan tidak diam-diam
+  membuat tagihan tampak lunas.
+- **Endpoint `GET /api/pembayaran` (riwayat pembayaran lintas tagihan)
+  ditambahkan khusus untuk layar "Pembayaran".** Purwarupa menampilkannya
+  sebagai satu daftar global, bukan pembayaran per tagihan satu-satu —
+  endpoint yang sudah ada (`GET /api/tagihan/{id}`) tidak dapat
+  menjawabnya tanpa mengambil setiap tagihan satu per satu di sisi klien.
+- **Alur sewa di sisi antarmuka TIDAK mereplikasi 9 tahap purwarupa**
+  (Pilih Fasilitas → Cek Availability → Paket & Add-on → Quotation →
+  Approval → Invoice → Pembayaran → Penggunaan → Berita Acara). Sembilan
+  tahap itu adalah dekorasi funnel, bukan status yang benar-benar
+  tersimpan — server hanya punya 5 status penyewaan
+  (draf/dikonfirmasi/berjalan/selesai/dibatalkan). Halaman tersambung
+  menampilkan status sungguhan itu apa adanya dan menautkan langsung ke
+  aksi "Buat Penawaran"/"Tagih Langsung" per baris — pola penyederhanaan
+  yang sama dengan Dashboard mengganti seret-lepas dengan tombol
+  naik/turun: yang dijaga adalah kebenaran datanya, bukan kehalusan
+  dekorasi alur yang tidak berpadanan dengan skema.
 
 ---
 

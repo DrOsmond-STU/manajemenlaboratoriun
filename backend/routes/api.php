@@ -12,10 +12,12 @@ use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\FotoAsetController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
+use App\Http\Controllers\Api\PenawaranController;
 use App\Http\Controllers\Api\PenggunaController;
 use App\Http\Controllers\Api\PenyewaanController;
 use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
+use App\Http\Controllers\Api\TarifController;
 use Illuminate\Support\Facades\Route;
 
 // --- Tanpa autentikasi ---------------------------------------------------
@@ -123,6 +125,30 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:penyewaan.lihat');
     Route::post('tagihan/{tagihan}/pembayaran', [PenyewaanController::class, 'catatPembayaran'])
         ->middleware('can:penyewaan.ubah')->name('tagihan.pembayaran');
+    Route::get('pembayaran', [PenyewaanController::class, 'daftarPembayaran'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('pembayaran/{pembayaran}/verifikasi', [PenyewaanController::class, 'verifikasiPembayaran'])
+        ->middleware('can:penyewaan.ubah')->name('pembayaran.verifikasi');
+
+    // --- Tarif: fasilitas, add-on, dan paket layanan — satu tabel tiga layar
+    Route::get('tarif', [TarifController::class, 'index'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('tarif', [TarifController::class, 'store'])
+        ->middleware('can:penyewaan.buat');
+    Route::put('tarif/{tarif}', [TarifController::class, 'update'])
+        ->middleware('can:penyewaan.ubah');
+
+    // --- Penawaran (quotation) — tahap sebelum tagihan, boleh dinegosiasikan
+    Route::get('penawaran', [PenawaranController::class, 'index'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('penawaran', [PenawaranController::class, 'store'])
+        ->middleware('can:penyewaan.buat');
+    Route::get('penawaran/{penawaran}', [PenawaranController::class, 'show'])
+        ->middleware('can:penyewaan.lihat');
+    Route::post('penawaran/{penawaran}/putuskan', [PenawaranController::class, 'putuskan'])
+        ->middleware('can:penyewaan.ubah');
+    Route::post('penawaran/{penawaran}/tagihan', [PenawaranController::class, 'terbitkanInvoice'])
+        ->middleware('can:penyewaan.ubah')->name('penawaran.terbitkan-tagihan');
 
     // --- Persetujuan --------------------------------------------------------
     // Izin diperiksa di dalam controller karena bergantung pada jenis antrean

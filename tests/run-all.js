@@ -16,7 +16,8 @@ const SUITES = [
   ['masuk',    'Gerbang masuk, mode data contoh, penghubung API'],
   ['ruangan',  'Ruangan & Laboratorium tersambung: baca, simpan, tapis, bertahan'],
   ['dashboard', 'Dashboard & Balanced Scorecard tersambung: widget sungguhan, bobot ditegakkan server'],
-  ['pemeliharaan', 'Pemeliharaan & Kalibrasi tersambung: satu tabel dua layar, kalibrasi hanya untuk alat']
+  ['pemeliharaan', 'Pemeliharaan & Kalibrasi tersambung: satu tabel dua layar, kalibrasi hanya untuk alat'],
+  ['penyewaan', 'Penyewaan & Tagihan tersambung: tarif, penawaran, invoice, verifikasi pembayaran']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

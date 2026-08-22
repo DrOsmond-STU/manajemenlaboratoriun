@@ -28,7 +28,7 @@ class Invoice extends Model
     ];
 
     protected $fillable = [
-        'rental_id', 'nomor', 'tanggal', 'jatuh_tempo',
+        'rental_id', 'quotation_id', 'nomor', 'tanggal', 'jatuh_tempo',
         'ppn_persen', 'status', 'catatan', 'dibuat_oleh',
     ];
 
@@ -44,6 +44,11 @@ class Invoice extends Model
     public function rental(): BelongsTo
     {
         return $this->belongsTo(Rental::class);
+    }
+
+    public function quotation(): BelongsTo
+    {
+        return $this->belongsTo(Quotation::class);
     }
 
     public function lines(): HasMany
@@ -71,9 +76,10 @@ class Invoice extends Model
         return $this->subtotal() + $this->ppn();
     }
 
+    /** Hanya pembayaran TERVERIFIKASI yang dihitung — lihat Payment::STATUS. */
     public function terbayar(): int
     {
-        return (int) $this->payments()->sum('jumlah');
+        return (int) $this->payments()->terverifikasi()->sum('jumlah');
     }
 
     public function sisa(): int

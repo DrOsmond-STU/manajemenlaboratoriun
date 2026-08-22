@@ -19,14 +19,24 @@ class Tariff extends Model
 
     public const SEGMEN = ['internal' => 'Internal', 'umum' => 'Umum', 'pemerintah' => 'Pemerintah'];
 
+    /**
+     * `tarif` — melekat pada satu fasilitas (ruangan/lab/aset), dipakai
+     * otomatis saat penyewaan ditagihkan.
+     * `addon` — layanan tambahan lepas dari fasilitas tertentu (operator,
+     * keamanan, sound system).
+     * `paket` — gabungan bertarif tunggal, dengan deskripsi apa yang
+     * termasuk dan kapasitas pesertanya.
+     */
+    public const JENIS = ['tarif' => 'Tarif fasilitas', 'addon' => 'Add-on', 'paket' => 'Paket layanan'];
+
     protected $fillable = [
-        'nama', 'room_id', 'laboratory_id', 'asset_id',
-        'satuan_waktu', 'harga', 'segmen', 'aktif',
+        'nama', 'jenis', 'room_id', 'laboratory_id', 'asset_id',
+        'satuan_waktu', 'harga', 'segmen', 'deskripsi', 'kapasitas', 'aktif',
     ];
 
     protected function casts(): array
     {
-        return ['harga' => 'integer', 'aktif' => 'boolean'];
+        return ['harga' => 'integer', 'aktif' => 'boolean', 'kapasitas' => 'integer'];
     }
 
     public function room(): BelongsTo
@@ -42,5 +52,20 @@ class Tariff extends Model
     public function scopeAktif(Builder $query): Builder
     {
         return $query->where('aktif', true);
+    }
+
+    public function scopeJenis(Builder $query, string $jenis): Builder
+    {
+        return $query->where('jenis', $jenis);
+    }
+
+    /** Fasilitas yang dilekati — kosong untuk add-on dan paket. */
+    public function sumberDayaRingkas(): ?array
+    {
+        return match (true) {
+            $this->room_id !== null => ['jenis' => 'ruangan', 'id' => $this->room_id, 'nama' => $this->room?->nama ?? '—'],
+            $this->laboratory_id !== null => ['jenis' => 'laboratorium', 'id' => $this->laboratory_id, 'nama' => $this->laboratory?->nama ?? '—'],
+            default => null,
+        };
     }
 }

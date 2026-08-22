@@ -48,6 +48,11 @@ class Rental extends Model
         return $this->hasMany(Invoice::class);
     }
 
+    public function quotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class);
+    }
+
     /** Lama sewa dalam jam, dibulatkan ke atas. */
     public function durasiJam(): int
     {

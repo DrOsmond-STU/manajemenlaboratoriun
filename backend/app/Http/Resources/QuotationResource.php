@@ -2,13 +2,12 @@
 
 namespace App\Http\Resources;
 
-use App\Models\Invoice;
-use App\Models\Payment;
+use App\Models\Quotation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin Invoice */
-class InvoiceResource extends JsonResource
+/** @mixin Quotation */
+class QuotationResource extends JsonResource
 {
     /**
      * @return array<string, mixed>
@@ -19,17 +18,17 @@ class InvoiceResource extends JsonResource
             'id' => $this->id,
             'nomor' => $this->nomor,
             'tanggal' => $this->tanggal?->toDateString(),
-            'jatuh_tempo' => $this->jatuh_tempo?->toDateString(),
-            'terlewat_jatuh_tempo' => $this->jatuhTempoTerlewat(),
-            'status' => ['kode' => $this->status, 'nama' => Invoice::STATUS[$this->status] ?? $this->status],
+            'berlaku_sampai' => $this->berlaku_sampai?->toDateString(),
+            'kedaluwarsa' => $this->kedaluwarsa(),
+            'status' => ['kode' => $this->status, 'nama' => Quotation::STATUS[$this->status] ?? $this->status],
             'nilai' => [
                 'subtotal' => $this->subtotal(),
                 'ppn_persen' => $this->ppn_persen,
                 'ppn' => $this->ppn(),
                 'total' => $this->total(),
-                'terbayar' => $this->terbayar(),
-                'sisa' => $this->sisa(),
             ],
+            'dapat_diterbitkan_invoice' => $this->dapatDiterbitkanInvoice(),
+            'invoice_nomor' => $this->whenLoaded('invoice', fn () => $this->invoice?->nomor),
             'baris' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($l) => [
                 'deskripsi' => $l->deskripsi,
                 'kuantitas' => $l->kuantitas,
@@ -37,20 +36,11 @@ class InvoiceResource extends JsonResource
                 'harga_satuan' => $l->harga_satuan,
                 'subtotal' => $l->subtotal,
             ])),
-            'pembayaran' => $this->whenLoaded('payments', fn () => $this->payments->map(fn ($p) => [
-                'id' => $p->id,
-                'tanggal' => $p->tanggal?->toDateString(),
-                'jumlah' => $p->jumlah,
-                'metode' => $p->metode,
-                'status' => ['kode' => $p->status, 'nama' => Payment::STATUS[$p->status] ?? $p->status],
-                'referensi' => $p->referensi,
-            ])),
             'penyewaan' => $this->whenLoaded('rental', fn () => [
                 'id' => $this->rental->id,
                 'penyewa' => $this->rental->penyewa,
                 'instansi' => $this->rental->instansi,
             ]),
-            'quotation_nomor' => $this->whenLoaded('quotation', fn () => $this->quotation?->nomor),
             'catatan' => $this->catatan,
         ];
     }

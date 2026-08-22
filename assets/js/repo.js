@@ -1012,6 +1012,225 @@
     }
   };
 
+  /* ------------------------------------------------------- penyewaan & tagihan */
+  /*
+     Enam layar purwarupa (Permohonan Sewa, Daftar Tarif, Paket Layanan,
+     Quotation, Invoice, Pembayaran) dipetakan ke lima sumber server: tarif
+     (satu tabel untuk tarif/add-on/paket — lihat migrasi 2026_08_22_100000),
+     penyewaan, penawaran (quotation), tagihan (invoice), dan pembayaran.
+
+     PENYEDERHANAAN YANG DISENGAJA: purwarupa memberi tiap fasilitas EMPAT
+     angka harga sekaligus (internal, eksternal, setengah-hari, lembur) dalam
+     satu baris. Server menyimpan tarif sebagai baris terpisah per kombinasi
+     (fasilitas, segmen, satuan waktu) — lebih fleksibel untuk segmen apa pun,
+     tetapi tidak punya satuan "setengah-hari"/"lembur" tersendiri. Halaman
+     tersambung karenanya menampilkan tarif apa adanya dari server (nama,
+     jenis, fasilitas, satuan, segmen, harga), bukan mereka-reka ulang empat
+     kolom purwarupa yang tidak berpadanan.
+  */
+
+  const JENIS_TARIF_NAMA = { tarif: "Tarif fasilitas", addon: "Add-on", paket: "Paket layanan" };
+  const STATUS_PENAWARAN_DARI_PURWARUPA = {
+    Terkirim: "terkirim", Negosiasi: "negosiasi", Disetujui: "disetujui", Kadaluarsa: "terkirim", Ditolak: "ditolak"
+  };
+  const NAMA_STATUS_PENAWARAN = { terkirim: "Terkirim", negosiasi: "Negosiasi", disetujui: "Disetujui", ditolak: "Ditolak" };
+  const STATUS_RENTAL_NAMA = {
+    draf: "Draf", dikonfirmasi: "Dikonfirmasi", berjalan: "Berjalan", selesai: "Selesai", dibatalkan: "Dibatalkan"
+  };
+  const STATUS_INVOICE_DARI_PURWARUPA = {
+    "Waiting Payment": "terbit", Paid: "lunas", Overdue: "terbit", Draft: "terbit"
+  };
+  const NAMA_STATUS_INVOICE = { terbit: "Terbit", sebagian: "Dibayar sebagian", lunas: "Lunas", dibatalkan: "Dibatalkan" };
+  const STATUS_PEMBAYARAN_DARI_PURWARUPA = { Terverifikasi: "terverifikasi", "Menunggu Verifikasi": "menunggu_verifikasi" };
+  const NAMA_STATUS_PEMBAYARAN = { terverifikasi: "Terverifikasi", menunggu_verifikasi: "Menunggu verifikasi" };
+
+  function tarifDariPurwarupa(p, jenis) {
+    if (jenis === "paket") {
+      return {
+        id: p.id, nama: p.name, jenis: { kode: "paket", nama: JENIS_TARIF_NAMA.paket },
+        sumber_daya: null, satuan_waktu: { kode: "paket", nama: "Per paket" },
+        harga: p.price, segmen: { kode: "umum", nama: "Umum" },
+        deskripsi: p.incl, kapasitas: p.cap || null, aktif: p.active
+      };
+    }
+    if (jenis === "addon") {
+      return {
+        id: p.id, nama: p.name, jenis: { kode: "addon", nama: JENIS_TARIF_NAMA.addon },
+        sumber_daya: null, satuan_waktu: { kode: "paket", nama: p.unit },
+        harga: p.price, segmen: { kode: "umum", nama: "Umum" },
+        deskripsi: null, kapasitas: null, aktif: true
+      };
+    }
+    return {
+      id: p.id, nama: p.resName, jenis: { kode: "tarif", nama: JENIS_TARIF_NAMA.tarif },
+      sumber_daya: { jenis: /^RM|^LAB/.test(p.res) ? (/^LAB/.test(p.res) ? "laboratorium" : "ruangan") : "ruangan", id: p.res, nama: p.resName },
+      satuan_waktu: { kode: /jam/i.test(p.unitType) ? "jam" : "hari", nama: p.unitType },
+      harga: p.external, segmen: { kode: "umum", nama: "Umum" },
+      deskripsi: null, kapasitas: null, aktif: p.active
+    };
+  }
+
+  function penawaranDariPurwarupa(q) {
+    const status = STATUS_PENAWARAN_DARI_PURWARUPA[q.status] || "terkirim";
+    const hariIni = window.DB ? DB.shift(0) : q.valid;
+    return {
+      id: q.id, nomor: q.id,
+      tanggal: q.date, berlaku_sampai: q.valid,
+      kedaluwarsa: (status === "terkirim" || status === "negosiasi") && q.valid < hariIni,
+      status: { kode: status, nama: NAMA_STATUS_PENAWARAN[status] },
+      nilai: { subtotal: q.amount, ppn_persen: 0, ppn: 0, total: q.amount },
+      dapat_diterbitkan_invoice: status === "disetujui",
+      invoice_nomor: null,
+      baris: [{ deskripsi: "Sewa fasilitas", kuantitas: 1, satuan: "paket", harga_satuan: q.amount, subtotal: q.amount }],
+      penyewaan: { id: q.ref, penyewa: q.client, instansi: q.client },
+      catatan: null
+    };
+  }
+
+  function invoiceDariPurwarupa(i) {
+    const status = STATUS_INVOICE_DARI_PURWARUPA[i.status] || "terbit";
+    return {
+      id: i.id, nomor: i.id,
+      tanggal: i.date, jatuh_tempo: i.due,
+      terlewat_jatuh_tempo: i.status === "Overdue",
+      status: { kode: status, nama: NAMA_STATUS_INVOICE[status] },
+      nilai: { subtotal: i.sub, ppn_persen: 11, ppn: i.tax, total: i.total, terbayar: i.paid, sisa: i.total - i.paid },
+      baris: [{ deskripsi: "Sewa fasilitas", kuantitas: 1, satuan: "paket", harga_satuan: i.sub, subtotal: i.sub }],
+      pembayaran: [],
+      penyewaan: { id: i.ref, penyewa: i.client, instansi: i.client },
+      quotation_nomor: null,
+      catatan: null
+    };
+  }
+
+  function pembayaranDariPurwarupa(p) {
+    const status = STATUS_PEMBAYARAN_DARI_PURWARUPA[p.status] || "terverifikasi";
+    return {
+      id: p.id, tanggal: p.date, jumlah: p.amount,
+      metode: /transfer/i.test(p.method) ? "transfer" : /virtual/i.test(p.method) ? "transfer" : "tunai",
+      status: { kode: status, nama: NAMA_STATUS_PEMBAYARAN[status] },
+      referensi: p.method, catatan: null,
+      invoice: { id: p.inv, nomor: p.inv, penyewa: p.client }
+    };
+  }
+
+  const tarif = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        const jenis = (tapis && tapis.jenis) || "tarif";
+        const sumber = jenis === "paket" ? (window.DB ? DB.packages : [])
+          : jenis === "addon" ? (window.DB ? DB.addons : [])
+          : (window.DB ? DB.priceList : []);
+        return { data: sumber.map((p) => tarifDariPurwarupa(p, jenis)) };
+      }
+      return API.get("/api/tarif" + qs(tapis));
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh(id ? "Mengubah tarif" : "Menambah tarif");
+      return id
+        ? API.put("/api/tarif/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/tarif", isi).then((j) => j.data);
+    }
+  };
+
+  const penyewaan = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.bookings : []).filter((b) => b.billing === "PAID").map((b) => ({
+          id: b.id, penyewa: b.agenda, instansi: b.unit,
+          mulai: b.date + "T" + b.start + ":00", selesai: b.date + "T" + b.end + ":00",
+          status: { kode: "dikonfirmasi", nama: STATUS_RENTAL_NAMA.dikonfirmasi },
+          ruangan: { id: b.res, nama: b.resName }, laboratorium: null
+        }));
+        return { data: { data: baris } };
+      }
+      return API.get("/api/penyewaan" + qs(tapis));
+    },
+
+    buat(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengajukan permohonan sewa");
+      return API.post("/api/penyewaan", isi).then((j) => j.data);
+    },
+
+    terbitkanTagihan(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menerbitkan tagihan");
+      return API.post("/api/penyewaan/" + encodeURIComponent(id) + "/tagihan", isi || {}).then((j) => j.data);
+    }
+  };
+
+  const penawaran = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.quotations : []).map(penawaranDariPurwarupa);
+        if (tapis && tapis.status) baris = baris.filter((q) => q.status.kode === tapis.status);
+        return { data: baris };
+      }
+      return API.get("/api/penawaran" + qs(tapis));
+    },
+
+    async lihat(id) {
+      if (!langsungKeApi()) {
+        return (window.DB ? DB.quotations : []).map(penawaranDariPurwarupa).find((q) => String(q.id) === String(id)) || null;
+      }
+      return API.get("/api/penawaran/" + encodeURIComponent(id)).then((j) => j.data);
+    },
+
+    buat(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Membuat penawaran");
+      return API.post("/api/penawaran", isi).then((j) => j.data);
+    },
+
+    putuskan(id, keputusan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memutuskan penawaran");
+      return API.post("/api/penawaran/" + encodeURIComponent(id) + "/putuskan", { keputusan: keputusan }).then((j) => j.data);
+    },
+
+    terbitkanInvoice(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menerbitkan invoice");
+      return API.post("/api/penawaran/" + encodeURIComponent(id) + "/tagihan").then((j) => j.data);
+    }
+  };
+
+  const tagihan = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.invoices : []).map(invoiceDariPurwarupa);
+        if (tapis && tapis.status) baris = baris.filter((i) => i.status.kode === tapis.status);
+        return { data: baris };
+      }
+      return API.get("/api/tagihan" + qs(tapis));
+    },
+
+    async lihat(id) {
+      if (!langsungKeApi()) {
+        return (window.DB ? DB.invoices : []).map(invoiceDariPurwarupa).find((i) => String(i.id) === String(id)) || null;
+      }
+      return API.get("/api/tagihan/" + encodeURIComponent(id)).then((j) => j.data);
+    },
+
+    catatPembayaran(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mencatat pembayaran");
+      return API.post("/api/tagihan/" + encodeURIComponent(id) + "/pembayaran", isi).then((j) => j.data);
+    }
+  };
+
+  const pembayaran = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.payments : []).map(pembayaranDariPurwarupa);
+        if (tapis && tapis.status) baris = baris.filter((p) => p.status.kode === tapis.status);
+        return { data: baris };
+      }
+      return API.get("/api/pembayaran" + qs(tapis));
+    },
+
+    verifikasi(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memverifikasi pembayaran");
+      return API.post("/api/pembayaran/" + encodeURIComponent(id) + "/verifikasi").then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     checklist: checklist,
@@ -1024,6 +1243,11 @@
     aset: aset,
     laboratorium: laboratorium,
     pengguna: pengguna,
+    tarif: tarif,
+    penyewaan: penyewaan,
+    penawaran: penawaran,
+    tagihan: tagihan,
+    pembayaran: pembayaran,
     NAMA_SKEMA: NAMA_SKEMA,
 
     /** Apakah tindakan tulis tersedia saat ini. */

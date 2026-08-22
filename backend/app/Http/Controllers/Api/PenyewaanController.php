@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
+use App\Http\Resources\PaymentResource;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Rental;
 use App\Services\PenagihanService;
 use Illuminate\Http\JsonResponse;
@@ -102,7 +104,7 @@ class PenyewaanController extends Controller
 
     public function lihatTagihan(Invoice $tagihan): InvoiceResource
     {
-        return InvoiceResource::make($tagihan->load(['lines', 'payments', 'rental']));
+        return InvoiceResource::make($tagihan->load(['lines', 'payments', 'rental', 'quotation']));
     }
 
     public function catatPembayaran(Request $request, Invoice $tagihan): InvoiceResource
@@ -111,6 +113,7 @@ class PenyewaanController extends Controller
             'tanggal' => ['required', 'date', 'before_or_equal:today'],
             'jumlah' => ['required', 'integer', 'min:1'],
             'metode' => ['nullable', Rule::in(['transfer', 'tunai', 'kartu', 'lainnya'])],
+            'status' => ['nullable', Rule::in(['menunggu_verifikasi', 'terverifikasi'])],
             'referensi' => ['nullable', 'string', 'max:100'],
             'catatan' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -120,5 +123,33 @@ class PenyewaanController extends Controller
         return InvoiceResource::make(
             $this->penagihan->segarkanStatus($tagihan)->load(['lines', 'payments', 'rental'])
         );
+    }
+
+    /**
+     * Pastikan pembayaran yang tercatat memang masuk — baru setelah ini
+     * jumlahnya ikut dihitung `Invoice::terbayar()`.
+     */
+    public function verifikasiPembayaran(Payment $pembayaran): InvoiceResource
+    {
+        $pembayaran->update(['status' => 'terverifikasi']);
+
+        $tagihan = $this->penagihan->segarkanStatus($pembayaran->invoice);
+
+        return InvoiceResource::make($tagihan->load(['lines', 'payments', 'rental', 'quotation']));
+    }
+
+    /**
+     * Riwayat pembayaran lintas tagihan — layar "Pembayaran" butuh daftar
+     * global ini, bukan pembayaran per tagihan satu-satu.
+     */
+    public function daftarPembayaran(Request $request): AnonymousResourceCollection
+    {
+        $query = Payment::query()->with(['invoice:id,nomor,rental_id', 'invoice.rental:id,penyewa'])->latest('tanggal');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status')->toString());
+        }
+
+        return PaymentResource::collection($query->paginate(25));
     }
 }

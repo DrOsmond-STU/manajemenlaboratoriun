@@ -607,6 +607,16 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   seolah sandinya salah**. Asalnya disebut satu per satu, bukan `*`:
   spesifikasi CORS melarang `*` bersama kredensial, dan gejalanya justru
   membingungkan karena permintaan tanpa kredensial tetap berhasil.
+- **Perubahan RUTE juga memicu pembangunan ulang cache.** Penerapan yang
+  hanya menambah endpoint — tanpa migrasi dan tanpa menyentuh `.env` —
+  meninggalkan `route:cache` lama, dan rute barunya menjawab **404 di
+  produksi meski kodenya sudah ada di server**. Ketahuan saat menambah
+  endpoint ketersediaan ruangan. Sidik jarinya kini mencakup `routes/`,
+  `config/`, `bootstrap/`, dan `.env` sekaligus — dan memakai **isi berkas,
+  bukan mtime**, karena `git reset --hard` menyentuh mtime seluruh berkas pada
+  setiap penerapan sehingga skripnya tidak akan pernah bisa beristirahat.
+  Probe pasca-penerapan kini juga membedakan 401 dari 404: 404 berarti
+  rutenya sendiri tidak ada, 401 berarti rutenya ada dan penjagaannya bekerja.
 - **Perubahan `.env` ikut memicu pembangunan ulang cache.** Skrip pasca-deploy
   semula hanya membangun ulang cache ketika ada migrasi tertunda, sehingga
   menyunting `.env` tanpa menambah migrasi tidak berpengaruh apa pun — dan itu

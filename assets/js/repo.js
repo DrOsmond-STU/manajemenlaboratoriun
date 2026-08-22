@@ -620,8 +620,188 @@
     }
   };
 
+
+  /* ------------------------------------------------------------ checklist */
+
+
+  /* ------------------------------------------------------------ checklist */
+
+  const JENIS_CK_PURWARUPA = {
+    verifikasi: ["pengecekan", "Pengecekan & Verifikasi"],
+    perawatan: ["perawatan", "Perawatan"],
+    sewa: ["penyewaan", "Persiapan Penyewaan"],
+    kebersihan: ["kebersihan", "Kebersihan"],
+    kerapian: ["kerapian", "Kerapian"],
+    kelayakan: ["kelayakan", "Kelayakan"]
+  };
+
+  const TIPE_BUTIR_PURWARUPA = {
+    ok: ["ya_tidak", "Ya / Tidak"],
+    rating: ["pilihan", "Pilihan"],
+    angka: ["angka", "Angka"],
+    teks: ["teks", "Teks bebas"],
+    // Foto dan tanda tangan tidak punya padanan di server — dipetakan ke
+    // teks bebas supaya template purwarupa tetap tampil, bukan hilang.
+    foto: ["teks", "Teks bebas"],
+    ttd: ["teks", "Teks bebas"]
+  };
+
+  function templatCkDariPurwarupa(t) {
+    const jenis = JENIS_CK_PURWARUPA[t.type] || ["pengecekan", t.type];
+
+    return {
+      id: t.id,
+      nama: t.name,
+      jenis: { kode: jenis[0], nama: jenis[1] },
+      deskripsi: null,
+      aktif: !!t.active,
+      jumlah_butir: t.items.length,
+      jumlah_penugasan: t.assignees.length,
+      butir: t.items.map((it, i) => {
+        const tp = TIPE_BUTIR_PURWARUPA[it.kind] || ["teks", "Teks bebas"];
+        return {
+          id: t.id + "-" + i, urutan: i + 1, teks: it.t,
+          tipe: { kode: tp[0], nama: tp[1] },
+          wajib: !!it.req,
+          pilihan: it.kind === "rating" ? ["1", "2", "3", "4", "5"] : null,
+          satuan: null, petunjuk: it.hint || null
+        };
+      }),
+      dibuat_oleh: t.owner
+        ? { id: t.owner, nama: window.DB ? DB.personName(t.owner) : t.owner } : null
+    };
+  }
+
+  /** Menebak jenis dan nama sebuah sumber daya purwarupa dari id-nya. */
+  function sumberDayaDariIdPurwarupa(resId) {
+    if (!window.DB) return null;
+    const lab = DB.byId(DB.labs, resId);
+    if (lab) return { jenis: "laboratorium", id: lab.id, nama: lab.name };
+    const ruang = DB.byId(DB.rooms, resId);
+    if (ruang) return { jenis: "ruangan", id: ruang.id, nama: ruang.name };
+    const eq = DB.byId(DB.equipment, resId) || DB.byId(DB.assets, resId);
+    if (eq) return { jenis: "aset", id: eq.id, nama: eq.name };
+    return null;
+  }
+
+  /** Pengguna yang sedang "masuk" pada mode data contoh, dari localStorage. */
+  function penggunaContohSaatIni() {
+    if (!window.DB) return null;
+    const nm = localStorage.getItem("flms.user") || "Rahmat Hidayat";
+    return DB.people.find((p) => p.name === nm) || DB.people[2] || null;
+  }
+
+  const checklist = {
+    async templat(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.checklistTemplates : []).map(templatCkDariPurwarupa);
+        if (tapis && tapis.jenis) baris = baris.filter((t) => t.jenis.kode === tapis.jenis);
+        if (tapis && tapis.hanya_aktif) baris = baris.filter((t) => t.aktif);
+        return { data: baris, total: baris.length, purwarupa: true };
+      }
+      const j = await API.get("/api/checklist/templat" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    async lihatTemplat(id) {
+      if (!langsungKeApi()) {
+        const t = (window.DB ? DB.checklistTemplates : []).find((x) => String(x.id) === String(id));
+        return t ? templatCkDariPurwarupa(t) : null;
+      }
+      return (await API.get("/api/checklist/templat/" + encodeURIComponent(id))).data;
+    },
+
+    buatTemplat(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Membuat templat checklist");
+      return API.post("/api/checklist/templat", isi).then((j) => j.data);
+    },
+
+    tugaskan(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menugaskan checklist");
+      return API.post("/api/checklist/penugasan", isi).then((j) => j.data);
+    },
+
+    async tugasSaya(tapis) {
+      if (!langsungKeApi()) {
+        const saya = penggunaContohSaatIni();
+        const baris = (window.DB && saya ? DB.checklistTasks : [])
+          .filter((t) => t.assignee === (saya ? saya.id : null))
+          .map((t) => {
+            const tpl = window.DB ? DB.checklistTemplates.find((x) => x.id === t.tpl) : null;
+            return {
+              id: t.id,
+              periode: { kode: "bulanan", nama: "Bulanan" },
+              aktif: true,
+              templat: tpl ? { id: tpl.id, nama: tpl.name, jenis: (JENIS_CK_PURWARUPA[tpl.type] || [, tpl.type])[1] } : null,
+              sumber_daya: sumberDayaDariIdPurwarupa(t.res),
+              penanggung_jawab: saya ? { id: saya.id, nama: saya.name } : null
+            };
+          });
+        return { data: baris, total: baris.length, purwarupa: true };
+      }
+      const j = await API.get("/api/checklist/tugas-saya" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    async pelaksanaan(tapis) {
+      if (!langsungKeApi()) {
+        const saya = penggunaContohSaatIni();
+        let baris = (window.DB ? DB.checklistRecords : []).map((r) => {
+          const tpl = window.DB ? DB.checklistTemplates.find((x) => x.id === r.tpl) : null;
+          const pelaksana = window.DB ? DB.people.find((p) => p.id === r.by) : null;
+          const waktu = r.date + "T" + (r.time || "00:00") + ":00";
+          return {
+            id: r.id,
+            status: { kode: "selesai", nama: "Selesai" },
+            dimulai_pada: waktu, selesai_pada: waktu,
+            hasil: { butir_total: (r.ok || 0) + (r.fail || 0), butir_lulus: r.ok || 0, skor: r.score },
+            templat: tpl ? { id: tpl.id, nama: tpl.name, jenis: (JENIS_CK_PURWARUPA[tpl.type] || [, tpl.type])[1], butir: [] } : null,
+            sumber_daya: sumberDayaDariIdPurwarupa(r.res),
+            pelaksana: pelaksana ? { id: pelaksana.id, nama: pelaksana.name } : null,
+            jawaban: [], catatan: r.note || null
+          };
+        });
+        if (tapis && tapis.milik_saya && saya) baris = baris.filter((r) => r.pelaksana && r.pelaksana.id === saya.id);
+        if (tapis && tapis.jenis_sumber_daya && tapis.sumber_daya_id) {
+          baris = baris.filter((r) => r.sumber_daya
+            && r.sumber_daya.jenis === tapis.jenis_sumber_daya
+            && String(r.sumber_daya.id) === String(tapis.sumber_daya_id));
+        }
+        return { data: baris, total: baris.length, purwarupa: true };
+      }
+      const j = await API.get("/api/checklist/pelaksanaan" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    async lihatPelaksanaan(id) {
+      if (!langsungKeApi()) {
+        return (await checklist.pelaksanaan()).data.find((r) => String(r.id) === String(id)) || null;
+      }
+      return (await API.get("/api/checklist/pelaksanaan/" + encodeURIComponent(id))).data;
+    },
+
+    mulai(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memulai checklist");
+      return API.post("/api/checklist/pelaksanaan", isi).then((j) => j.data);
+    },
+
+    jawab(runId, itemId, nilai, catatan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menjawab checklist");
+      return API.post("/api/checklist/pelaksanaan/" + encodeURIComponent(runId) + "/jawab", {
+        checklist_item_id: itemId, nilai: nilai, catatan: catatan || null
+      });
+    },
+
+    selesaikan(runId, catatan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyelesaikan checklist");
+      return API.post("/api/checklist/pelaksanaan/" + encodeURIComponent(runId) + "/selesaikan",
+        { catatan: catatan || null }).then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    checklist: checklist,
     peminjaman: peminjaman,
     persetujuan: persetujuan,
     booking: booking,

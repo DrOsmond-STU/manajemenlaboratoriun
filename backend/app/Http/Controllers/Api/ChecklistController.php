@@ -117,7 +117,7 @@ class ChecklistController extends Controller
 
         $run = $this->checklist->mulai($templat, $request->sumberDaya(), $request->user());
 
-        return ChecklistRunResource::make($run->load('template'))
+        return ChecklistRunResource::make($run->load('template.items'))
             ->response()->setStatusCode(201);
     }
 

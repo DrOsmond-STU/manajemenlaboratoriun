@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-430 uji lulus, 1.286 asersi, 0 gagal — dijalankan di PostgreSQL 16
+431 uji lulus, 1.289 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -421,6 +421,7 @@ Checklist:
 |---|---|
 | Enam jenis tersedia | pengecekan, perawatan, penyewaan, kebersihan, kerapian, kelayakan |
 | Templat dibuat pengguna, bukan tertanam kode | butir disertakan sekaligus agar tak ada templat setengah jadi |
+| **Butir templat ikut terkirim saat pelaksanaan dimulai** | tanpanya antarmuka harus menebak isi formulir lewat panggilan kedua ke templatnya sendiri — mudah terlupakan, membuat "mulai" terasa tidak lengkap |
 | Melekat pada ruangan, laboratorium, ATAU aset | tiga kunci asing + `num_nonnulls(...) = 1` |
 | **Batasan tepat satu dijaga basis data** | berlaku walau lapisan aplikasi ditembus |
 | Melekat pada user — "tugas saya" | daftar yang menjawab "apa yang harus saya kerjakan" |
@@ -728,6 +729,35 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   `permission.events_enabled` dinyalakan dan `CatatPerubahanHakAkses`
   mendengarkannya, sehingga jalur apa pun tercakup, termasuk perintah artisan
   dan seeder.
+
+- **Checklist: penugasan dan pelaksanaan sengaja dua jalur terpisah, bukan
+  satu mensyaratkan yang lain.** Penugasan menjawab "siapa yang seharusnya
+  mengerjakan"; pelaksanaan mencatat "apa yang benar-benar terjadi". Tombol
+  "Jalankan Checklist" pada detail ruangan/laboratorium/aset karenanya tidak
+  menuntut penugasan formal lebih dulu — mensyaratkannya akan membuat
+  pemeriksaan mendadak (audit dadakan, insiden) mustahil dicatat lewat jalur
+  yang benar.
+- **Jawaban checklist dikirim segera saat butirnya diisi**, bukan ditahan
+  sampai "Selesaikan" ditekan. Menahannya berarti pengisian satu jam kerja
+  lapangan hilang total bila peramban tertutup sebelum sempat menekan tombol
+  terakhir. Kolom angka/teks baru mengirim saat kehilangan fokus — mengetik
+  "12" tidak boleh jadi tiga permintaan berbeda untuk "1", "1", "12".
+- **Bug tertangkap saat pengkabelan, bukan lolos ke produksi: mengubah tipe
+  butir pada pembuat templat tidak menyingkap kolom satuan/pilihan.**
+  `ckSetButir()` mengubah keadaan tapi tidak pernah menggambar ulang
+  daftarnya — memilih "Angka" untuk sebuah butir tidak pernah membuka kolom
+  satuannya. Diperbaiki dengan menggambar ulang khusus saat tipenya berubah
+  (bukan pada tiap ketukan lain, atau fokus mengetik akan hilang), dan
+  dikunci uji peramban yang sengaja mengubah tipe lalu memeriksa kolom
+  satuannya benar-benar dapat diisi.
+- **Bug kedua: halaman "Checklist Saya" tidak menyegarkan diri setelah
+  pelaksanaan selesai bila hash-nya tidak berubah.** Router hanya menggambar
+  ulang saat peristiwa `hashchange` menyala; menekan "Kembali ke Tugas Saya"
+  dari layar yang memang sudah `#/mychecklist` tidak memicu apa pun, jadi
+  riwayat yang baru selesai tidak tampak sampai pengguna pindah halaman lalu
+  kembali. Diperbaiki dengan menyegarkan data itu langsung dari
+  `ckSelesaikanRun()`, bukan digantungkan ke navigasi yang belum tentu
+  terjadi.
 
 ---
 

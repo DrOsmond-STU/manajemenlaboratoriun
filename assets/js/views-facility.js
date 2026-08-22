@@ -381,7 +381,7 @@
           <div class="row wrap gap-6 mb-16">
             ${l.fasilitas.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>` : ""}
         <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
-          ${ckForResource(l.id)}</div>
+          ${ckForResource('laboratorium', l.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(l.kode)}<div class="small muted">QR di pintu laboratorium menampilkan
             penanggung jawab, jam layanan, status akreditasi, dan daftar alat.</div></div>`,
@@ -546,7 +546,7 @@
             : U.emptyState("Belum ada riwayat", ""), { bodyCls: "flush" })}
         </div>
 
-        <div class="mb-16">${ckForResource(e.id)}</div>
+        <div class="mb-16">${ckForResource(null, e.id)}</div>
 
         ${U.card("Riwayat Penggunaan", use.length ? U.table(
           [{ t: "ID", render: (b) => `<span class="mono small">${b.id}</span>` },
@@ -1052,7 +1052,7 @@
           <div class="row wrap gap-6 mb-16">
             ${r.fasilitas.map((f) => `<span class="fac">${U.esc(f)}</span>`).join("")}</div>` : ""}
         <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
-          ${ckForResource(r.id)}</div>
+          ${ckForResource('ruangan', r.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(r.kode)}<div class="small muted">QR di pintu ruangan menampilkan jadwal hari ini,
             penanggung jawab, status, dan tombol check-in cepat.</div></div>`,
@@ -1233,7 +1233,7 @@
           { t: "Agenda", render: (b) => U.esc(b.agenda) },
           { t: "Tanggal", render: (b) => U.fdate(b.date, "short") },
           { t: "Status", render: (b) => U.badge(b.status) }], bk) : U.emptyState("Belum ada booking", "")}
-        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">${ckForResource(r.id)}</div>
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">${ckForResource(null, r.id)}</div>
         <div class="row gap-16 mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
           ${U.qrBox(r.code)}<div class="small muted">QR di pintu ruangan menampilkan jadwal hari ini, PIC, status, dan tombol check-in cepat.</div></div>`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>

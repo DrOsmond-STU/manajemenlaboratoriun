@@ -178,98 +178,54 @@ const ok = (c, m, x) => { if (!c) fail++; console.log((c ? '✅ ' : '❌ ') + m 
   clean('BSC tanpa error');
 
   /* ============ 4. CHECKLIST ============ */
+  // Modul ini kini tersambung ke API sungguhan (lihat Repo.checklist). Di
+  // mode data contoh (purwarupa), setiap aksi tulis — buat template,
+  // tugaskan, mulai/isi/selesaikan pelaksanaan — ditolak secara sengaja
+  // (bukan disimulasikan), persis seperti modul-modul lain yang sudah
+  // tersambung. Uji ini karenanya memverifikasi: (a) daftar & detail
+  // templat terbaca dari data contoh yang dipetakan ke bentuk API asli,
+  // (b) "Checklist Saya" menampilkan tugas milik pengguna yang masuk, dan
+  // (c) upaya menjalankan checklist di mode contoh ditolak dengan pesan
+  // yang jelas, bukan diam-diam "berhasil". Alur tulis sungguhan (buat
+  // templat → tugaskan → mulai → jawab → selesaikan) diuji end-to-end
+  // lewat server tiruan di tests/ruangan.js.
   console.log('\n--- 4. Checklist ---');
   await page.evaluate(() => { location.hash = '#/checklist'; }); await page.waitForTimeout(500);
   const ck = await page.evaluate(() => ({
     tpl: DB.checklistTemplates.length,
     jenis: DB.checklistTypes.length,
-    rows: document.querySelectorAll('#viewBody table.tbl tbody tr').length
+    kartu: document.querySelectorAll('#ckTplDaftar .card').length,
+    tombolBuat: !!document.querySelector('[onclick^="ckTemplatForm"]')
   }));
   ok(ck.jenis === 6, `Enam jenis checklist: ${await page.evaluate(() => DB.checklistTypes.map(t => t.n).join(', '))}`);
   ok(ck.tpl >= 6, `${ck.tpl} template checklist tersedia`);
+  ok(ck.kartu === ck.tpl, `Seluruh template dirender sebagai kartu: ${ck.kartu}/${ck.tpl}`);
+  ok(!ck.tombolBuat, 'Tombol "Buat Template" tersembunyi di mode data contoh (aksi tulis)');
 
-  // buat template baru lewat builder
-  await page.evaluate(() => ckBuilder(null)); await page.waitForTimeout(400);
-  await page.evaluate(() => { ckSet('name', 'Checklist Uji Otomatis'); }); await page.waitForTimeout(250);
-  await page.evaluate(() => { ckSet('type', 'kelayakan'); }); await page.waitForTimeout(250);
-  await page.evaluate(() => { ckItem(0, 't', 'Butir pertama'); ckAddItem(); }); await page.waitForTimeout(300);
-  await page.evaluate(() => { ckItem(1, 't', 'Butir kedua'); ckItem(1, 'kind', 'rating'); }); await page.waitForTimeout(300);
-  await page.evaluate(() => { ckToggle('scope', 'LAB-001'); ckToggle('assignees', 'EMP-0003'); });
-  await page.waitForTimeout(200);
-  await page.evaluate(() => ckSave('')); await page.waitForTimeout(600);
-  const ckNew = await page.evaluate(() => {
-    const t = DB.checklistTemplates.slice(-1)[0];
-    return { n: t.name, type: t.type, items: t.items.length, scope: t.scope.length, ass: t.assignees.length };
-  });
-  ok(ckNew.n === 'Checklist Uji Otomatis' && ckNew.items === 2,
-    `Template dibuat pengguna: ${ckNew.items} butir, jenis ${ckNew.type}`);
-  ok(ckNew.scope >= 1 && ckNew.ass >= 1, `Melekat pada ${ckNew.scope} resource dan ${ckNew.ass} pengguna`);
+  // buka detail satu template -> harus memuat lewat Repo.checklist.lihatTemplat
+  // (dipetakan dari data contoh) dan menampilkan seluruh butirnya
+  const tplId = await page.evaluate(() => DB.checklistTemplates[0].id);
+  const tplButirAsli = await page.evaluate(() => DB.checklistTemplates[0].items.length);
+  await page.evaluate(id => ckLihatTemplat(id), tplId); await page.waitForTimeout(400);
+  const drawerTpl = await page.$eval('.drawer', e => e.innerText);
+  ok(new RegExp(tplButirAsli + ' butir').test(drawerTpl),
+    `Detail template menampilkan ${tplButirAsli} butir sesuai data`);
+  await page.evaluate(() => UI.closeDrawer());
+  clean('Detail template checklist tanpa error');
 
-  // kerjakan checklist
+  // "Checklist Saya" -> tugas milik pengguna yang sedang masuk
   await page.evaluate(() => { location.hash = '#/mychecklist'; }); await page.waitForTimeout(500);
-  const mineN = await page.$$eval('#viewBody .grid.g3 .card', e => e.length);
+  const mineN = await page.$$eval('#ckmTugas .card', e => e.length);
   ok(mineN >= 1, `Checklist Saya menampilkan ${mineN} tugas milik pengguna yang masuk`);
 
-  const recBefore = await page.evaluate(() => DB.checklistRecords.length);
-  const taskId = await page.evaluate(() => {
-    const uid = (DB.people.find(p => p.name === (localStorage.getItem('flms.user') || '')) || DB.people[2]).id;
-    const t = DB.checklistTasks.find(x => x.assignee === uid);
-    return t ? t.id : null;
-  });
-  ok(taskId !== null, 'Ada tugas yang melekat pada pengguna', taskId);
-  await page.evaluate(id => ckRun(id), taskId); await page.waitForTimeout(500);
-  const items = await page.$$eval('.ck-run-item', e => e.length);
-  ok(items > 0, `Formulir pelaksanaan menampilkan ${items} butir`);
-
-  // coba selesaikan tanpa mengisi -> harus ditolak
-  await page.evaluate(() => ckFinish()); await page.waitForTimeout(350);
-  ok(await page.$('.modal') === null, 'Butir wajib kosong mencegah penyelesaian');
-
-  // isi semua butir
-  await page.evaluate(() => {
-    document.querySelectorAll('.ck-run-item').forEach((el, i) => {
-      const okBtn = el.querySelector('.ck-opt button');
-      const star = el.querySelectorAll('.ck-stars button')[4];
-      const num = el.querySelector('input[type=number]');
-      const ta = el.querySelector('textarea');
-      const sign = el.querySelector('.ck-sign');
-      if (okBtn) okBtn.click();
-      else if (star) star.click();
-      else if (num) { num.value = '22'; num.dispatchEvent(new Event('input')); }
-      else if (ta) { ta.value = 'oke'; ta.dispatchEvent(new Event('input')); }
-      else if (sign) sign.click();
-    });
-  });
-  await page.waitForTimeout(600);
-  // isi ulang butir yang masih kosong setelah render ulang
-  for (let pass = 0; pass < 3; pass++) {
-    const kosong = await page.$$eval('.ck-run-item', els =>
-      els.filter(e => e.innerText.includes('kosong')).length);
-    if (!kosong) break;
-    await page.evaluate(() => {
-      document.querySelectorAll('.ck-run-item').forEach((el) => {
-        if (!el.innerText.includes('kosong')) return;
-        const okBtn = el.querySelector('.ck-opt button');
-        const star = el.querySelectorAll('.ck-stars button')[4];
-        const num = el.querySelector('input[type=number]');
-        const ta = el.querySelector('textarea');
-        const sign = el.querySelector('.ck-sign');
-        if (okBtn) okBtn.click();
-        else if (star) star.click();
-        else if (num) { num.value = '22'; num.dispatchEvent(new Event('input')); }
-        else if (ta) { ta.value = 'oke'; ta.dispatchEvent(new Event('input')); }
-        else if (sign) sign.click();
-      });
-    });
-    await page.waitForTimeout(400);
-  }
-  await page.evaluate(() => ckFinish()); await page.waitForTimeout(600);
-  const recAfter = await page.evaluate(() => DB.checklistRecords.length);
-  const modalTxt = await page.$eval('.modal', e => e.innerText).catch(() => '');
-  ok(recAfter === recBefore + 1, `Pelaksanaan tersimpan sebagai riwayat: ${recBefore} → ${recAfter}`);
-  ok(/%/.test(modalTxt), 'Ringkasan hasil menampilkan skor');
-  await page.evaluate(() => UI.closeModal());
-  clean('Checklist tanpa error');
+  // upaya menjalankan checklist di mode contoh -> ditolak, bukan disimulasikan
+  await page.evaluate(() => document.querySelector('#ckmTugas .card [onclick^="ckMulaiDariPenugasan"]').click());
+  await page.waitForTimeout(400);
+  const tolakTxt = await page.$eval('.toasts', e => e.innerText).catch(() => '');
+  ok(/hanya bisa setelah masuk dengan akun/.test(tolakTxt),
+    'Menjalankan checklist di mode contoh ditolak dengan pesan yang jelas');
+  ok(await page.$('.drawer') === null, 'Tidak ada formulir pelaksanaan yang terbuka setelah ditolak');
+  clean('Checklist Saya tanpa error');
 
   // checklist melekat pada resource muncul di drawer
   await page.evaluate(() => { location.hash = '#/lab'; }); await page.waitForTimeout(400);

@@ -25,6 +25,13 @@ function apiTiruan() {
   let idBooking = 0;
   const pinjaman = [];
   let idPinjam = 0;
+  const ckTemplat = [];
+  let idCkTemplat = 0;
+  let idCkButir = 0;
+  const ckPenugasan = [];
+  let idCkPenugasan = 0;
+  const ckRun = [];
+  let idCkRun = 0;
   const orang = [
     { id: 91, nama: 'Dr. Sri Wahyuni', unit_kerja: 'Litbang' },
     { id: 92, nama: 'Andi Teknisi', unit_kerja: 'Pengujian' },
@@ -444,6 +451,218 @@ function apiTiruan() {
           Object.assign(l, isi);
           return kirim(200, { data: bentukLab(l) });
         });
+      }
+    }
+
+    if (req.url.startsWith('/api/checklist/')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+
+      const JENIS_NAMA = {
+        pengecekan: 'Pengecekan & Verifikasi', perawatan: 'Perawatan',
+        penyewaan: 'Persiapan Penyewaan', kebersihan: 'Kebersihan',
+        kerapian: 'Kerapian', kelayakan: 'Kelayakan'
+      };
+      const TIPE_NAMA = { ya_tidak: 'Ya / Tidak', angka: 'Angka', teks: 'Teks bebas', pilihan: 'Pilihan' };
+      const PERIODE_NAMA = { harian: 'Harian', mingguan: 'Mingguan', bulanan: 'Bulanan',
+        triwulanan: 'Triwulanan', tahunan: 'Tahunan', insidental: 'Insidental' };
+      const STATUS_RUN_NAMA = { berjalan: 'Sedang berjalan', selesai: 'Selesai' };
+
+      const sdRingkas = (o) => {
+        if (o.room_id) { const r = ruangan.find((x) => x.id === o.room_id); return { jenis: 'ruangan', id: o.room_id, nama: r ? r.nama : '—' }; }
+        if (o.laboratory_id) { const l = lab.find((x) => x.id === o.laboratory_id); return { jenis: 'laboratorium', id: o.laboratory_id, nama: l ? l.nama : '—' }; }
+        if (o.asset_id) { const a = aset.find((x) => x.id === o.asset_id); return { jenis: 'aset', id: o.asset_id, nama: a ? a.nama : '—' }; }
+        return null;
+      };
+
+      const bentukButir = (b) => ({
+        id: b.id, urutan: b.urutan, teks: b.teks,
+        tipe: { kode: b.tipe, nama: TIPE_NAMA[b.tipe] },
+        wajib: !!b.wajib, pilihan: b.pilihan || [], satuan: b.satuan || null, petunjuk: b.petunjuk || null
+      });
+
+      const bentukTemplat = (t) => ({
+        id: t.id, nama: t.nama, jenis: { kode: t.jenis, nama: JENIS_NAMA[t.jenis] },
+        deskripsi: t.deskripsi || null, aktif: !!t.aktif,
+        jumlah_butir: t.items.length,
+        jumlah_penugasan: ckPenugasan.filter((p) => p.checklist_template_id === t.id).length,
+        butir: t.items.map(bentukButir),
+        dibuat_oleh: { id: 1, nama: 'Siti Aminah' }
+      });
+
+      const bentukPenugasan = (a) => {
+        const t = ckTemplat.find((x) => x.id === a.checklist_template_id);
+        return {
+          id: a.id,
+          periode: { kode: a.periode, nama: PERIODE_NAMA[a.periode] },
+          aktif: true,
+          templat: t ? { id: t.id, nama: t.nama, jenis: JENIS_NAMA[t.jenis] } : null,
+          sumber_daya: sdRingkas(a),
+          penanggung_jawab: { id: a.user_id, nama: (orang.find((o) => o.id === a.user_id) || {}).nama || '—' }
+        };
+      };
+
+      const bentukRun = (r) => {
+        const t = ckTemplat.find((x) => x.id === r.checklist_template_id);
+        return {
+          id: r.id,
+          status: { kode: r.status, nama: STATUS_RUN_NAMA[r.status] },
+          dimulai_pada: r.dimulai_pada, selesai_pada: r.selesai_pada,
+          hasil: { butir_total: r.butir_total, butir_lulus: r.butir_lulus, skor: r.skor },
+          templat: t ? { id: t.id, nama: t.nama, jenis: JENIS_NAMA[t.jenis], butir: t.items.map(bentukButir) } : null,
+          sumber_daya: sdRingkas(r),
+          pelaksana: { id: r.user_id, nama: 'Siti Aminah' },
+          jawaban: r.jawaban.map((j) => ({ butir_id: j.checklist_item_id, nilai: j.nilai, lulus: j.lulus, catatan: j.catatan })),
+          catatan: r.catatan || null
+        };
+      };
+
+      // /api/checklist/templat  &  /api/checklist/templat/{id}
+      if (req.url.startsWith('/api/checklist/templat')) {
+        const sisa = req.url.slice('/api/checklist/templat'.length).split('?')[0];
+
+        if (!sisa || sisa === '/') {
+          if (req.method === 'GET') {
+            return kirim(200, { data: ckTemplat.map(bentukTemplat), meta: { total: ckTemplat.length } });
+          }
+          if (req.method === 'POST') {
+            let b = ''; req.on('data', (d) => (b += d));
+            return req.on('end', () => {
+              const isi = JSON.parse(b || '{}');
+              const galat = {};
+              if (!isi.nama) galat.nama = ['Nama template wajib diisi.'];
+              if (!JENIS_NAMA[isi.jenis]) galat.jenis = ['Jenis template tidak dikenali.'];
+              if (!Array.isArray(isi.items) || !isi.items.length) galat.items = ['Minimal satu butir wajib diisi.'];
+              if (Object.keys(galat).length) return kirim(422, { message: 'Isian belum benar.', errors: galat });
+
+              const t = {
+                id: ++idCkTemplat, nama: isi.nama, jenis: isi.jenis,
+                deskripsi: isi.deskripsi || null, aktif: isi.aktif !== false,
+                items: isi.items.map((it, i) => ({
+                  id: ++idCkButir, urutan: i + 1, teks: it.teks, tipe: it.tipe, wajib: !!it.wajib,
+                  satuan: it.satuan || null, petunjuk: it.petunjuk || null, pilihan: it.pilihan || []
+                }))
+              };
+              ckTemplat.push(t);
+              return kirim(201, { data: bentukTemplat(t) });
+            });
+          }
+        } else {
+          const id = Number(sisa.replace('/', ''));
+          if (req.method === 'GET') {
+            const t = ckTemplat.find((x) => x.id === id);
+            if (!t) return kirim(404, { message: 'Tidak ditemukan' });
+            return kirim(200, { data: bentukTemplat(t) });
+          }
+        }
+      }
+
+      if (req.url.startsWith('/api/checklist/penugasan') && req.method === 'POST') {
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+          const galat = {};
+          if (!ckTemplat.some((t) => t.id === isi.checklist_template_id)) galat.checklist_template_id = ['Templat tidak ditemukan.'];
+          if (!isi.user_id) galat.user_id = ['Penanggung jawab wajib dipilih.'];
+          if (!isi.room_id && !isi.laboratory_id && !isi.asset_id) galat.room_id = ['Sumber daya wajib dipilih.'];
+          if (Object.keys(galat).length) return kirim(422, { message: 'Isian belum benar.', errors: galat });
+
+          const a = { id: ++idCkPenugasan, checklist_template_id: isi.checklist_template_id,
+            room_id: isi.room_id || null, laboratory_id: isi.laboratory_id || null, asset_id: isi.asset_id || null,
+            user_id: isi.user_id, periode: isi.periode || 'bulanan' };
+          ckPenugasan.push(a);
+          return kirim(201, { data: bentukPenugasan(a) });
+        });
+      }
+
+      if (req.url.startsWith('/api/checklist/tugas-saya') && req.method === 'GET') {
+        // Server tiruan hanya melayani satu sesi, jadi seluruh penugasan
+        // yang dibuat pada uji ini dianggap milik sesi tersebut — server
+        // sungguhan memfilter berdasarkan sesinya sendiri (auth()->id()),
+        // tapi mock ini tidak punya identitas kedua untuk dibandingkan.
+        return kirim(200, { data: ckPenugasan.map(bentukPenugasan) });
+      }
+
+      // /api/checklist/pelaksanaan , /{id} , /{id}/jawab , /{id}/selesaikan
+      if (req.url.startsWith('/api/checklist/pelaksanaan')) {
+        const sisa = req.url.slice('/api/checklist/pelaksanaan'.length).split('?')[0];
+
+        if (!sisa || sisa === '/') {
+          if (req.method === 'GET') {
+            const u = new URL(req.url, 'http://x');
+            let baris = ckRun.slice();
+            const jenisSd = u.searchParams.get('jenis_sumber_daya');
+            const idSd = u.searchParams.get('sumber_daya_id');
+            if (jenisSd && idSd) {
+              const kunci = { ruangan: 'room_id', laboratorium: 'laboratory_id', aset: 'asset_id' }[jenisSd];
+              baris = baris.filter((r) => String(r[kunci]) === String(idSd));
+            }
+            return kirim(200, { data: baris.map(bentukRun), meta: { total: baris.length } });
+          }
+          if (req.method === 'POST') {
+            let b = ''; req.on('data', (d) => (b += d));
+            return req.on('end', () => {
+              const isi = JSON.parse(b || '{}');
+              const t = ckTemplat.find((x) => x.id === isi.checklist_template_id);
+              if (!t) return kirim(422, { message: 'x', errors: { checklist_template_id: ['Templat tidak ditemukan.'] } });
+              if (!t.aktif) return kirim(422, { message: 'x', errors: { checklist_template_id: ['Templat ini tidak aktif.'] } });
+              if (!t.items.length) return kirim(422, { message: 'x', errors: { checklist_template_id: ['Templat ini tidak memiliki butir.'] } });
+
+              const r = { id: ++idCkRun, checklist_template_id: t.id,
+                room_id: isi.room_id || null, laboratory_id: isi.laboratory_id || null, asset_id: isi.asset_id || null,
+                user_id: 1, status: 'berjalan', dimulai_pada: new Date(2026, 0, 1).toISOString(), selesai_pada: null,
+                jawaban: [], butir_total: null, butir_lulus: null, skor: null, catatan: null };
+              ckRun.push(r);
+              return kirim(201, { data: bentukRun(r) });
+            });
+          }
+        } else if (/^\/\d+$/.test(sisa)) {
+          const id = Number(sisa.replace('/', ''));
+          if (req.method === 'GET') {
+            const r = ckRun.find((x) => x.id === id);
+            if (!r) return kirim(404, { message: 'Tidak ditemukan' });
+            return kirim(200, { data: bentukRun(r) });
+          }
+        } else if (/^\/\d+\/jawab$/.test(sisa)) {
+          const id = Number(sisa.split('/')[1]);
+          let b = ''; req.on('data', (d) => (b += d));
+          return req.on('end', () => {
+            const isi = JSON.parse(b || '{}');
+            const r = ckRun.find((x) => x.id === id);
+            if (!r) return kirim(404, { message: 'Tidak ditemukan' });
+            const t = ckTemplat.find((x) => x.id === r.checklist_template_id);
+            const butir = t.items.find((b2) => b2.id === isi.checklist_item_id);
+            if (!butir) return kirim(422, { message: 'x', errors: { checklist_item_id: ['Butir ini bukan bagian dari templat.'] } });
+
+            const lulus = butir.tipe === 'ya_tidak'
+              ? (isi.nilai === 'ya' ? true : isi.nilai === 'tidak' ? false : null) : null;
+            const ada = r.jawaban.find((j) => j.checklist_item_id === isi.checklist_item_id);
+            if (ada) { ada.nilai = isi.nilai; ada.lulus = lulus; ada.catatan = isi.catatan || null; }
+            else r.jawaban.push({ checklist_item_id: isi.checklist_item_id, nilai: isi.nilai, lulus: lulus, catatan: isi.catatan || null });
+
+            return kirim(200, { data: bentukRun(r) });
+          });
+        } else if (/^\/\d+\/selesaikan$/.test(sisa)) {
+          const id = Number(sisa.split('/')[1]);
+          const r = ckRun.find((x) => x.id === id);
+          if (!r) return kirim(404, { message: 'Tidak ditemukan' });
+          const t = ckTemplat.find((x) => x.id === r.checklist_template_id);
+
+          const dijawabId = new Set(r.jawaban.map((j) => j.checklist_item_id));
+          const belum = t.items.filter((b2) => b2.wajib && !dijawabId.has(b2.id));
+          if (belum.length) {
+            return kirim(422, { message: 'Ada butir wajib yang belum dijawab.', errors: {
+              butir: belum.map((b2) => '"' + b2.teks + '" wajib diisi.') } });
+          }
+
+          const dinilai = r.jawaban.filter((j) => j.lulus !== null);
+          r.butir_total = dinilai.length;
+          r.butir_lulus = dinilai.filter((j) => j.lulus === true).length;
+          r.skor = dinilai.length ? Math.round((r.butir_lulus / r.butir_total) * 100) : null;
+          r.status = 'selesai';
+          r.selesai_pada = new Date(2026, 0, 1, 0, 30).toISOString();
+
+          return kirim(200, { data: bentukRun(r) });
+        }
       }
     }
 
@@ -885,6 +1104,144 @@ function apiTiruan() {
     'Berpindah ke antrean peminjaman bekerja');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada peminjaman & persetujuan', errs.join(' | '));
+
+  /* ============ 13. CHECKLIST TERSAMBUNG ============ */
+  console.log('\n--- 13. Checklist tersambung ---');
+  await page.evaluate(() => { location.hash = '#/checklist'; });
+  await page.waitForTimeout(800);
+
+  ok(/Belum ada template checklist/.test(await page.textContent('#ckTplDaftar')),
+    'Basis data checklist kosong ditampilkan apa adanya, bukan diisi data purwarupa');
+  ok(!!(await page.$('#ckTplDaftar button.btn-primary')),
+    'Tombol "Buat Template Pertama" tersedia untuk pengguna yang masuk');
+
+  await page.click('#ckTplDaftar button.btn-primary');
+  await page.waitForTimeout(500);
+  ok(!!(await page.$('#tNama')), 'Formulir buat template terbuka');
+
+  await page.fill('#tNama', 'Pengecekan Harian Ruang Rapat (Uji)');
+  await page.selectOption('#tJenis', 'kelayakan');
+  await page.fill('#tDeskripsi', 'Dijalankan setiap pagi sebelum ruangan dipakai.');
+
+  // butir pertama: ya/tidak, wajib — baris bawaan formulir
+  await page.fill('#ckButirList > div.card:nth-child(1) input[placeholder="Teks butir pemeriksaan *"]',
+    'Kursi dan meja dalam kondisi baik');
+
+  // tambah butir kedua, lalu ubah tipenya jadi Angka — kolom satuannya
+  // harus SEGERA tersingkap, bukan menunggu simpan. Ini regresi atas bug
+  // yang baru diperbaiki: ckSetButir() sebelumnya mengubah keadaan tapi
+  // tidak menggambar ulang daftar butir saat tipenya berganti.
+  await page.click('button:has-text("Tambah Butir")');
+  await page.waitForTimeout(250);
+  const baris2 = '#ckButirList > div.card:nth-child(2)';
+  await page.fill(`${baris2} input[placeholder="Teks butir pemeriksaan *"]`, 'Suhu ruangan (°C)');
+  await page.selectOption(`${baris2} select`, 'angka');
+  await page.waitForTimeout(200);
+  ok(await page.isEnabled(`${baris2} input[placeholder="Satuan (opsional)"]`),
+    'Kolom satuan tersingkap segera setelah tipe butir diubah ke Angka');
+  await page.fill(`${baris2} input[placeholder="Satuan (opsional)"]`, '°C');
+  await page.uncheck(`${baris2} input[type=checkbox]`);   // butir kedua tidak wajib
+
+  await page.click('#ckTplSimpan');
+  await page.waitForTimeout(700);
+  ok(!(await page.$('#tNama')), 'Formulir tertutup setelah template tersimpan');
+
+  const daftarTpl = await page.textContent('#ckTplDaftar');
+  ok(/Pengecekan Harian Ruang Rapat \(Uji\)/.test(daftarTpl), 'Template baru muncul di daftar');
+  ok(/2 butir/.test(daftarTpl), 'Jumlah butir tampil benar pada kartu: 2 butir');
+
+  // Bukti bahwa yang tampil datang dari server, bukan dari keadaan peramban,
+  // dan bahwa kolom satuan yang tadinya terkunci benar-benar ikut tersimpan.
+  const tplDariServer = await page.evaluate(async (p) => {
+    const r = await fetch('http://127.0.0.1:' + p + '/api/checklist/templat', { credentials: 'include' });
+    const j = await r.json();
+    return j.data.find((t) => t.nama === 'Pengecekan Harian Ruang Rapat (Uji)');
+  }, port);
+  ok(!!tplDariServer && tplDariServer.butir.length === 2, 'Server menyimpan template dengan 2 butir sungguhan');
+  ok(!!tplDariServer && tplDariServer.butir[1].satuan === '°C',
+    'Satuan butir kedua ikut tersimpan (bukan kosong akibat kolom yang sempat terkunci)');
+  ok(!!tplDariServer && tplDariServer.butir[0].wajib === true && tplDariServer.butir[1].wajib === false,
+    'Status wajib tiap butir tersimpan sesuai isian: butir 1 wajib, butir 2 tidak');
+
+  /* ---- tugaskan ke ruangan yang sudah dibuat pada bagian 3 ---- */
+  await page.click('#ckTplDaftar .card:has-text("Pengecekan Harian Ruang Rapat (Uji)")');
+  await page.waitForTimeout(500);
+  ok(/2 butir/.test(await page.$eval('.drawer', (e) => e.innerText)), 'Detail template menunjukkan 2 butir');
+
+  await page.click('button:has-text("Tugaskan")');
+  await page.waitForTimeout(500);
+  await page.selectOption('#gSumberDaya', '1');     // Conference Room Garuda, dibuat pada bagian 3
+  await page.selectOption('#gUser', '91');          // Dr. Sri Wahyuni
+  await page.click('#ckTgsSimpan');
+  await page.waitForTimeout(700);
+  ok(!(await page.$('#gUser')), 'Formulir penugasan tertutup setelah tersimpan');
+
+  /* ---- checklist saya ---- */
+  await page.evaluate(() => { location.hash = '#/mychecklist'; });
+  await page.waitForTimeout(800);
+  const tugasSaya = await page.textContent('#ckmTugas');
+  ok(/Pengecekan Harian Ruang Rapat \(Uji\)/.test(tugasSaya), 'Tugas yang baru ditugaskan muncul di Checklist Saya');
+  ok(/Conference Room Garuda/.test(tugasSaya), 'Sumber daya yang melekat tampil pada kartu tugas');
+
+  /* ---- jalankan; coba selesaikan kosong -> ditolak SERVER ---- */
+  await page.click('#ckmTugas .card button:has-text("Kerjakan")');
+  await page.waitForTimeout(600);
+  const items0 = await page.$$('.ck-run-item');
+  ok(items0.length === 2, `Formulir pelaksanaan menampilkan ${items0.length} butir sesuai templat`);
+
+  await page.click('#ckRunSelesai');
+  await page.waitForTimeout(500);
+  const tolakModal = await page.$eval('.modal', (e) => e.innerText).catch(() => '');
+  ok(/Kursi dan meja dalam kondisi baik/.test(tolakModal) && /wajib diisi/.test(tolakModal),
+    'Butir wajib yang belum dijawab ditolak SERVER, pesannya menyebut butirnya', tolakModal.trim());
+  await page.evaluate(() => UI.closeModal());
+
+  /* ---- isi jawaban; jawaban terkirim segera, bukan ditahan ---- */
+  await page.click('.ck-run-item >> nth=0 >> .ck-opt button >> nth=0');   // "✓ Ya" pada butir wajib
+  await page.waitForTimeout(500);
+  await page.fill('.ck-run-item >> nth=1 >> input[type=number]', '22');
+  await page.press('.ck-run-item >> nth=1 >> input[type=number]', 'Tab');   // blur -> kirim
+  await page.waitForTimeout(500);
+
+  const jawabanTersimpanSebelumSelesai = await page.evaluate(async (p) => {
+    const r = await fetch('http://127.0.0.1:' + p + '/api/checklist/pelaksanaan', { credentials: 'include' });
+    return (await r.json()).data[0].jawaban.length;
+  }, port);
+  ok(jawabanTersimpanSebelumSelesai === 2,
+    'Kedua jawaban sudah tersimpan di server SEBELUM tombol Selesaikan ditekan');
+
+  await page.click('#ckRunSelesai');
+  await page.waitForTimeout(700);
+  const hasilModal = await page.$eval('.modal', (e) => e.innerText);
+  ok(/100%/.test(hasilModal),
+    'Ringkasan hasil menampilkan skor 100% — satu-satunya butir ya/tidak dijawab "Ya"', hasilModal.trim());
+  await page.evaluate(() => UI.closeModal());
+
+  const runDariServer = await page.evaluate(async (p) => {
+    const r = await fetch('http://127.0.0.1:' + p + '/api/checklist/pelaksanaan', { credentials: 'include' });
+    return (await r.json()).data[0];
+  }, port);
+  ok(!!runDariServer && runDariServer.status.kode === 'selesai', 'Status pelaksanaan di server: selesai');
+
+  /* ---- riwayat tampil pada Checklist Saya ---- */
+  await page.evaluate(() => { location.hash = '#/mychecklist'; });
+  await page.waitForTimeout(800);
+  const riwayatTxt = await page.textContent('#ckmRiwayat');
+  ok(/Pengecekan Harian Ruang Rapat \(Uji\)/.test(riwayatTxt) && /100/.test(riwayatTxt),
+    'Riwayat pelaksanaan tampil pada Checklist Saya lengkap dengan skornya');
+
+  /* ---- checklist tampil pada detail ruangan yang diperiksa ---- */
+  await page.evaluate(() => { location.hash = '#/rooms'; });
+  await page.waitForTimeout(700);
+  await page.evaluate(() => showRoom(1));
+  await page.waitForTimeout(900);
+  const drawerRuang = await page.$eval('.drawer', (e) => e.innerText);
+  ok(/CHECKLIST/.test(drawerRuang), 'Bagian checklist tampil pada detail ruangan');
+  ok(/Pengecekan Harian Ruang Rapat \(Uji\)/.test(drawerRuang) && /100/.test(drawerRuang),
+    'Riwayat pelaksanaan yang baru selesai tampil pada detail ruangan yang diperiksa');
+  await page.evaluate(() => UI.closeDrawer());
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada checklist tersambung', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

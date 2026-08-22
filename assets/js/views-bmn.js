@@ -273,7 +273,7 @@
         </div>
 
         <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
-          ${ckForResource(x.id)}</div>`,
+          ${ckForResource('aset', x.id)}</div>`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
              <div class="spacer"></div>
              <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>`

@@ -206,6 +206,30 @@ class ChecklistTest extends TestCase
             ->assertCreated()->json('data.id');
     }
 
+    public function test_butir_templat_ikut_terkirim_saat_memulai_pelaksanaan(): void
+    {
+        // Tanpa ini, antarmuka yang baru saja memulai pelaksanaan tidak tahu
+        // apa yang harus ditampilkan sebagai formulir — ia harus menebak
+        // lewat panggilan kedua ke templatnya sendiri, yang mudah terlupakan
+        // dan membuat langkah "mulai" terasa tidak lengkap.
+        $templat = ChecklistTemplate::factory()->denganButir(3)->create();
+        $room = Room::factory()->create();
+
+        $data = $this->actingAs($this->penggunaBerperan('lab-technician'))
+            ->postJson('/api/checklist/pelaksanaan', [
+                'checklist_template_id' => $templat->id,
+                'room_id' => $room->id,
+            ])
+            ->assertCreated()
+            ->json('data');
+
+        $this->assertCount(3, $data['templat']['butir']);
+        $this->assertSame(
+            $templat->items->pluck('teks')->sort()->values()->all(),
+            collect($data['templat']['butir'])->pluck('teks')->sort()->values()->all(),
+        );
+    }
+
     public function test_pelaksanaan_dapat_dimulai_diisi_dan_diselesaikan(): void
     {
         $templat = ChecklistTemplate::factory()->denganButir(3)->create();

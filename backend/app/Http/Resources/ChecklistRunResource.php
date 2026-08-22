@@ -28,6 +28,15 @@ class ChecklistRunResource extends JsonResource
                 'id' => $this->template->id,
                 'nama' => $this->template->nama,
                 'jenis' => $this->template->jenisNama(),
+
+                // Daftar butir yang harus dijawab. Tanpa ini, antarmuka yang
+                // baru saja memulai pelaksanaan tidak tahu apa yang perlu
+                // ditampilkan sebagai formulir — dan harus menebak-nebak
+                // lewat panggilan kedua ke templatnya sendiri, yang mudah
+                // terlupakan dan membuat langkah "mulai" terasa tidak lengkap.
+                'butir' => $this->template->relationLoaded('items')
+                    ? ChecklistItemResource::collection($this->template->items)
+                    : [],
             ]),
             'sumber_daya' => $this->sumberDayaRingkas(),
             'pelaksana' => $this->whenLoaded('user', fn () => [

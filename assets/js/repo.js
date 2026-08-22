@@ -1283,6 +1283,101 @@
     }
   };
 
+  /* ---------------------------------------------------- manajemen pengguna */
+  /*
+     Beda dari Repo.pengguna (pemilih untuk formulir lain — nama & unit kerja
+     saja): modul ini adalah CRUD penuh + matriks peran, dan pada server
+     dijaga izin `pengguna.*` yang saat ini HANYA dimiliki super-admin. Lihat
+     docblock MatriksAkses::MODUL untuk alasannya.
+
+     PIC, Teknisi & Operator, Pengunjung, dan Struktur Organisasi pada
+     purwarupa SENGAJA TIDAK disambungkan pada modul ini. Semuanya butuh
+     domain server baru yang belum ada sama sekali (delegasi PIC dengan SLA,
+     workload teknisi, manajemen kunjungan tamu, bagan organisasi) — bukan
+     sekadar menyambungkan yang sudah ada, dan tidak proporsional untuk
+     digabung dengan Manajemen Pengguna & Peran. Dijatuhkan dengan sengaja,
+     dicatat di sini dan di docs/BACKEND.md, bukan dipangkas diam-diam.
+  */
+
+  const PERAN_DARI_NAMA_PURWARUPA = {
+    "Super Admin": "super-admin", "Facility Manager": "facility-manager",
+    "Laboratory Manager": "lab-manager", "Lab Technician": "lab-technician", "Technician": "lab-technician",
+    "Asset Manager": "asset-manager", "Room Administrator": "room-administrator",
+    "Event Manager": "event-manager", "Finance": "finance", "PIC": "pic",
+    "Employee": "employee", "External User": "external-user", "Management": "management"
+  };
+  const NAMA_PERAN_SERVER = {
+    "super-admin": "Super Admin", "facility-manager": "Facility Manager", "lab-manager": "Laboratory Manager",
+    "asset-manager": "Asset Manager", "finance": "Finance", "employee": "Employee / User",
+    "lab-technician": "Lab Technician", "room-administrator": "Room Administrator",
+    "event-manager": "Event Manager", "pic": "PIC / Penanggung Jawab",
+    "external-user": "External User", "management": "Management"
+  };
+
+  function penggunaAdminDariPurwarupa(p) {
+    return {
+      id: p.id, nama: p.name, email: p.email, unit_kerja: p.unit,
+      aktif: p.status !== "Nonaktif",
+      peran: [PERAN_DARI_NAMA_PURWARUPA[p.role] || "employee"],
+      gedung: [], dibuat_pada: null
+    };
+  }
+
+  const penggunaKelola = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.people : []).map(penggunaAdminDariPurwarupa);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((p) => p.nama.toLowerCase().indexOf(k) !== -1 || p.email.toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.peran) baris = baris.filter((p) => p.peran.indexOf(tapis.peran) !== -1);
+        if (tapis && tapis.aktif !== undefined && tapis.aktif !== "") {
+          const inginAktif = tapis.aktif === "1" || tapis.aktif === true;
+          baris = baris.filter((p) => p.aktif === inginAktif);
+        }
+        return { data: baris };
+      }
+      return API.get("/api/pengguna-kelola" + qs(tapis));
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh(id ? "Mengubah pengguna" : "Menambah pengguna");
+      return id
+        ? API.put("/api/pengguna-kelola/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/pengguna-kelola", isi).then((j) => j.data);
+    }
+  };
+
+  const peran = {
+    async daftar() {
+      if (!langsungKeApi()) {
+        const jumlah = {};
+        (window.DB ? DB.roles : []).forEach((r) => {
+          const kode = PERAN_DARI_NAMA_PURWARUPA[r.name] || null;
+          if (kode) jumlah[kode] = r.users;
+        });
+        return {
+          modul: [
+            { kode: "dashboard", nama: "Dashboard" }, { kode: "booking-ruangan", nama: "Booking ruangan" },
+            { kode: "booking-alat", nama: "Booking alat" }, { kode: "laboratorium", nama: "Laboratorium" },
+            { kode: "aset", nama: "Aset & BMN" }, { kode: "penyewaan", nama: "Penyewaan & penagihan" },
+            { kode: "pemeliharaan", nama: "Pemeliharaan" }, { kode: "kalibrasi", nama: "Kalibrasi" },
+            { kode: "checklist", nama: "Checklist" }, { kode: "notifikasi", nama: "Notifikasi email" },
+            { kode: "master-data", nama: "Master data" }, { kode: "audit", nama: "Audit trail" },
+            { kode: "pengguna", nama: "Pengguna & peran" }
+          ],
+          peran: Object.keys(NAMA_PERAN_SERVER).map((kode) => ({
+            kode: kode, nama: NAMA_PERAN_SERVER[kode], jumlah_pengguna: jumlah[kode] || 0,
+            perlu_dikonfirmasi: ["lab-technician", "room-administrator", "event-manager", "pic", "external-user", "management"].indexOf(kode) !== -1
+          })),
+          matriks: null, nama_tingkat: { "-": "—", LIHAT: "Lihat", BUAT: "Buat", UBAH: "Ubah", PENUH: "Penuh" }
+        };
+      }
+      return API.get("/api/peran");
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     checklist: checklist,
@@ -1301,7 +1396,10 @@
     tagihan: tagihan,
     pembayaran: pembayaran,
     audit: audit,
+    penggunaKelola: penggunaKelola,
+    peran: peran,
     NAMA_SKEMA: NAMA_SKEMA,
+    NAMA_PERAN: NAMA_PERAN_SERVER,
 
     /** Apakah tindakan tulis tersedia saat ini. */
     dapatMenulis: langsungKeApi,

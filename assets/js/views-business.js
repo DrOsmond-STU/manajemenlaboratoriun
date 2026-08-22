@@ -1057,33 +1057,162 @@
   };
 
   /* =======================================================================
-     PEOPLE
+     MANAJEMEN PENGGUNA — tersambung ke basis data
+
+     Hanya super-admin yang punya akses sama sekali (lihat docblock
+     MatriksAkses::MODUL) — halaman ini karenanya harus tetap dapat
+     ditampilkan dengan baik bagi pengguna lain yang entah bagaimana
+     membuka rutenya: pesan 403 yang jelas, bukan layar rusak.
+
+     PIC, Teknisi & Operator, Pengunjung, dan Struktur Organisasi TIDAK
+     disambungkan pada modul ini — lihat catatan desain di repo.js tepat
+     sebelum Repo.penggunaKelola untuk alasannya.
      ======================================================================= */
+
+  const USR = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  async function muatPengguna() {
+    USR.memuat = true; USR.galat = null; isiPengguna();
+    try { USR.baris = (await Repo.penggunaKelola.daftar(USR.tapis)).data; }
+    catch (e) { USR.baris = []; USR.galat = e; }
+    finally { USR.memuat = false; isiPengguna(); isiRingkasanPengguna(); }
+  }
+
+  function isiPengguna() {
+    const wadah = document.getElementById("usrDaftar");
+    if (!wadah) return;
+    if (USR.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (USR.galat) {
+      const pesan = USR.galat.status === 403
+        ? "Hanya Super Admin yang dapat mengelola pengguna & peran."
+        : (USR.galat.message || "Gagal memuat.");
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>${USR.galat.status === 403 ? "Tidak berwenang" : "Gagal memuat"}.</b><br><span class="small">${U.esc(pesan)}</span></div></div>`;
+      return;
+    }
+    if (!USR.baris.length) { wadah.innerHTML = U.emptyState("Tidak ada pengguna yang cocok dengan tapisan"); return; }
+
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Nama</th><th>Peran</th><th>Unit Kerja</th><th>Gedung</th><th>Status</th><th></th></tr></thead>
+      <tbody>${USR.baris.map((p) => `<tr>
+        <td><div class="row"><span class="avatar sm">${U.initials(p.nama)}</span>
+          <div><b class="small">${U.esc(p.nama)}</b><div class="tiny faint">${U.esc(p.email)}</div></div></div></td>
+        <td>${(p.peran || []).map((k) => `<span class="badge brand">${U.esc(Repo.NAMA_PERAN[k] || k)}</span>`).join(" ") || `<span class="faint small">—</span>`}</td>
+        <td>${U.esc(p.unit_kerja || "—")}</td>
+        <td><span class="small muted">${(p.gedung || []).join(", ") || "—"}</span></td>
+        <td>${p.aktif ? U.badge("Aktif") : U.badge("Nonaktif")}</td>
+        <td class="actions"><button class="icon-btn" onclick="usrForm(${p.id})">${U.icon("edit", 15)}</button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPengguna() {
+    const wadah = document.getElementById("usrKpi");
+    if (!wadah) return;
+    if (USR.galat) { wadah.innerHTML = ""; return; }
+    const b = USR.baris;
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Total Pengguna", value: b.length, icon: "users", tint: "brand", note: "Sesuai tapisan" })}
+      ${U.kpi({ label: "Aktif", value: b.filter((p) => p.aktif).length, icon: "check", tint: "green", note: "Dapat masuk" })}
+      ${U.kpi({ label: "Nonaktif", value: b.filter((p) => !p.aktif).length, icon: "x", tint: "red", note: "Ditolak saat masuk" })}
+      ${U.kpi({ label: "Tanpa Peran", value: b.filter((p) => !p.peran || !p.peran.length).length, icon: "alert", tint: "amber", note: "Belum dapat mengakses apa pun" })}`;
+  }
+
   V["users"] = {
     title: "Manajemen Pengguna",
-    sub: "Data pengguna sistem, unit kerja, kompetensi, dan role yang melekat.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Impor pengguna dari HRIS')">${U.icon("upload")} Sinkron HRIS</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form pengguna baru')">${U.icon("plus")} Tambah Pengguna</button>`,
+    sub: "Akun, peran, unit kerja, dan gedung yang diampu setiap pengguna.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="usrForm()">${U.icon("plus")} Tambah Pengguna</button>` : "";
+    },
     render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Total Pengguna", value: 329, icon: "users", tint: "brand", delta: 5, note: "Internal & eksternal" })}
-          ${U.kpi({ label: "Aktif 30 Hari", value: 247, icon: "check", tint: "green", note: "75% adopsi" })}
-          ${U.kpi({ label: "Pengguna Eksternal", value: 37, icon: "link", tint: "violet", delta: 12, note: "Portal penyewaan" })}
-          ${U.kpi({ label: "Role Terkonfigurasi", value: D.roles.length, icon: "shield", tint: "teal", note: "Dengan scope data" })}
+      return `<div class="grid g4 mb-16" id="usrKpi"></div>
+        <div id="usrToolbar" class="row wrap gap-8" style="padding:12px 16px;border:1px solid var(--border);border-bottom:none;border-radius:12px 12px 0 0;background:var(--surface)">
+          <input class="input" id="usrCari" placeholder="Cari nama atau email…" style="max-width:260px" onkeydown="if(event.key==='Enter')usrTerapkanTapis()">
+          <select class="select" id="usrFilterPeran" onchange="usrTerapkanTapis()" style="max-width:200px">
+            <option value="">Semua peran</option>
+            ${Object.keys(Repo.NAMA_PERAN).map((k) => `<option value="${k}">${U.esc(Repo.NAMA_PERAN[k])}</option>`).join("")}
+          </select>
+          <select class="select" id="usrFilterAktif" onchange="usrTerapkanTapis()" style="max-width:160px">
+            <option value="">Semua status</option><option value="1">Aktif</option><option value="0">Nonaktif</option>
+          </select>
+          <button class="btn btn-sm" onclick="usrTerapkanTapis()">Terapkan</button>
         </div>
-        ${U.card("Daftar Pengguna", U.toolbar({ ph: "Cari nama, NIP, atau email…", filters: [["Semua Role"].concat(D.roles.map((r) => r.name)), ["Semua Unit"].concat(D.org.units), ["Semua Status", "Aktif", "Cuti", "Nonaktif"]] }) +
-          U.table([
-            { t: "Nama", render: (p) => `<div class="row"><span class="avatar sm">${U.initials(p.name)}</span>
-              <div><b class="small">${U.esc(p.name)}</b><div class="tiny faint mono">${U.esc(p.nip)}</div></div></div>` },
-            { t: "Role", render: (p) => `<span class="badge brand">${U.esc(p.role)}</span>` },
-            { t: "Unit Kerja", render: (p) => U.esc(p.unit) },
-            { t: "Kontak", render: (p) => `<div class="small">${U.esc(p.email)}</div><div class="tiny faint">${U.esc(p.phone)}</div>` },
-            { t: "Kompetensi", render: (p) => `<span class="small muted">${U.esc(p.comp)}</span>` },
-            { t: "Status", render: (p) => U.badge(p.status) },
-            { t: "", cls: "actions", render: () => `<button class="icon-btn" onclick="UI.demo('Edit pengguna')">${U.icon("edit", 15)}</button>` }
-          ], D.people) + U.pager(329, 1, 12), { bodyCls: "flush" })}`;
+        ${U.card("", `<div id="usrDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { USR.tapis = {}; muatPengguna(); }
+  };
+
+  window.usrTerapkanTapis = function () {
+    USR.tapis = {
+      cari: document.getElementById("usrCari").value || undefined,
+      peran: document.getElementById("usrFilterPeran").value || undefined,
+      aktif: document.getElementById("usrFilterAktif").value || undefined
+    };
+    muatPengguna();
+  };
+
+  window.usrForm = async function (id) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola pengguna hanya bisa setelah masuk dengan akun."); return; }
+    const existing = id ? USR.baris.find((p) => p.id === id) : null;
+
+    U.drawer({
+      title: existing ? "Ubah Pengguna" : "Tambah Pengguna",
+      sub: existing ? existing.email : "Akun baru untuk sistem",
+      body: `
+        <div id="usrFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama *</span><input class="input" id="usrNama" value="${existing ? U.esc(existing.nama) : ""}"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Email *</span><input type="email" class="input" id="usrEmail" value="${existing ? U.esc(existing.email) : ""}" ${existing ? "disabled" : ""}></label>
+          <label class="fld"><span>Unit Kerja</span><input class="input" id="usrUnitKerja" value="${existing ? U.esc(existing.unit_kerja || "") : ""}"></label>
+        </div>
+        <label class="fld mt-8"><span>${existing ? "Sandi Baru (kosongkan bila tidak diubah)" : "Sandi *"}</span>
+          <input type="password" class="input" id="usrSandi" placeholder="Minimal 8 karakter"></label>
+        <label class="fld mt-8"><span>Peran *</span>
+          <select class="select" id="usrPeran" multiple size="6">
+            ${Object.keys(Repo.NAMA_PERAN).map((k) => `<option value="${k}" ${existing && existing.peran.indexOf(k) !== -1 ? "selected" : ""}>${U.esc(Repo.NAMA_PERAN[k])}</option>`).join("")}
+          </select>
+          <span class="tiny faint">Ctrl/Cmd+klik untuk memilih lebih dari satu.</span></label>
+        <label class="fld mt-8"><span>Gedung yang Diampu (pisahkan dengan koma)</span>
+          <input class="input" id="usrGedung" value="${existing ? U.esc((existing.gedung || []).join(", ")) : ""}" placeholder="mis. Gedung A, Gedung B — kosong berarti tidak dibatasi"></label>
+        ${existing ? `<label class="row mt-12"><span class="small" style="flex:1">Akun aktif (dapat masuk)</span>
+          <label class="switch"><input type="checkbox" id="usrAktif" ${existing.aktif ? "checked" : ""}><span></span></label></label>` : ""}`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="usrFormSimpan" onclick="usrFormSimpan(${id || "null"})">Simpan</button>`
+    });
+  };
+
+  window.usrFormSimpan = async function (id) {
+    const kotak = document.getElementById("usrFormGalat");
+    const tombol = document.getElementById("usrFormSimpan");
+    kotak.hidden = true;
+
+    const peranTerpilih = Array.from(document.getElementById("usrPeran").selectedOptions).map((o) => o.value);
+    const gedung = document.getElementById("usrGedung").value.split(",").map((g) => g.trim()).filter(Boolean);
+    const sandi = document.getElementById("usrSandi").value;
+
+    const isi = {
+      name: document.getElementById("usrNama").value,
+      unit_kerja: document.getElementById("usrUnitKerja").value || null,
+      peran: peranTerpilih,
+      gedung: gedung
+    };
+    if (!id) isi.email = document.getElementById("usrEmail").value;
+    if (sandi) isi.password = sandi;
+    if (id) {
+      const aktifKotak = document.getElementById("usrAktif");
+      if (aktifKotak) isi.aktif = aktifKotak.checked;
     }
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.penggunaKelola.simpan(isi, id);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Pengguna berhasil disimpan.");
+      muatPengguna();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
   };
 
   V["pic"] = {

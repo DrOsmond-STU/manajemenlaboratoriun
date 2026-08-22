@@ -13,8 +13,10 @@ use App\Http\Controllers\Api\FotoAsetController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
 use App\Http\Controllers\Api\PenawaranController;
+use App\Http\Controllers\Api\PenggunaAdminController;
 use App\Http\Controllers\Api\PenggunaController;
 use App\Http\Controllers\Api\PenyewaanController;
+use App\Http\Controllers\Api\PeranController;
 use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\TarifController;
@@ -102,6 +104,23 @@ Route::middleware('auth:sanctum')->group(function () {
     // keterangan pada PenggunaController.
     Route::get('pengguna', [PenggunaController::class, 'index'])
         ->middleware('can:master-data.lihat')->name('pengguna.index');
+
+    // --- Manajemen Pengguna & Peran ------------------------------------------
+    // Beda dari 'pengguna' di atas (pemilih untuk formulir lain): CRUD penuh,
+    // hanya untuk yang memegang izin pengguna.* — pada matriks saat ini
+    // cuma super-admin. Lihat docblock MatriksAkses::MODUL untuk alasannya.
+    Route::get('pengguna-kelola', [PenggunaAdminController::class, 'index'])
+        ->middleware('can:pengguna.lihat');
+    Route::post('pengguna-kelola', [PenggunaAdminController::class, 'store'])
+        ->middleware('can:pengguna.buat');
+    Route::put('pengguna-kelola/{pengguna}', [PenggunaAdminController::class, 'update'])
+        ->middleware('can:pengguna.ubah');
+
+    // --- Peran & hak akses — hanya baca --------------------------------------
+    // Tidak ada store/update: matriksnya kode, bukan baris tabel. Lihat
+    // docblock PeranController.
+    Route::get('peran', [PeranController::class, 'index'])
+        ->middleware('can:pengguna.lihat');
 
     // --- Master data: ruangan --------------------------------------------
     // Izinnya diatur RoomPolicy, bukan middleware `can:`, karena membaca

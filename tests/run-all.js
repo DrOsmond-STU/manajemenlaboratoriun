@@ -18,7 +18,8 @@ const SUITES = [
   ['dashboard', 'Dashboard & Balanced Scorecard tersambung: widget sungguhan, bobot ditegakkan server'],
   ['pemeliharaan', 'Pemeliharaan & Kalibrasi tersambung: satu tabel dua layar, kalibrasi hanya untuk alat'],
   ['penyewaan', 'Penyewaan & Tagihan tersambung: tarif, penawaran, invoice, verifikasi pembayaran'],
-  ['audit', 'Audit Trail tersambung: entri, tapisan peristiwa, detail perubahan kolom']
+  ['audit', 'Audit Trail tersambung: entri, tapisan peristiwa, detail perubahan kolom'],
+  ['pengguna', 'Manajemen Pengguna & Peran tersambung: hanya super-admin, matriks sungguhan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

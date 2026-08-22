@@ -15,7 +15,7 @@ use Illuminate\Support\Collection;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password', 'unit_kerja'])]
+#[Fillable(['name', 'email', 'password', 'unit_kerja', 'aktif'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -27,7 +27,8 @@ class User extends Authenticatable
      *
      * `unit_kerja` ikut diaudit meski terdengar administratif: ia menentukan
      * cakupan data yang terlihat pengguna (lihat CakupanData), sehingga
-     * mengubahnya adalah perubahan hak akses dengan nama lain.
+     * mengubahnya adalah perubahan hak akses dengan nama lain. `aktif` juga
+     * ikut — menonaktifkan pengguna adalah pencabutan akses dengan nama lain.
      *
      * `password` sengaja ADA di daftar ini supaya peristiwanya tercatat,
      * tetapi nilainya disamarkan trait — pemeriksa perlu tahu kapan sandi
@@ -37,7 +38,7 @@ class User extends Authenticatable
      */
     public function kolomDiaudit(): array
     {
-        return ['name', 'email', 'unit_kerja', 'password', 'email_verified_at'];
+        return ['name', 'email', 'unit_kerja', 'aktif', 'password', 'email_verified_at'];
     }
 
     public function labelAudit(): ?string
@@ -55,6 +56,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'aktif' => 'boolean',
         ];
     }
 

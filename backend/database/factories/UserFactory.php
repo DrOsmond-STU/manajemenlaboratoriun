@@ -42,4 +42,11 @@ class UserFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    public function nonaktif(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'aktif' => false,
+        ]);
+    }
 }

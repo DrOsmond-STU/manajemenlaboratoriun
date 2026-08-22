@@ -55,7 +55,12 @@ class LoginRequest extends FormRequest
     {
         $this->pastikanBelumDitahan();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('ingat'))) {
+        // 'aktif' => true ikut sebagai syarat pencocokan baris, bukan
+        // diperiksa setelahnya: pengguna nonaktif harus gagal masuk dengan
+        // pesan yang SAMA PERSIS dengan sandi salah (lihat butir 1 di atas)
+        // — memeriksanya terpisah akan membocorkan bahwa akunnya ada tetapi
+        // dikunci.
+        if (! Auth::attempt([...$this->only('email', 'password'), 'aktif' => true], $this->boolean('ingat'))) {
             RateLimiter::hit($this->kunciPembatas(), self::LAMA_TAHAN);
 
             // Pesan sengaja tidak menyebut mana yang salah.

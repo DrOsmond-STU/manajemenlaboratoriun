@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-476 uji lulus, 1.451 asersi, 0 gagal — dijalankan di PostgreSQL 16
+510 uji lulus, 1.515 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -408,6 +408,20 @@ tumpang tindih tak pernah lahir. Penanganan galat untuk keadaan yang mustahil
 lebih buruk daripada tidak ada — tidak pernah teruji, memberi kesan keliru
 bahwa keadaannya mungkin, dan menyamarkan galat sungguhan yang kebetulan
 mirip. Dibuang, dan perilaku sebenarnya dipatok dua uji.
+
+Manajemen Pengguna & Peran — modul paling sensitif dalam sistem:
+
+| Uji | Yang dijaga |
+|---|---|
+| **Hanya super-admin dapat menyentuh modul ini sama sekali** | 11 peran lain diuji satu per satu — `403`, bukan sekadar dibatasi |
+| Pengguna baru dapat langsung masuk dengan sandinya | sandi benar-benar tersimpan hash yang cocok, bukan sekadar "tersimpan" |
+| Email kembar ditolak | `422`, bukan galat basis data mentah |
+| **Pengguna nonaktif ditolak masuk dengan pesan yang SAMA PERSIS dengan sandi salah** | membedakannya membocorkan bahwa akunnya ada tetapi dikunci |
+| **Admin tidak dapat menonaktifkan akun sendiri** | mencegah mengunci diri sendiri keluar dari sistemnya sendiri |
+| **Admin tidak dapat mencabut peran Super Admin dari akun sendiri** | tanpa itu, admin terakhir dapat mencabut wewenangnya sendiri tanpa ada yang tersisa untuk memulihkan |
+| Admin boleh menambah peran lain pada akun sendiri | selama peran Super Admin tetap ada, tidak ada risiko kunci diri |
+| Tapis pencarian dan status bekerja | daftar besar tetap dapat disaring |
+| Matriks peran menyebut jumlah pengguna sungguhan | dihitung dari basis data, bukan angka tetap purwarupa |
 
 Notifikasi jadwal:
 
@@ -999,6 +1013,68 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   menampilkannya sebagai tabel kolom/sebelum/sesudah sudah sepenuhnya
   menjawab pertanyaan "apa yang berubah, dari apa menjadi apa" tanpa
   perlu format tambahan.
+
+- **Modul baru `pengguna` ditambahkan ke `MatriksAkses::MODUL`, dikunci
+  PENUH hanya untuk super-admin dan `-` untuk seluruh 11 peran lain, TANPA
+  kecuali — lebih ketat daripada pola `PERLU_DIKONFIRMASI` yang biasa
+  dipakai menyimpulkan tingkat dari PRD.** Modul ini tidak ada di
+  SECURITY.md §4.1, dan membuat/menonaktifkan akun serta melihat peran
+  siapa punya akses apa adalah salah satu tindakan paling sensitif dalam
+  sistem ini — melebar-lebarkan aksesnya tanpa persetujuan eksplisit
+  pemilik produk berisiko jauh lebih besar daripada mempersempitnya.
+  Keputusan ini dicatat tegas di docblock `MatriksAkses::MODUL` sendiri,
+  bukan hanya di sini.
+- **`users.aktif` MENGGANTIKAN TIGA STATUS PURWARUPA (Aktif/Cuti/Nonaktif)
+  DENGAN DUA STATUS SUNGGUHAN.** Tidak ada sistem manajemen cuti di
+  aplikasi ini, dan untuk kontrol akses, "sedang cuti" tidak berbeda dari
+  "aktif" — pengguna cuti biasanya tetap boleh masuk. Nuansa kepegawaian
+  itu bukan keputusan kontrol akses dan sengaja tidak dimodelkan.
+- **Tidak ada hapus pengguna, hanya nonaktifkan** — pengguna terhubung ke
+  `audit_logs`, `bookings`, pelaksanaan checklist, dan banyak tabel lain
+  sebagai pencatat/pelaku. Menghapus barisnya akan meninggalkan referensi
+  yatim atau memutus jejak "siapa melakukan apa". Pola yang sama dengan
+  status pada Rental/Invoice/Quotation — nonaktifkan, jangan hapus.
+- **`aktif => true` ikut sebagai SYARAT PENCOCOKAN BARIS pada
+  `Auth::attempt()`, bukan diperiksa terpisah setelahnya.** Pengguna
+  nonaktif harus gagal masuk dengan pesan yang SAMA PERSIS dengan sandi
+  salah (lihat aturan #1 di `LoginRequest`) — memeriksanya terpisah akan
+  membocorkan bahwa akunnya ada tetapi dikunci, sama persis dengan alasan
+  pesan galat login diseragamkan sejak awal modul autentikasi dibangun.
+- **Admin tidak dapat mengunci dirinya sendiri keluar dari sistemnya
+  sendiri** — dua penjagaan eksplisit di `PenggunaAdminController`:
+  tidak dapat menonaktifkan akun sendiri, dan tidak dapat mencabut peran
+  Super Admin dari akun sendiri. Keduanya tidak menimbulkan galat teknis
+  apa pun bila dibiarkan — hanya admin yang tiba-tiba tidak dapat masuk
+  lagi, dan tidak ada admin lain yang tersisa untuk memulihkannya.
+- **Matriks peran×modul (`GET /api/peran`) TIDAK PUNYA endpoint
+  store/update — sengaja tidak dapat diedit lewat antarmuka.**
+  `MatriksAkses::MATRIKS` adalah kode, bukan baris tabel: mengeditnya
+  lewat antarmuka berarti mengubah otorisasi tanpa tinjauan kode, persis
+  yang coba dicegah docblock `MatriksAkses` sejak awal ("izin yang
+  ditulis tangan akan menyimpang dari dokumennya"). Halaman "Role & Hak
+  Akses" pada purwarupa (yang menawarkan edit sel matriks dan sakelar
+  cakupan data) karenanya menjadi murni tampilan hanya-baca; sakelar
+  "Pembatasan Data" purwarupa dijatuhkan sama sekali — cakupan data
+  (gedung, unit kerja) selalu aktif, bukan pengaturan yang bisa dimatikan.
+- **Bug tertangkap saat pengkabelan: `Role::withCount('users')` melempar
+  "Class name must be a valid object or a string" khusus di dalam
+  permintaan HTTP asli (lulus sempurna di tinker/CLI).** Middleware
+  Sanctum MENGUBAH `config('auth.defaults.guard')` menjadi `'sanctum'`
+  selama permintaan berlangsung (lewat `Auth::shouldUse()`, yang menulis
+  langsung ke config, bukan cuma resolusi guard sesaat) — dan `'sanctum'`
+  tidak terdaftar di `config('auth.guards')`, sehingga relasi
+  `morphedByMany` milik Spatie gagal me-resolve model User saat instance
+  Role-nya masih kosong (belum punya `guard_name`). Diperbaiki dengan
+  kueri langsung ke tabel `model_has_roles`, yang tidak bergantung pada
+  resolusi guard sama sekali — lebih cepat sekaligus lebih tepercaya.
+- **PIC, Teknisi & Operator, Pengunjung, dan Struktur Organisasi pada
+  purwarupa SENGAJA TIDAK disambungkan pada modul ini.** Semuanya butuh
+  domain server baru yang belum ada sama sekali — delegasi PIC dengan
+  SLA eskalasi, workload teknisi dan jadwal, manajemen kunjungan tamu
+  (QR invitation, check-in/out, badge), bagan struktur organisasi — bukan
+  sekadar menyambungkan yang sudah ada, dan tidak proporsional untuk
+  digabung dengan Manajemen Pengguna & Peran. Dijatuhkan dengan sengaja,
+  bukan dipangkas diam-diam.
 
 ---
 

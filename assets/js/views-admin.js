@@ -257,39 +257,75 @@
   /* =======================================================================
      ROLE & PERMISSION
      ======================================================================= */
+  /* =======================================================================
+     ROLE & HAK AKSES — tersambung ke basis data, hanya baca
+
+     Matriks peran×modul adalah KODE (MatriksAkses::MATRIKS), bukan baris
+     tabel — mengeditnya lewat antarmuka berarti mengubah otorisasi tanpa
+     tinjauan kode. Halaman ini karenanya murni menampilkan apa yang sudah
+     ditegakkan kode, bukan formulir edit. Hanya super-admin yang dapat
+     membukanya sama sekali — lihat docblock MatriksAkses::MODUL.
+     ======================================================================= */
+
+  const ROL = { data: null, memuat: true, galat: null };
+
+  async function muatPeran() {
+    ROL.memuat = true; ROL.galat = null; isiPeran();
+    try { ROL.data = await Repo.peran.daftar(); }
+    catch (e) { ROL.data = null; ROL.galat = e; }
+    finally { ROL.memuat = false; isiPeran(); }
+  }
+
+  function isiPeran() {
+    const wadah = document.getElementById("rolIsi");
+    if (!wadah) return;
+    if (ROL.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (ROL.galat) {
+      const pesan = ROL.galat.status === 403
+        ? "Hanya Super Admin yang dapat melihat matriks peran & hak akses."
+        : (ROL.galat.message || "Gagal memuat.");
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>${ROL.galat.status === 403 ? "Tidak berwenang" : "Gagal memuat"}.</b><br><span class="small">${U.esc(pesan)}</span></div></div>`;
+      return;
+    }
+
+    const d = ROL.data;
+    const LV = { "-": "slate", LIHAT: "amber", BUAT: "teal", UBAH: "brand", PENUH: "green" };
+
+    wadah.innerHTML = `
+      <div class="perm-page mb-16">
+        ${U.card("Daftar Peran", U.table([
+          { t: "Peran", render: (r) => `<b>${U.esc(r.nama)}</b>${r.perlu_dikonfirmasi ? `<div class="tiny faint">Tingkat disimpulkan dari PRD, belum dikonfirmasi pemilik produk</div>` : ""}` },
+          { t: "Pengguna", cls: "center", render: (r) => `<span class="badge brand">${r.jumlah_pengguna}</span>` }
+        ], d.peran), { bodyCls: "flush" })}
+        ${d.matriks ? `${U.card("Matriks Hak Akses", `<div class="table-wrap"><table class="tbl">
+          <thead><tr><th>Modul</th>${d.peran.map((r) => `<th class="center small">${U.esc(r.nama)}</th>`).join("")}</tr></thead>
+          <tbody>${d.modul.map((m) => `<tr><td><b class="small">${U.esc(m.nama)}</b></td>
+            ${d.peran.map((r) => { const t = (d.matriks[r.kode] || {})[m.kode] || "-";
+              return `<td class="center"><span class="badge ${LV[t]}">${U.esc(d.nama_tingkat[t] || t)}</span></td>`; }).join("")}
+          </tr>`).join("")}</tbody></table></div>`,
+          { bodyCls: "flush", sub: "Sumber: MatriksAkses pada kode backend — hanya baca" })}` : `
+          ${U.card("Matriks Hak Akses", `<div class="small muted" style="padding:16px">Matriks lengkap tersedia setelah tersambung ke server.</div>`)}`}
+      </div>
+      ${U.card("Cakupan Data", `<div class="grid g2">
+        <div class="card"><div class="card-body">
+          <div class="kpi-ico tint-brand mb-8">${U.icon("pin", 17)}</div>
+          <b class="small">Berdasarkan Gedung</b>
+          <div class="small muted mt-4">Pengguna hanya melihat data pada gedung yang ditugaskan padanya (lihat kolom Gedung di Manajemen Pengguna). Tanpa penugasan gedung, pengguna TIDAK dibatasi — gagal ke arah longgar, bukan ketat.</div>
+        </div></div>
+        <div class="card"><div class="card-body">
+          <div class="kpi-ico tint-brand mb-8">${U.icon("users", 17)}</div>
+          <b class="small">Berdasarkan Unit Kerja</b>
+          <div class="small muted mt-4">Aset dan pemesanan yang tercatat dengan unit kerja tertentu ikut dibatasi oleh unit kerja pengguna yang melihatnya.</div>
+        </div></div>
+      </div>
+      <div class="small muted mt-12">Kedua batasan ini selalu aktif — bukan sakelar yang dapat dimatikan, karena keduanya bagian dari cara data disaring pada tiap kueri, bukan pengaturan terpisah.</div>`)}`;
+  }
+
   V["roles"] = {
     title: "Role & Hak Akses",
-    sub: "Permission per modul, lokasi, unit kerja, data, dan tindakan.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form role baru')">${U.icon("plus")} Tambah Role</button>`,
-    render() {
-      const LV = { FULL: ["green", "Penuh"], EDIT: ["brand", "Ubah"], CREATE: ["teal", "Buat"], VIEW: ["amber", "Lihat"], NONE: ["slate", "—"] };
-      return `
-        <div class="perm-page mb-16">
-          ${U.card("Daftar Role", U.table([
-            { t: "Role", render: (r) => `<b>${U.esc(r.name)}</b><div class="tiny faint">${U.esc(r.desc)}</div>` },
-            { t: "Pengguna", cls: "center", render: (r) => `<span class="badge brand">${r.users}</span>` },
-            { t: "Cakupan Data", render: (r) => `<span class="small muted">${U.esc(r.scope)}</span>` },
-            { t: "", cls: "actions", render: () => `<button class="icon-btn" onclick="UI.demo('Edit permission role')">${U.icon("edit", 15)}</button>` }
-          ], D.roles), { bodyCls: "flush" })}
-          ${U.card("Matriks Permission", `<div class="table-wrap"><table class="tbl">
-            <thead><tr><th>Modul</th>${D.permMatrix.roles.map((r) => `<th class="center">${r}</th>`).join("")}</tr></thead>
-            <tbody>${D.permMatrix.modules.map((m, i) => `<tr><td><b class="small">${m}</b></td>
-              ${D.permMatrix.grid[i].map((lv) => `<td class="center"><span class="badge ${LV[lv][0]}">${LV[lv][1]}</span></td>`).join("")}
-            </tr>`).join("")}</tbody></table></div>`,
-            { bodyCls: "flush", sub: "Klik sel untuk mengubah level akses", tools: `<button class="btn btn-sm" onclick="UI.demo('Simpan matriks permission')">Simpan</button>` })}
-        </div>
-        ${U.card("Pembatasan Data (Data Scope)", `<div class="grid g3">
-          ${[["Berdasarkan Lokasi", "Pengguna hanya melihat resource pada lokasi/gedung yang ditugaskan.", "pin"],
-             ["Berdasarkan Unit Kerja", "Data booking dan aset dibatasi pada unit kerja pengguna.", "users"],
-             ["Berdasarkan Resource", "PIC hanya mengelola resource yang secara eksplisit ditugaskan kepadanya.", "box"]]
-            .map(([t, d, ic]) => `<div class="card"><div class="card-body">
-              <div class="kpi-ico tint-brand mb-8">${U.icon(ic, 17)}</div>
-              <b class="small">${t}</b><div class="small muted mt-4">${d}</div>
-              <div class="row mt-12"><span class="small muted" style="flex:1">Aktif</span>
-                <label class="switch"><input type="checkbox" checked><span></span></label></div>
-            </div></div>`).join("")}
-        </div>`)}`;
-    }
+    sub: "Matriks peran × modul yang sungguhan ditegakkan server — hanya baca.",
+    render() { return `<div id="rolIsi"></div>`; },
+    mount() { muatPeran(); }
   };
 
   /* =======================================================================

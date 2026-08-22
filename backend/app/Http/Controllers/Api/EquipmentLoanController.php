@@ -9,13 +9,44 @@ use App\Http\Resources\EquipmentLoanResource;
 use App\Models\EquipmentLoan;
 use App\Services\AssetService;
 use App\Services\EquipmentLoanService;
+use App\Services\KetersediaanAlat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 
 class EquipmentLoanController extends Controller
 {
-    public function __construct(private readonly EquipmentLoanService $peminjaman) {}
+    public function __construct(
+        private readonly EquipmentLoanService $peminjaman,
+        private readonly KetersediaanAlat $ketersediaan,
+    ) {}
+
+    /**
+     * Alat mana yang bebas dipinjam pada sebuah rentang waktu.
+     *
+     * Selain bentrok jadwal, alat punya syarat kelayakan yang tidak dimiliki
+     * ruangan: kalibrasi. Alat ukur berkalibrasi kedaluwarsa secara teknis
+     * bebas, tetapi hasil pengujian yang memakainya tidak sah — jadi ia
+     * ditandai tidak tersedia, dengan alasannya disebutkan.
+     */
+    public function ketersediaan(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'mulai' => ['required', 'date'],
+            'selesai' => ['required', 'date', 'after:mulai'],
+            'cari' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        return response()->json([
+            'data' => $this->ketersediaan->untukRentang(
+                $request->user(),
+                Carbon::parse($data['mulai']),
+                Carbon::parse($data['selesai']),
+                $data['cari'] ?? null,
+            ),
+        ]);
+    }
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -23,6 +54,18 @@ class EquipmentLoanController extends Controller
             ->dalamCakupan($request->user())
             ->with(['asset:id,nama,kode_internal,bmn_id', 'user:id,name'])
             ->latest('mulai');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status')->toString());
+        }
+
+        if ($request->filled('cari')) {
+            $kata = $request->string('cari')->toString();
+            $query->where(fn ($q) => $q
+                ->where('keperluan', 'ilike', "%{$kata}%")
+                ->orWhereHas('asset', fn ($a) => $a->where('nama', 'ilike', "%{$kata}%"))
+                ->orWhereHas('user', fn ($u) => $u->where('name', 'ilike', "%{$kata}%")));
+        }
 
         if ($request->filled('asset_id')) {
             $query->where('asset_id', $request->integer('asset_id'));

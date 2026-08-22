@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-420 uji lulus, 1.259 asersi, 0 gagal — dijalankan di PostgreSQL 16
+430 uji lulus, 1.286 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,14 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Alat punya syarat kelayakan yang tidak dimiliki ruangan: KALIBRASI.**
+  Alat ukur berkalibrasi kedaluwarsa secara teknis "bebas", tetapi hasil
+  pengujian yang memakainya tidak sah. Membiarkannya tampak tersedia berarti
+  membiarkan orang menghasilkan data uji yang harus dibuang. Ia ditandai tidak
+  tersedia, **alasannya disebutkan**, dan tetap tampil — alat yang hilang dari
+  daftar membuat peminjam mengira daftarnya rusak. Ketika bentrok jadwal dan
+  kalibrasi sama-sama berlaku, yang disebut adalah jadwalnya: itulah yang
+  dapat ditindaklanjuti pengguna.
 - **Ketersediaan ruangan ditanyakan ke server, bukan dihitung peramban.**
   Antarmuka dapat menghitungnya dari daftar pemesanan yang sudah dimuat,
   tetapi daftar itu berumur beberapa detik sampai menit. Yang terjadi bukan

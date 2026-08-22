@@ -507,8 +507,123 @@
     }
   };
 
+
+  /* ------------------------------------------------------------ peminjaman */
+
+  const STATUS_PINJAM_PURWARUPA = {
+    "Requested": ["menunggu", "Menunggu persetujuan"],
+    "Approved": ["disetujui", "Disetujui"],
+    "In Use": ["dipinjam", "Sedang dipinjam"],
+    "Returned": ["dikembalikan", "Dikembalikan"],
+    "Rejected": ["ditolak", "Ditolak"],
+    "Cancelled": ["dibatalkan", "Dibatalkan"]
+  };
+
+  function pinjamDariPurwarupa(p) {
+    const st = STATUS_PINJAM_PURWARUPA[p.status] || ["menunggu", "Menunggu persetujuan"];
+    const nama = (id) => (window.DB ? DB.personName(id) : id);
+    const alat = window.DB ? DB.byId(DB.equipment, p.eq) : null;
+
+    return {
+      id: p.id,
+      keperluan: p.purpose || p.agenda || "—",
+      lokasi_pemakaian: p.place || null,
+      unit_kerja: p.unit || null,
+      jadwal: { mulai: p.date + "T" + (p.start || "08:00") + ":00",
+                selesai: (p.until || p.date) + "T" + (p.end || "16:00") + ":00" },
+      serah_terima: { diambil_pada: null, dikembalikan_pada: null },
+      status: { kode: st[0], nama: st[1] },
+      terlambat: false,
+      kondisi_saat_kembali: null,
+      alat: alat ? { id: alat.id, nama: alat.name, kode_internal: alat.kodeInternal, bmn_id: alat.bmnId } : null,
+      peminjam: p.by ? { id: p.by, nama: nama(p.by) } : null,
+      catatan: null,
+      persetujuan: { disetujui_pada: null, alasan_penolakan: null }
+    };
+  }
+
+  const peminjaman = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.eqBookings : []).map(pinjamDariPurwarupa);
+        if (tapis && tapis.status) baris = baris.filter((p) => p.status.kode === tapis.status);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((p) =>
+            ((p.keperluan || "") + " " + (p.alat ? p.alat.nama : "") + " " +
+             (p.peminjam ? p.peminjam.nama : "")).toLowerCase().indexOf(k) !== -1);
+        }
+        return { data: baris, total: baris.length, purwarupa: true };
+      }
+
+      const j = await API.get("/api/peminjaman" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    simpan(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengajukan peminjaman");
+      return API.post("/api/peminjaman", isi).then((j) => j.data);
+    },
+
+    async ketersediaan(mulai, selesai, cari) {
+      if (!langsungKeApi()) return { data: [], purwarupa: true };
+      const j = await API.get("/api/peminjaman/ketersediaan" + qs({
+        mulai: mulai, selesai: selesai, cari: cari || null
+      }));
+      return { data: j.data };
+    },
+
+    serahkan(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Serah terima alat");
+      return API.post("/api/peminjaman/" + encodeURIComponent(id) + "/serahkan").then((j) => j.data);
+    },
+
+    kembalikan(id, kondisi, catatan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Pengembalian alat");
+      return API.post("/api/peminjaman/" + encodeURIComponent(id) + "/kembalikan", {
+        kondisi: kondisi, catatan: catatan || null
+      }).then((j) => j.data);
+    }
+  };
+
+  /* ----------------------------------------------------------- persetujuan */
+
+  const persetujuan = {
+    /**
+     * Antrean yang menunggu keputusan pengguna ini.
+     *
+     * Server sudah mengeluarkan pengajuan milik pengguna sendiri dari antrean —
+     * tidak ada yang boleh menyetujui pengajuannya sendiri, dan itu ditegakkan
+     * batasan basis data, bukan hanya disaring di sini.
+     */
+    async antrean(jenis) {
+      if (!langsungKeApi()) {
+        if (jenis === "peminjaman") {
+          return { data: (await peminjaman.daftar({ status: "menunggu" })).data, purwarupa: true };
+        }
+        return { data: (await booking.daftar({ status: "menunggu" })).data, purwarupa: true };
+      }
+      const j = await API.get("/api/persetujuan/antrean" + qs({ jenis: jenis }));
+      return { data: j.data };
+    },
+
+    setujui(jenis, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyetujui pengajuan");
+      return API.post("/api/persetujuan/" + jenis + "/" + encodeURIComponent(id) + "/setujui")
+        .then((j) => j.data);
+    },
+
+    tolak(jenis, id, alasan) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menolak pengajuan");
+      return API.post("/api/persetujuan/" + jenis + "/" + encodeURIComponent(id) + "/tolak",
+        { alasan: alasan }).then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    peminjaman: peminjaman,
+    persetujuan: persetujuan,
     booking: booking,
     aset: aset,
     laboratorium: laboratorium,

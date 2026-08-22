@@ -7,74 +7,220 @@
   /* =======================================================================
      APPROVAL
      ======================================================================= */
-  V["approval"] = {
-    title: "Kotak Persetujuan",
-    sub: "Pengajuan yang menunggu tindakan Anda beserta riwayat approval.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Setujui seluruh pengajuan terpilih')">${U.icon("check")} Setujui Massal</button>
-              <button class="btn btn-primary btn-sm" onclick="location.hash='#/workflow'">${U.icon("gear")} Konfigurasi Workflow</button>`,
-    render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Menunggu Tindakan", value: D.approvals.length, icon: "clock", tint: "amber", note: "Atas nama Anda" })}
-          ${U.kpi({ label: "Melewati SLA", value: 2, icon: "alert", tint: "red", note: "Perlu segera diproses" })}
-          ${U.kpi({ label: "Disetujui Bulan Ini", value: 87, icon: "check", tint: "green", delta: 12, note: "Rata-rata 3,4 jam" })}
-          ${U.kpi({ label: "Nilai Menunggu", value: U.rpShort(D.approvals.reduce((a, x) => a + x.amount, 0)), icon: "money", tint: "brand", note: "Total transaksi berbayar" })}
-        </div>
+  /* =======================================================================
+     KOTAK PERSETUJUAN — tersambung ke basis data
+     ======================================================================= */
 
-        <div class="tabs mb-16">
-          <button class="active">Menunggu Saya (${D.approvals.length})</button>
-          <button onclick="UI.demo('Tab diajukan oleh saya')">Diajukan Saya</button>
-          <button onclick="UI.demo('Tab riwayat')">Riwayat</button>
-          <button onclick="UI.demo('Tab didelegasikan')">Didelegasikan</button>
-        </div>
+  const APPR = { jenis: "booking", baris: [], memuat: true, galat: null };
 
-        <div class="col gap-12">
-          ${D.approvals.map((a) => {
-            const late = ["AP-2026-01191", "AP-2026-01192"].includes(a.id);
-            return `<div class="card" style="border-left:3px solid ${late ? "var(--red-500)" : a.priority === "Tinggi" ? "var(--amber-500)" : "var(--brand-500)"}">
-              <div class="card-body">
-                <div class="row-t">
-                  <div style="flex:1;min-width:0">
-                    <div class="row wrap gap-6 mb-8">
-                      <span class="badge outline">${U.esc(a.type)}</span>
-                      <span class="badge ${a.priority === "Tinggi" ? "red" : "amber"}">Prioritas ${a.priority}</span>
-                      ${late ? `<span class="badge red">${U.icon("alert", 11)} Melewati SLA</span>` : `<span class="badge outline">SLA ${a.sla}</span>`}
-                      <span class="tiny faint mono">${a.id}</span>
-                    </div>
-                    <div class="bold mb-4">${U.esc(a.subject)}</div>
-                    <div class="small muted">Diajukan oleh <b>${U.esc(D.personName(a.requester))}</b> pada ${U.fdate(a.submitted, "long")} •
-                      Referensi <span class="mono">${a.ref}</span></div>
-                    <div class="row mt-12 small gap-16 wrap">
-                      <span>${U.icon("check", 13)} Tahap: <b>${U.esc(a.stage)}</b></span>
-                      <span>${U.icon("chev", 13)} Berikutnya: ${U.esc(a.nextStage)}</span>
-                      ${a.amount ? `<span>${U.icon("money", 13)} Nilai: <b>${U.rp(a.amount)}</b></span>` : ""}
-                    </div>
-                  </div>
-                  <div class="col gap-6" style="width:158px">
-                    <button class="btn btn-sm btn-primary btn-block" onclick="apprDo('${a.id}','setuju')">${U.icon("check", 13)} Setujui</button>
-                    <button class="btn btn-sm btn-block" onclick="apprDo('${a.id}','tolak')">${U.icon("x", 13)} Tolak</button>
-                    <button class="btn btn-sm btn-ghost btn-block" onclick="showBooking('${a.ref}')">Lihat Detail</button>
-                  </div>
-                </div>
-              </div></div>`;
-          }).join("")}
-        </div>`;
+  function apprWaktu(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function apprKartu(x) {
+    const booking = APPR.jenis === "booking";
+
+    const judul = booking
+      ? x.keperluan
+      : (x.alat ? x.alat.nama : "Peminjaman alat");
+
+    const sub = booking
+      ? (x.ruangan ? x.ruangan.nama : "—")
+      : x.keperluan;
+
+    const mulai = booking ? x.mulai : x.jadwal.mulai;
+    const selesai = booking ? x.selesai : x.jadwal.selesai;
+    const pemohon = booking ? x.pemohon : x.peminjam;
+
+    return `
+      <div class="card" style="border-left:3px solid var(--brand-500)"><div class="card-body">
+        <div class="row-t">
+          <div style="flex:1;min-width:0">
+            <div class="row wrap gap-6 mb-8">
+              <span class="badge outline">${booking ? "Pemesanan ruangan" : "Peminjaman alat"}</span>
+              <span class="badge amber">Menunggu keputusan Anda</span>
+              <span class="tiny faint mono">#${U.esc(String(x.id))}</span>
+            </div>
+            <div class="bold mb-4">${U.esc(judul)}</div>
+            <div class="small muted">${U.esc(sub)}</div>
+            <div class="row mt-12 small gap-16 wrap">
+              <span>${U.icon("calendar", 13)} ${U.fdate((mulai || "").slice(0, 10), "long")}</span>
+              <span>${U.icon("clock", 13)} ${apprWaktu(mulai)} – ${apprWaktu(selesai)}</span>
+              ${pemohon ? `<span>${U.icon("users", 13)} ${U.esc(pemohon.nama)}</span>` : ""}
+            </div>
+          </div>
+          <div class="col gap-6" style="width:158px">
+            <button class="btn btn-sm btn-primary btn-block"
+              onclick="apprPutuskan('${U.esc(String(x.id))}','setuju')">${U.icon("check", 13)} Setujui</button>
+            <button class="btn btn-sm btn-block"
+              onclick="apprPutuskan('${U.esc(String(x.id))}','tolak')">${U.icon("x", 13)} Tolak</button>
+          </div>
+        </div>
+      </div></div>`;
+  }
+
+  function isiAntrean() {
+    const wadah = document.getElementById("apprDaftar");
+    if (!wadah) return;
+
+    if (APPR.memuat) {
+      wadah.innerHTML = `<div class="card" style="padding:32px;text-align:center">
+        <span class="muted">Memuat antrean…</span></div>`;
+      return;
+    }
+
+    if (APPR.galat) {
+      // 403 di sini punya arti khusus: peran Anda memang tidak berwenang
+      // menyetujui jenis pengajuan ini. Menampilkannya sebagai galat teknis
+      // membuat orang mengira sistemnya rusak.
+      const tanpaWewenang = APPR.galatStatus === 403;
+      wadah.innerHTML = `<div class="alert ${tanpaWewenang ? "warn" : "err"}">${U.icon("alert", 15)}<div>
+        ${tanpaWewenang
+          ? "<b>Peran Anda tidak berwenang menyetujui jenis pengajuan ini.</b><br>" +
+            "<span class='small'>Hubungi administrator bila seharusnya berwenang.</span>"
+          : "<b>Gagal memuat antrean.</b><br><span class='small'>" + U.esc(APPR.galat) + "</span>"}
+      </div></div>`;
+      return;
+    }
+
+    if (!APPR.baris.length) {
+      wadah.innerHTML = `<div class="card" style="padding:40px;text-align:center">
+        <div class="tint-green" style="width:48px;height:48px;border-radius:50%;display:grid;place-items:center;margin:0 auto 12px">
+          ${U.icon("check", 22)}</div>
+        <div class="muted">Tidak ada pengajuan yang menunggu keputusan Anda.</div>
+        <div class="small muted mt-8">Pengajuan yang Anda buat sendiri tidak pernah muncul di sini —
+          tidak ada yang boleh menyetujui pengajuannya sendiri.</div>
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="col gap-12">${APPR.baris.map(apprKartu).join("")}</div>`;
+  }
+
+  async function muatAntrean() {
+    APPR.memuat = true;
+    APPR.galat = null;
+    APPR.galatStatus = null;
+    isiAntrean();
+
+    try {
+      APPR.baris = (await Repo.persetujuan.antrean(APPR.jenis)).data;
+    } catch (e) {
+      APPR.baris = [];
+      APPR.galat = e.message;
+      APPR.galatStatus = e.status;
+    } finally {
+      APPR.memuat = false;
+      isiAntrean();
+
+      const t = document.getElementById("apprJumlah");
+      if (t) t.textContent = APPR.baris.length;
+    }
+  }
+
+  window.apprGantiJenis = function (jenis) {
+    APPR.jenis = jenis;
+    document.querySelectorAll("#apprTabs button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.jenis === jenis);
+    });
+    muatAntrean();
+  };
+
+  window.apprPutuskan = function (id, aksi) {
+    const setuju = aksi === "setuju";
+
+    U.modal({
+      title: setuju ? "Setujui Pengajuan" : "Tolak Pengajuan",
+      sub: "#" + id,
+      body: `
+        <div id="apprGalat" class="alert err mb-16" hidden></div>
+        ${setuju
+          ? `<p class="small muted">Setelah disetujui, ${APPR.jenis === "booking"
+              ? "ruangan tetap tertahan" : "alat tetap tertahan"} pada rentang waktu tersebut
+             dan pemohon dapat melanjutkan.</p>`
+          : `<label class="fld"><span>Alasan penolakan *</span>
+              <textarea class="input" id="apprAlasan" rows="3"
+                placeholder="Sebutkan alasannya agar pemohon dapat memperbaiki pengajuannya."></textarea></label>
+             <p class="small muted mt-8">Alasan wajib diisi — penolakan tanpa alasan ditolak basis data,
+               bukan hanya oleh formulir ini.</p>`}`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn ${setuju ? "btn-primary" : "btn-danger"}" id="apprKirim"
+               onclick="apprKirim('${U.esc(String(id))}','${aksi}')">
+               ${setuju ? "Setujui" : "Tolak Pengajuan"}</button>`
+    });
+  };
+
+  window.apprKirim = async function (id, aksi) {
+    const setuju = aksi === "setuju";
+    const kotak = document.getElementById("apprGalat");
+    const tombol = document.getElementById("apprKirim");
+
+    let alasan = null;
+    if (!setuju) {
+      alasan = (document.getElementById("apprAlasan").value || "").trim();
+      if (!alasan) {
+        kotak.textContent = "Alasan penolakan wajib diisi.";
+        kotak.hidden = false;
+        return;
+      }
+    }
+
+    kotak.hidden = true;
+    tombol.disabled = true;
+    tombol.textContent = "Memproses…";
+
+    try {
+      if (setuju) await Repo.persetujuan.setujui(APPR.jenis, id);
+      else await Repo.persetujuan.tolak(APPR.jenis, id, alasan);
+
+      U.closeModal();
+      U.toast(setuju ? "Pengajuan disetujui" : "Pengajuan ditolak",
+        setuju ? "Pemohon dapat melanjutkan." : "Slot yang tertahan kini bebas kembali.");
+      await muatAntrean();
+    } catch (e) {
+      // 403 di sini paling sering berarti pengajuan itu milik sendiri —
+      // ditolak basis data, bukan hanya disaring antrean.
+      kotak.textContent = e.status === 403
+        ? "Anda tidak berwenang memutuskan pengajuan ini. Pengajuan milik sendiri tidak dapat disetujui sendiri."
+        : (e.message || "Gagal memproses pengajuan.");
+      kotak.hidden = false;
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = setuju ? "Setujui" : "Tolak Pengajuan";
     }
   };
 
-  window.apprDo = function (id, act) {
-    U.modal({
-      title: act === "setuju" ? "Setujui Pengajuan" : "Tolak Pengajuan", sub: id,
-      body: `<div class="field mb-16"><label>Catatan ${act === "tolak" ? '<span class="req">*</span>' : "(opsional)"}</label>
-        <textarea class="textarea" placeholder="${act === "setuju" ? "Catatan persetujuan, syarat, atau instruksi tambahan…" : "Alasan penolakan wajib diisi agar pemohon dapat memperbaiki pengajuan."}"></textarea></div>
-        ${act === "setuju" ? `<label class="check"><input type="checkbox"><span class="small">Teruskan langsung ke tahap berikutnya tanpa menunggu batch approval.</span></label>` : ""}
-        <div class="alert info mt-16 small">${U.icon("bell", 15)}<div>Pemohon akan menerima notifikasi in-app, email, dan WhatsApp setelah keputusan disimpan.</div></div>`,
-      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
-             <button class="btn ${act === "setuju" ? "btn-primary" : "btn-danger"}"
-               onclick="UI.closeModal();UI.toast('${act === "setuju" ? "Pengajuan disetujui" : "Pengajuan ditolak"}','${id} telah diperbarui dan notifikasi terkirim.','${act === "setuju" ? "ok" : "warn"}')">
-               ${act === "setuju" ? "Setujui" : "Tolak"}</button>`
-    });
+  V["approval"] = {
+    title: "Kotak Persetujuan",
+    sub: "Pengajuan yang menunggu keputusan Anda.",
+    render() {
+      return `
+        <div class="alert info mb-16">${U.icon("shield", 17)}<div>
+          <b>Pengajuan Anda sendiri tidak pernah muncul di sini.</b>
+          Larangan menyetujui pengajuan sendiri ditegakkan batasan basis data, bukan hanya
+          disaring pada daftar ini — sehingga tetap berlaku pada jalur mana pun.</div></div>
+
+        <div class="tabs mb-16" id="apprTabs">
+          <button class="active" data-jenis="booking" onclick="apprGantiJenis('booking')">
+            Pemesanan Ruangan</button>
+          <button data-jenis="peminjaman" onclick="apprGantiJenis('peminjaman')">
+            Peminjaman Alat</button>
+        </div>
+
+        <div class="row mb-16">
+          <span class="badge amber">Menunggu keputusan Anda: <b id="apprJumlah">…</b></span>
+        </div>
+
+        <div id="apprDaftar"></div>`;
+    },
+    mount() {
+      APPR.jenis = "booking";
+      muatAntrean();
+    }
   };
+
 
   /* =======================================================================
      WORKFLOW

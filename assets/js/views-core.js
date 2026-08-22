@@ -999,29 +999,464 @@ window.VIEWS = window.VIEWS || {};
   /* =======================================================================
      RESERVASI ALAT
      ======================================================================= */
+  /* =======================================================================
+     PEMINJAMAN ALAT — tersambung ke basis data
+     ======================================================================= */
+
+  const PJM = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  const STATUS_PJM_TINT = {
+    menunggu: "amber", disetujui: "brand", dipinjam: "teal",
+    dikembalikan: "green", ditolak: "red", dibatalkan: "slate"
+  };
+
+  function pjmWaktu(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function pjmBarisHTML(p) {
+    const st = p.status;
+    return `
+      <tr>
+        <td><span class="lnk mono" onclick="showPinjam('${U.esc(String(p.id))}')">#${U.esc(String(p.id))}</span></td>
+        <td><b>${U.esc(p.alat ? p.alat.nama : "—")}</b>
+          <div class="tiny faint mono">${U.esc(p.alat ? (p.alat.kode_internal || "") : "")}</div></td>
+        <td><span class="small">${U.esc(p.keperluan)}</span></td>
+        <td>${p.peminjam ? U.esc(p.peminjam.nama) : "—"}
+          ${p.unit_kerja ? `<div class="tiny faint">${U.esc(p.unit_kerja)}</div>` : ""}</td>
+        <td>${U.fdate((p.jadwal.mulai || "").slice(0, 10), "short")}
+          <div class="tiny faint">${pjmWaktu(p.jadwal.mulai)} – ${pjmWaktu(p.jadwal.selesai)}</div></td>
+        <td><span class="badge ${STATUS_PJM_TINT[st.kode] || "slate"}">${U.esc(st.nama)}</span>
+          ${p.terlambat ? `<div class="tiny" style="color:var(--red-500)">Terlambat kembali</div>` : ""}</td>
+        <td class="actions"><button class="icon-btn" onclick="showPinjam('${U.esc(String(p.id))}')">${U.icon("eye", 15)}</button></td>
+      </tr>`;
+  }
+
+  function isiTabelPinjam() {
+    const wadah = document.getElementById("pjmTabel");
+    if (!wadah) return;
+
+    if (PJM.memuat) {
+      wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat peminjaman…</span></div>`;
+      return;
+    }
+    if (PJM.galat) {
+      wadah.innerHTML = `<div style="padding:20px"><div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat peminjaman.</b><br><span class="small">${U.esc(PJM.galat)}</span></div></div></div>`;
+      return;
+    }
+    if (!PJM.baris.length) {
+      const adaTapis = Object.keys(PJM.tapis).some((k) => PJM.tapis[k]);
+      wadah.innerHTML = `<div style="padding:40px;text-align:center">
+        <div class="muted mb-12">${adaTapis
+          ? "Tidak ada peminjaman yang cocok dengan penyaringan ini."
+          : "Belum ada peminjaman alat."}</div>
+        ${adaTapis
+          ? `<button class="btn btn-sm" onclick="pjmHapusTapis()">Hapus penyaringan</button>`
+          : (Repo.dapatMenulis()
+            ? `<button class="btn btn-primary btn-sm" onclick="pjmForm()">${U.icon("plus")} Ajukan Peminjaman</button>`
+            : `<span class="small muted">Masuk dengan akun untuk mengajukan peminjaman.</span>`)}
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th style="width:100px">ID</th><th>Alat</th><th>Keperluan</th>
+        <th>Peminjam</th><th>Jadwal</th><th>Status</th><th></th></tr></thead>
+      <tbody>${PJM.baris.map(pjmBarisHTML).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPinjam() {
+    const wadah = document.getElementById("pjmKpi");
+    if (!wadah) return;
+
+    const b = PJM.baris;
+    const hitung = (k) => b.filter((x) => x.status.kode === k).length;
+    const terlambat = b.filter((x) => x.terlambat).length;
+
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Sedang Dipinjam", value: hitung("dipinjam"), icon: "grid", tint: "teal", note: "Alat berada di luar" })}
+      ${U.kpi({ label: "Menunggu Persetujuan", value: hitung("menunggu"), icon: "clock", tint: "amber", note: "Perlu tindakan" })}
+      ${U.kpi({ label: "Disetujui, Belum Diambil", value: hitung("disetujui"), icon: "check", tint: "brand", note: "Menunggu serah terima" })}
+      ${U.kpi({ label: "Terlambat Kembali", value: terlambat, icon: "alert",
+                tint: terlambat ? "red" : "slate", note: terlambat ? "Perlu ditagih" : "Tidak ada" })}`;
+  }
+
+  async function muatPinjam() {
+    PJM.memuat = true;
+    PJM.galat = null;
+    isiTabelPinjam();
+
+    try {
+      PJM.baris = (await Repo.peminjaman.daftar(PJM.tapis)).data;
+    } catch (e) {
+      PJM.baris = [];
+      PJM.galat = e.message;
+    } finally {
+      PJM.memuat = false;
+      isiTabelPinjam();
+      isiRingkasanPinjam();
+    }
+  }
+
+  window.pjmTapis = function (k, v) {
+    if (v) PJM.tapis[k] = v; else delete PJM.tapis[k];
+    muatPinjam();
+  };
+  window.pjmHapusTapis = function () {
+    PJM.tapis = {};
+    const c = document.getElementById("pjmCari");
+    if (c) c.value = "";
+    muatPinjam();
+  };
+
+  /* ------------------------------------------------------------- formulir */
+
+  const PJM_FORM = { alat: null, memuat: false, galat: null, terpilih: null };
+
+  window.pjmForm = function () {
+    if (!Repo.dapatMenulis()) {
+      U.toast("Tidak tersedia", "Mengajukan peminjaman hanya bisa setelah masuk dengan akun.");
+      return;
+    }
+
+    PJM_FORM.alat = null;
+    PJM_FORM.terpilih = null;
+    PJM_FORM.galat = null;
+
+    const besok = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    U.drawer({
+      size: "wide",
+      title: "Ajukan Peminjaman Alat",
+      sub: "Ketersediaan diperiksa ke server pada rentang waktu yang Anda pilih",
+      body: `
+        <div id="pjmFormGalat" class="alert err mb-16" hidden></div>
+        <div class="grid g2 gap-12">
+          <label class="fld"><span>Tanggal mulai *</span>
+            <input class="input" type="date" id="pTglMulai" value="${besok}" onchange="pjmMuatAlat()"></label>
+          <label class="fld"><span>Jam mulai *</span>
+            <input class="input" type="time" id="pJamMulai" value="08:00" onchange="pjmMuatAlat()"></label>
+          <label class="fld"><span>Tanggal selesai *</span>
+            <input class="input" type="date" id="pTglSelesai" value="${besok}" onchange="pjmMuatAlat()"></label>
+          <label class="fld"><span>Jam selesai *</span>
+            <input class="input" type="time" id="pJamSelesai" value="16:00" onchange="pjmMuatAlat()"></label>
+        </div>
+
+        <label class="fld mt-12"><span>Keperluan *</span>
+          <input class="input" id="pKeperluan" placeholder="Uji kadar air sampel tanah"></label>
+        <label class="fld mt-12"><span>Lokasi pemakaian</span>
+          <input class="input" id="pLokasi" placeholder="Lab Kimia Analitik / lapangan"></label>
+
+        <h4 class="mt-16 mb-8 muted">PILIH ALAT</h4>
+        <div class="tbl-search mb-12">${U.icon("search", 15, "faint")}
+          <input id="pCariAlat" placeholder="Cari nama alat, kode internal, atau nomor seri…"></div>
+        <div id="pjmDaftarAlat"></div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="pjmSimpan" onclick="pjmSimpan()">Ajukan Peminjaman</button>`
+    });
+
+    const cari = document.getElementById("pCariAlat");
+    if (cari) {
+      let jeda;
+      cari.addEventListener("input", function () {
+        clearTimeout(jeda);
+        jeda = setTimeout(() => pjmMuatAlat(), 300);
+      });
+    }
+
+    pjmMuatAlat();
+  };
+
+  function pjmRentang() {
+    const v = (id) => (document.getElementById(id) || {}).value || "";
+    return {
+      mulai: v("pTglMulai") + "T" + v("pJamMulai") + ":00",
+      selesai: v("pTglSelesai") + "T" + v("pJamSelesai") + ":00"
+    };
+  }
+
+  window.pjmMuatAlat = async function () {
+    const wadah = document.getElementById("pjmDaftarAlat");
+    if (!wadah) return;
+
+    const r = pjmRentang();
+    if (!r.mulai || !r.selesai || r.selesai <= r.mulai) {
+      wadah.innerHTML = `<div class="alert warn small">${U.icon("alert", 15)}<div>
+        Waktu selesai harus setelah waktu mulai.</div></div>`;
+      return;
+    }
+
+    // Pilihan alat sebelumnya dibatalkan: mengubah rentang waktu membuat
+    // ketersediaannya berubah, dan membiarkan pilihan lama akan mengirim
+    // pengajuan untuk alat yang barusan tidak lagi bebas.
+    PJM_FORM.terpilih = null;
+    PJM_FORM.memuat = true;
+    wadah.innerHTML = `<div style="padding:24px;text-align:center"><span class="muted">Memeriksa ketersediaan alat…</span></div>`;
+
+    const cari = (document.getElementById("pCariAlat") || {}).value || "";
+
+    try {
+      PJM_FORM.alat = (await Repo.peminjaman.ketersediaan(r.mulai, r.selesai, cari)).data;
+      PJM_FORM.galat = null;
+    } catch (e) {
+      PJM_FORM.alat = [];
+      PJM_FORM.galat = e.message;
+    } finally {
+      PJM_FORM.memuat = false;
+      pjmRenderAlat();
+    }
+  };
+
+  function pjmRenderAlat() {
+    const wadah = document.getElementById("pjmDaftarAlat");
+    if (!wadah) return;
+
+    if (PJM_FORM.galat) {
+      wadah.innerHTML = `<div class="alert err small">${U.icon("alert", 15)}<div>
+        <b>Ketersediaan tidak dapat diperiksa.</b> ${U.esc(PJM_FORM.galat)}</div></div>`;
+      return;
+    }
+
+    const alat = PJM_FORM.alat || [];
+
+    if (!alat.length) {
+      wadah.innerHTML = `<div style="padding:24px;text-align:center">
+        <span class="muted">Tidak ada alat yang cocok. Daftarkan alat lebih dulu pada Registrasi Alat.</span></div>`;
+      return;
+    }
+
+    const bebas = alat.filter((a) => a.tersedia).length;
+
+    wadah.innerHTML = `
+      <div class="row wrap gap-8 mb-12">
+        <span class="badge green">${bebas} alat tersedia</span>
+        <span class="badge red">${alat.length - bebas} tidak dapat dipinjam</span>
+      </div>
+      <div class="col gap-6">
+        ${alat.map((a) => `
+          <div class="row-t" style="${a.tersedia ? "cursor:pointer" : "opacity:.55"};
+                 ${String(PJM_FORM.terpilih) === String(a.id) ? "outline:2px solid var(--brand-600);outline-offset:-2px;border-radius:8px" : ""}"
+               ${a.tersedia ? `onclick="pjmPilihAlat('${U.esc(String(a.id))}')"` : ""}>
+            <div style="flex:1;min-width:0">
+              <div class="bold small trunc">${U.esc(a.nama)}</div>
+              <div class="tiny faint mono">${U.esc(a.kode_internal || a.bmn_id || "")}</div>
+              ${a.lokasi ? `<div class="tiny faint">${U.esc(a.lokasi)}</div>` : ""}
+            </div>
+            <div class="right">
+              ${a.tersedia
+                ? `<span class="badge green">Tersedia</span>`
+                : `<span class="badge red">${U.esc(a.alasan || "Tidak tersedia")}</span>`}
+              ${a.bentrok && a.bentrok.length
+                ? `<div class="tiny faint mt-4">${U.esc(a.bentrok[0].peminjam || "")} ·
+                    ${pjmWaktu(a.bentrok[0].mulai)}–${pjmWaktu(a.bentrok[0].selesai)}</div>` : ""}
+            </div>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  window.pjmPilihAlat = function (id) {
+    PJM_FORM.terpilih = id;
+    pjmRenderAlat();
+  };
+
+  window.pjmSimpan = async function () {
+    const teks = (id) => {
+      const el = document.getElementById(id);
+      const t = el ? el.value.trim() : "";
+      return t === "" ? null : t;
+    };
+
+    const kotak = document.getElementById("pjmFormGalat");
+    const tombol = document.getElementById("pjmSimpan");
+
+    if (!PJM_FORM.terpilih) {
+      kotak.textContent = "Pilih salah satu alat yang tersedia lebih dulu.";
+      kotak.hidden = false;
+      return;
+    }
+
+    const r = pjmRentang();
+
+    kotak.hidden = true;
+    tombol.disabled = true;
+    tombol.textContent = "Mengirim…";
+
+    try {
+      await Repo.peminjaman.simpan({
+        asset_id: Number(PJM_FORM.terpilih),
+        keperluan: teks("pKeperluan"),
+        lokasi_pemakaian: teks("pLokasi"),
+        mulai: r.mulai,
+        selesai: r.selesai
+      });
+
+      U.closeDrawer();
+      U.toast("Peminjaman diajukan", "Alat tertahan atas nama Anda sampai keputusan penyetuju.");
+      await muatPinjam();
+    } catch (e) {
+      // Bentrok datang sebagai 422 dengan pesan dari server yang menyebut
+      // peminjaman penabraknya. Ditampilkan apa adanya.
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan)
+          .map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else {
+        kotak.textContent = e.message || "Gagal mengajukan peminjaman.";
+      }
+      kotak.hidden = false;
+
+      // Ketersediaan yang tersimpan sudah usang — orang lain baru saja
+      // meminjam alat ini.
+      pjmMuatAlat();
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = "Ajukan Peminjaman";
+    }
+  };
+
+  /* --------------------------------------------------------------- detail */
+
+  window.showPinjam = function (id) {
+    const p = PJM.baris.find((x) => String(x.id) === String(id));
+    if (!p) return;
+
+    const baris = (k, v) => v === null || v === undefined || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`;
+    const st = p.status;
+    const bolehKelola = Repo.dapatMenulis() && API.boleh("booking-alat.ubah");
+
+    U.drawer({
+      size: "wide",
+      title: p.alat ? p.alat.nama : "Peminjaman",
+      sub: "#" + p.id + " · " + p.keperluan,
+      body: `
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_PJM_TINT[st.kode] || "slate"}">${U.esc(st.nama)}</span>
+          ${p.terlambat ? `<span class="badge red">Terlambat kembali</span>` : ""}
+          ${p.kondisi_saat_kembali
+            ? `<span class="badge outline">Kembali: ${U.esc(p.kondisi_saat_kembali.nama)}</span>` : ""}
+        </div>
+
+        <div class="dl mb-16">
+          ${baris("Alat", p.alat ? U.esc(p.alat.nama) : "")}
+          ${baris("Kode Internal", p.alat && p.alat.kode_internal
+            ? `<span class="mono">${U.esc(p.alat.kode_internal)}</span>` : "")}
+          ${baris("Kode BMN", p.alat && p.alat.bmn_id
+            ? `<span class="mono">${U.esc(p.alat.bmn_id)}</span>` : "")}
+          ${baris("Peminjam", p.peminjam ? U.esc(p.peminjam.nama) : "")}
+          ${baris("Unit Kerja", U.esc(p.unit_kerja || ""))}
+          ${baris("Keperluan", U.esc(p.keperluan))}
+          ${baris("Lokasi Pemakaian", U.esc(p.lokasi_pemakaian || ""))}
+          ${baris("Jadwal", U.fdate((p.jadwal.mulai || "").slice(0, 10), "long") + " · " +
+            pjmWaktu(p.jadwal.mulai) + " – " + pjmWaktu(p.jadwal.selesai))}
+          ${baris("Diambil", p.serah_terima.diambil_pada
+            ? U.fdate(p.serah_terima.diambil_pada.slice(0, 10), "long") : "")}
+          ${baris("Dikembalikan", p.serah_terima.dikembalikan_pada
+            ? U.fdate(p.serah_terima.dikembalikan_pada.slice(0, 10), "long") : "")}
+          ${baris("Alasan Penolakan", U.esc(p.persetujuan.alasan_penolakan || ""))}
+          ${baris("Catatan", U.esc(p.catatan || ""))}
+        </div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
+             <div class="spacer"></div>
+             ${bolehKelola && st.kode === "disetujui"
+               ? `<button class="btn btn-primary" onclick="pjmSerahkan('${U.esc(String(p.id))}')">
+                    ${U.icon("check")} Serahkan Alat</button>` : ""}
+             ${bolehKelola && st.kode === "dipinjam"
+               ? `<button class="btn btn-primary" onclick="pjmFormKembali('${U.esc(String(p.id))}')">
+                    ${U.icon("refresh")} Catat Pengembalian</button>` : ""}`
+    });
+  };
+
+  window.pjmSerahkan = async function (id) {
+    try {
+      await Repo.peminjaman.serahkan(id);
+      U.closeDrawer();
+      U.toast("Alat diserahkan", "Status berubah menjadi sedang dipinjam.");
+      await muatPinjam();
+    } catch (e) {
+      Repo.tampilkanGalat(e, "Gagal mencatat serah terima");
+    }
+  };
+
+  window.pjmFormKembali = function (id) {
+    U.modal({
+      title: "Catat Pengembalian Alat",
+      body: `
+        <div id="pjmKembaliGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Kondisi saat kembali *</span>
+          <select class="select" id="kKondisi">
+            <option value="B">Baik</option>
+            <option value="RR">Rusak Ringan</option>
+            <option value="RB">Rusak Berat</option>
+          </select></label>
+        <label class="fld mt-12"><span>Catatan pemeriksaan</span>
+          <textarea class="input" id="kCatatan" rows="3"
+            placeholder="Kelengkapan, kerusakan yang ditemukan, tindak lanjut…"></textarea></label>
+        <p class="small muted mt-12">Kondisi yang dicatat di sini memperbarui kondisi asetnya
+          pada Register BMN — jadi isilah apa adanya, bukan apa yang paling mudah.</p>`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn btn-primary" onclick="pjmKembalikan('${U.esc(String(id))}')">Catat Pengembalian</button>`
+    });
+  };
+
+  window.pjmKembalikan = async function (id) {
+    const kondisi = document.getElementById("kKondisi").value;
+    const catatan = document.getElementById("kCatatan").value.trim();
+
+    try {
+      await Repo.peminjaman.kembalikan(id, kondisi, catatan || null);
+      U.closeModal();
+      U.closeDrawer();
+      U.toast("Pengembalian tercatat", "Alat kembali tersedia untuk dipinjam.");
+      await muatPinjam();
+    } catch (e) {
+      const kotak = document.getElementById("pjmKembaliGalat");
+      if (kotak) {
+        kotak.textContent = e.message || "Gagal mencatat pengembalian.";
+        kotak.hidden = false;
+      } else {
+        Repo.tampilkanGalat(e, "Gagal mencatat pengembalian");
+      }
+    }
+  };
+
   V["eqbooking"] = {
-    title: "Reservasi Alat Laboratorium",
-    sub: "Alur: Request → Approval → Reservation → Usage → Return → Inspection → Closing.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="eqNew()">${U.icon("plus")} Ajukan Reservasi</button>`,
+    title: "Peminjaman Alat Laboratorium",
+    sub: "Alur: pengajuan → persetujuan → serah terima → pemakaian → pengembalian → pemeriksaan.",
+    get actions() {
+      return Repo.dapatMenulis()
+        ? `<button class="btn btn-primary btn-sm" onclick="pjmForm()">${U.icon("plus")} Ajukan Peminjaman</button>`
+        : "";
+    },
     render() {
       return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Reservasi Aktif", value: D.eqBookings.filter((e) => ["Approved", "In Use", "Borrowed"].includes(e.status)).length, icon: "grid", tint: "brand", note: "Sedang berjalan" })}
-          ${U.kpi({ label: "Menunggu Approval", value: D.eqBookings.filter((e) => e.status === "Waiting Approval").length, icon: "clock", tint: "amber", note: "SLA 4 jam" })}
-          ${U.kpi({ label: "Alat Tersedia", value: D.equipment.filter((e) => e.status === "Available").length, icon: "check", tint: "green", note: "dari " + D.equipment.length + " alat" })}
-          ${U.kpi({ label: "Alat Terblokir", value: D.equipment.filter((e) => ["Maintenance", "Calibration", "Broken"].includes(e.status)).length, icon: "alert", tint: "red", note: "Maintenance / kalibrasi / rusak" })}
+        <div class="grid g4 mb-16" id="pjmKpi"></div>
+        <div class="card"><div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="pjmCari" placeholder="Cari alat, keperluan, atau peminjam…"></div>
+          <select class="select" style="width:auto" onchange="pjmTapis('status', this.value)">
+            <option value="">Semua Status</option>
+            <option value="menunggu">Menunggu persetujuan</option>
+            <option value="disetujui">Disetujui</option>
+            <option value="dipinjam">Sedang dipinjam</option>
+            <option value="dikembalikan">Dikembalikan</option>
+            <option value="ditolak">Ditolak</option></select>
+          <div class="spacer"></div>
         </div>
-        ${U.card("Daftar Reservasi", U.toolbar({ ph: "Cari reservasi / alat…", filters: [["Semua Lab"].concat(D.labs.map((l) => l.name)), ["Semua Status", "Waiting Approval", "Approved", "In Use", "Borrowed"]] }) +
-          U.table([
-            { t: "ID", w: "140px", render: (e) => `<span class="lnk mono" onclick="showBooking('${e.id}')">${e.id}</span>` },
-            { t: "Alat", render: (e) => `<b>${U.esc(e.eqName)}</b><div class="tiny faint">${U.esc(D.resName(e.lab))}</div>` },
-            { t: "Tujuan Penggunaan", render: (e) => `<span class="small">${U.esc(e.purpose)}</span>` },
-            { t: "Pemohon", render: (e) => `${U.esc(D.personName(e.requester))}<div class="tiny faint">${U.esc(e.unit)}</div>` },
-            { t: "Jadwal", render: (e) => `${U.fdate(e.date, "short")}<div class="tiny faint">${e.start} – ${e.end}</div>` },
-            { t: "Operator", render: (e) => U.esc(D.personName(e.operator)) },
-            { t: "Status", render: (e) => U.badge(e.status) },
-            { t: "", cls: "actions", render: (e) => `<button class="icon-btn" onclick="showBooking('${e.id}')">${U.icon("eye", 15)}</button>` }
-          ], D.eqBookings), { bodyCls: "flush" })}`;
+        <div id="pjmTabel"></div></div>`;
+    },
+    mount() {
+      const cari = document.getElementById("pjmCari");
+      if (cari) {
+        cari.value = PJM.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => pjmTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatPinjam();
     }
   };
 

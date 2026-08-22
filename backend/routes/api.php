@@ -175,6 +175,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('pemeliharaan.selesaikan');
 
     // --- Peminjaman alat --------------------------------------------------
+    // Sebelum peminjaman/{peminjaman}, kalau tidak "ketersediaan" tertangkap
+    // sebagai id peminjaman.
+    Route::get('peminjaman/ketersediaan', [EquipmentLoanController::class, 'ketersediaan'])
+        ->middleware('can:booking-alat.lihat')->name('peminjaman.ketersediaan');
+
     Route::get('peminjaman', [EquipmentLoanController::class, 'index'])
         ->middleware('can:booking-alat.lihat');
     Route::post('peminjaman', [EquipmentLoanController::class, 'store'])

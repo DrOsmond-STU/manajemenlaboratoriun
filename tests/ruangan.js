@@ -23,6 +23,8 @@ function apiTiruan() {
   const lab = [];
   const pesanan = [];
   let idBooking = 0;
+  const pinjaman = [];
+  let idPinjam = 0;
   const orang = [
     { id: 91, nama: 'Dr. Sri Wahyuni', unit_kerja: 'Litbang' },
     { id: 92, nama: 'Andi Teknisi', unit_kerja: 'Pengujian' },
@@ -137,6 +139,95 @@ function apiTiruan() {
           isi.id = ++idRuang;
           ruangan.push(isi);
           return kirim(201, { data: bentuk(isi) });
+        });
+      }
+    }
+
+    if (req.url.startsWith('/api/peminjaman/ketersediaan')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      const u = new URL(req.url, 'http://x');
+      const m = new Date(u.searchParams.get('mulai'));
+      const sl = new Date(u.searchParams.get('selesai'));
+
+      return kirim(200, { data: aset.map((a) => {
+        const bentrok = pinjaman.filter((p) =>
+          p.asset_id === a.id &&
+          ['menunggu', 'disetujui', 'dipinjam'].indexOf(p.status) !== -1 &&
+          new Date(p.mulai) < sl && new Date(p.selesai) > m);
+
+        return {
+          id: a.id, nama: a.nama, kode_internal: 'STU/SRV/' + String(a.nup).padStart(4, '0'),
+          bmn_id: null, merk: a.merk || null, tipe: a.tipe || null,
+          serial_number: a.serial_number || null,
+          kondisi: { kode: 'B', nama: 'Baik' },
+          wajib_kalibrasi: false, kalibrasi_kedaluwarsa: false,
+          lokasi: null,
+          tersedia: bentrok.length === 0,
+          alasan: bentrok.length ? 'Sedang dipinjam pada rentang waktu ini' : null,
+          bentrok: bentrok.map((p) => ({ id: p.id, keperluan: p.keperluan,
+            peminjam: 'Siti Aminah', mulai: p.mulai, selesai: p.selesai, status: p.status }))
+        };
+      }) });
+    }
+
+    if (req.url.startsWith('/api/persetujuan/antrean')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      const u = new URL(req.url, 'http://x');
+      const jenis = u.searchParams.get('jenis') || 'booking';
+
+      // Server MENGELUARKAN pengajuan milik pengguna sendiri dari antrean.
+      // Seluruh pengajuan pada uji ini dibuat oleh pengguna yang sama, jadi
+      // antreannya memang harus kosong — dan itulah yang diperiksa.
+      return kirim(200, { data: [] });
+    }
+
+    if (req.url.startsWith('/api/peminjaman')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+
+      const bentukPinjam = (p) => ({
+        id: p.id, keperluan: p.keperluan,
+        lokasi_pemakaian: p.lokasi_pemakaian || null, unit_kerja: null,
+        jadwal: { mulai: p.mulai, selesai: p.selesai },
+        serah_terima: { diambil_pada: null, dikembalikan_pada: null },
+        status: { kode: p.status, nama: { menunggu: 'Menunggu persetujuan',
+          disetujui: 'Disetujui', dipinjam: 'Sedang dipinjam',
+          dikembalikan: 'Dikembalikan', ditolak: 'Ditolak' }[p.status] },
+        terlambat: false, kondisi_saat_kembali: null,
+        alat: (() => { const a = aset.find((x) => x.id === p.asset_id);
+          return a ? { id: a.id, nama: a.nama,
+            kode_internal: 'STU/SRV/' + String(a.nup).padStart(4, '0'), bmn_id: null } : null; })(),
+        peminjam: { id: 1, nama: 'Siti Aminah' },
+        catatan: null,
+        persetujuan: { disetujui_pada: null, alasan_penolakan: null }
+      });
+
+      if (req.method === 'GET') {
+        return kirim(200, { data: pinjaman.map(bentukPinjam), meta: { total: pinjaman.length } });
+      }
+
+      if (req.method === 'POST') {
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+          const m = new Date(isi.mulai), sl = new Date(isi.selesai);
+
+          const tabrak = pinjaman.find((x) =>
+            x.asset_id === isi.asset_id &&
+            ['menunggu', 'disetujui', 'dipinjam'].indexOf(x.status) !== -1 &&
+            new Date(x.mulai) < sl && new Date(x.selesai) > m);
+
+          if (tabrak) {
+            return kirim(422, { message: 'Alat sedang dipinjam.', errors: { mulai: [
+              'Alat sudah dipinjam untuk "' + tabrak.keperluan + '" pada rentang waktu tersebut.'] } });
+          }
+          if (!isi.keperluan) {
+            return kirim(422, { message: 'x', errors: { keperluan: ['Keperluan wajib diisi.'] } });
+          }
+
+          isi.id = ++idPinjam;
+          isi.status = 'menunggu';
+          pinjaman.push(isi);
+          return kirim(201, { data: bentukPinjam(isi) });
         });
       }
     }
@@ -726,6 +817,74 @@ function apiTiruan() {
   ok(/Menunggu Persetujuan/.test(kpiBook), 'Ringkasan pemesanan tampil');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada booking', errs.join(' | '));
+
+  /* ============ 11. PEMINJAMAN ALAT ============ */
+  console.log('\n--- 11. Peminjaman alat tersambung ---');
+  await page.evaluate(() => { location.hash = '#/eqbooking'; });
+  await page.waitForTimeout(900);
+
+  ok(/Belum ada peminjaman/.test(await page.textContent('#pjmTabel')),
+    'Basis data kosong ditampilkan apa adanya');
+
+  await page.click('#pjmTabel button');
+  await page.waitForTimeout(1000);
+  ok(!!(await page.$('#pKeperluan')), 'Formulir peminjaman terbuka');
+
+  const daftarAlat = await page.textContent('#pjmDaftarAlat');
+  ok(/HPLC Shimadzu LC-2050/.test(daftarAlat),
+    'Daftar alat datang dari ketersediaan server');
+  ok(/1 alat tersedia/.test(daftarAlat), 'Jumlah alat tersedia dihitung dari jawaban server');
+
+  // Simpan tanpa memilih alat — harus ditolak sebelum menyentuh jaringan.
+  await page.fill('#pKeperluan', 'Uji kadar air sampel tanah');
+  await page.click('#pjmSimpan');
+  await page.waitForTimeout(400);
+  ok(/Pilih salah satu alat/.test(await page.textContent('#pjmFormGalat')),
+    'Menyimpan tanpa memilih alat ditolak dengan pesan yang jelas');
+
+  await page.click('#pjmDaftarAlat .row-t');
+  await page.waitForTimeout(300);
+  await page.click('#pjmSimpan');
+  await page.waitForTimeout(900);
+
+  ok(!(await page.$('#pKeperluan')), 'Formulir tertutup setelah berhasil');
+  const tabelPjm = await page.textContent('#pjmTabel');
+  ok(/Uji kadar air sampel tanah/.test(tabelPjm), 'Peminjaman muncul di daftar');
+  ok(/Menunggu persetujuan/.test(tabelPjm), 'Statusnya terbaca, bukan kode mentah');
+
+  /* --- pengajuan kedua pada alat & waktu yang sama ditolak server --- */
+  await page.evaluate(() => pjmForm());
+  await page.waitForTimeout(1000);
+
+  const daftarAlat2 = await page.textContent('#pjmDaftarAlat');
+  ok(/Sedang dipinjam pada rentang waktu ini/.test(daftarAlat2),
+    'Alat yang baru dipinjam ditandai tidak tersedia oleh server');
+  ok(/0 alat tersedia/.test(daftarAlat2), 'Hitungan alat tersedia ikut turun');
+
+  await page.evaluate(() => UI.closeDrawer());
+  await page.waitForTimeout(300);
+
+  /* ============ 12. KOTAK PERSETUJUAN ============ */
+  console.log('\n--- 12. Kotak persetujuan tersambung ---');
+  await page.evaluate(() => { location.hash = '#/approval'; });
+  await page.waitForTimeout(900);
+
+  const appr = await page.textContent('#apprDaftar');
+  ok(/Tidak ada pengajuan yang menunggu/.test(appr),
+    'Antrean kosong: seluruh pengajuan pada uji ini dibuat pengguna yang sama');
+  ok(/tidak ada yang boleh menyetujui pengajuannya sendiri/i.test(appr),
+    'Alasannya dijelaskan, bukan dibiarkan tampak seperti daftar rusak');
+
+  const spandukAppr = await page.textContent('#viewBody');
+  ok(/ditegakkan batasan basis data/i.test(spandukAppr),
+    'Dinyatakan bahwa larangannya ditegakkan basis data, bukan hanya disaring daftar');
+
+  await page.click('#apprTabs button[data-jenis="peminjaman"]');
+  await page.waitForTimeout(800);
+  ok(/Tidak ada pengajuan yang menunggu/.test(await page.textContent('#apprDaftar')),
+    'Berpindah ke antrean peminjaman bekerja');
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada peminjaman & persetujuan', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

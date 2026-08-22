@@ -56,8 +56,8 @@ const ROUTES = ["dashboard","exec","calendar","booking","mybooking","availabilit
     ['openSearch', () => openSearch()],
     ['openProfile', () => openProfile()],
     ['aiSuggestRoom', () => aiSuggestRoom()],
-    ['apprDo', () => apprDo('AP-2026-01188','setuju')],
-    ['eqNew', () => eqNew()]
+    ['apprPutuskan', () => apprPutuskan('1','setuju')],
+    ['pjmFormKembali', () => pjmFormKembali('1')]
   ];
   for (const [name, fn] of checks) {
     errs.length = 0;

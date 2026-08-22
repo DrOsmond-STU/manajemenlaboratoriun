@@ -316,4 +316,40 @@ class AssetApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.garansi_akan_berakhir', 1);
     }
+
+    public function test_ringkasan_menghitung_disposal(): void
+    {
+        $this->kodeBarang();
+
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'status_penggunaan' => 'Dihapuskan', 'nilai_perolehan' => 10_000_000, 'masa_manfaat' => 0,
+        ]);
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'status_penggunaan' => 'Digunakan untuk Operasional Satker',
+        ]);
+
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets/ringkasan')
+            ->assertOk()
+            ->assertJsonPath('data.disposal.jumlah', 1);
+    }
+
+    public function test_ringkasan_menyusun_komposisi_per_kode_barang(): void
+    {
+        $this->kodeBarang('3.08.01.03.001');
+        $this->kodeBarang('3.05.02.01.003');
+
+        Asset::factory()->kodeBarang('3.08.01.03.001')->count(3)->create();
+        Asset::factory()->kodeBarang('3.05.02.01.003')->count(1)->create();
+
+        $komposisi = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets/ringkasan')
+            ->assertOk()
+            ->json('data.per_kode_barang');
+
+        // Diurutkan terbanyak dahulu.
+        $this->assertSame('3.08.01.03.001', $komposisi[0]['kode_barang']);
+        $this->assertSame(3, $komposisi[0]['jumlah']);
+        $this->assertSame(1, $komposisi[1]['jumlah']);
+    }
 }

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-520 uji lulus, 1.544 asersi, 0 gagal — dijalankan di PostgreSQL 16
+522 uji lulus, 1.550 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -506,6 +506,8 @@ sama dengan Register BMN:
 | **Feed mutasi menggabungkan riwayat lintas seluruh aset** | layar "Asset Movement & Mutasi" butuh satu feed, bukan riwayat per-aset satu-satu |
 | Feed mutasi dapat dicari per nama/kode aset | daftar mutasi tanpa cara mencari aset tertentu tidak berguna untuk satuan kerja besar |
 | Feed mutasi tamu ditolak | `401`, konsisten dengan seluruh endpoint aset lainnya |
+| **Ringkasan menghitung jumlah & nilai buku aset "Dihapuskan"** | dipakai KPI "Aset Dihapuskan" pada Laporan Aset |
+| **Komposisi per kode barang diurutkan terbanyak dahulu** | itulah yang pertama ingin dilihat pengelola aset, bukan urutan abjad |
 
 Master data laboratorium:
 
@@ -1171,6 +1173,33 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   yang sudah ada — domain baru sepenuhnya, tidak ada tabel sesi audit atau
   status temuan per aset per sesi di mana pun. Dijatuhkan dengan sengaja,
   bukan dipangkas diam-diam.
+
+- **Laporan Aset TIDAK menampilkan tabel "Rincian Aset" per-baris seperti
+  purwarupa** — layar Asset Register sudah menyediakan daftar lengkap yang
+  sama persis (cari, tapis, detail). Menduplikasinya di sini hanya
+  mengulang data yang sama tanpa nilai tambah; laporan ini murni ringkasan
+  agregat dari `RingkasanAset`.
+- **"Komposisi Aset per Kategori" (donut 5 kategori purwarupa yang dikarang
+  bebas) DIGANTI komposisi per kode barang BMN** — `RingkasanAset`
+  diperluas menghasilkan `per_kode_barang` (10 kode barang terbanyak,
+  diurutkan jumlah, dari data yang SUDAH ditarik untuk menghitung nilai
+  perolehan/buku — tidak ada kueri tambahan). Pola yang sama dengan
+  penggantian "Kategori" pada Asset Register: klasifikasi baku BMN,
+  bukan kategori ad hoc.
+- **"Penyusutan YTD" DIGANTI "Akumulasi Penyusutan"** — `Penyusutan::hitung()`
+  hanya menjumlah akumulasi total sejak tanggal perolehan, tidak memisahkan
+  bagian yang jatuh pada tahun berjalan. Melabeli angka totalnya sebagai
+  "YTD" akan SALAH, bukan sekadar kurang presisi — dikoreksi, bukan
+  dipertahankan demi kemiripan dengan purwarupa.
+- **Sakelar periode "Bulan Ini/YTD/Kustom" DIHILANGKAN dari Laporan Aset**
+  — ringkasan aset adalah potret posisi SAAT INI (kondisi, nilai buku),
+  bukan metrik deret waktu; sakelar periode purwarupa tidak berpadanan
+  dengan apa pun di layar ini.
+- **KPI "Aset Dihapuskan" dihitung dari `status_penggunaan === 'Dihapuskan'`**
+  — satu-satunya nilai baku kolom itu dalam kode ini sendiri (ditulis
+  `AssetService::hapus()`). Kolom ini bebas teks di luar itu, sehingga
+  hanya nilai baku inilah yang dapat dihitung dengan pasti sebagai "sudah
+  dihapuskan" tanpa menebak-nebak kalimat bebas lain yang mungkin dipakai.
 
 ---
 

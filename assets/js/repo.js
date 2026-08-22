@@ -404,12 +404,25 @@
           return g >= sekarang && g <= batas;
         }).length;
 
+        const dihapuskan = baris.filter((a) => a.status_penggunaan === "Dihapuskan");
+        const perKode = {};
+        baris.forEach((a) => {
+          const kode = a.bmn.kode_barang || "-";
+          if (!perKode[kode]) perKode[kode] = { kode_barang: kode, uraian: a.bmn.uraian_barang || kode, jumlah: 0, nilai_perolehan: 0, nilai_buku: 0 };
+          perKode[kode].jumlah++;
+          perKode[kode].nilai_perolehan += a.penyusutan.nilai_perolehan || 0;
+          perKode[kode].nilai_buku += a.penyusutan.nilai_buku || 0;
+        });
+        const komposisi = Object.values(perKode).sort((a, b) => b.jumlah - a.jumlah).slice(0, 10);
+
         return {
           jumlah: baris.length,
           nilai_perolehan: total("nilai_perolehan"),
           akumulasi_penyusutan: total("akumulasi_penyusutan"),
           nilai_buku: total("nilai_buku"),
           garansi_akan_berakhir: garansiAkanBerakhir,
+          disposal: { jumlah: dihapuskan.length, nilai_buku: dihapuskan.reduce((a, x) => a + (x.penyusutan.nilai_buku || 0), 0) },
+          per_kode_barang: komposisi,
           kondisi: Object.keys(KOND_NAMA).map((k) => ({ kode: k, nama: KOND_NAMA[k], jumlah: jml(k) })),
           purwarupa: true
         };

@@ -21,7 +21,8 @@ const SUITES = [
   ['audit', 'Audit Trail tersambung: entri, tapisan peristiwa, detail perubahan kolom'],
   ['pengguna', 'Manajemen Pengguna & Peran tersambung: hanya super-admin, matriks sungguhan'],
   ['kalender', 'Kalender Terpadu tersambung: rentang tanggal per bulan, tiga sumber digabung'],
-  ['aset', 'Asset Register & Asset Movement tersambung: pemasok/garansi, mutasi ruangan, feed lintas aset']
+  ['aset', 'Asset Register & Asset Movement tersambung: pemasok/garansi, mutasi ruangan, feed lintas aset'],
+  ['laporanaset', 'Laporan Aset tersambung: ringkasan agregat server, komposisi per kode barang BMN']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

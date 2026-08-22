@@ -1606,35 +1606,71 @@
       { t: "Kalibrasi", cls: "right", render: (e) => `<span class="badge ${e.calDue < D.shift(0) ? "red" : "green"}">${U.fdate(e.calDue, "short")}</span>` }
     ], D.equipment), { bodyCls: "flush" })}`);
 
-  V["reportasset"] = reportPage("Laporan Aset", "Nilai, penyusutan, kondisi, dan pergerakan aset.", () => `
-    <div class="grid g4 mb-16">
-      ${U.kpi({ label: "Nilai Perolehan", value: U.rpShort(26800000000), icon: "money", tint: "brand", note: "1.284 aset" })}
-      ${U.kpi({ label: "Nilai Buku", value: U.rpShort(18400000000), icon: "chart", tint: "teal", note: "Setelah penyusutan" })}
-      ${U.kpi({ label: "Penyusutan YTD", value: U.rpShort(2140000000), icon: "refresh", tint: "amber", note: "Metode garis lurus" })}
-      ${U.kpi({ label: "Aset Disposal", value: 14, icon: "trash", tint: "red", note: "Nilai buku Rp 42 Jt" })}
-    </div>
-    <div class="grid g2 mb-16">
-      ${U.card("Komposisi Aset per Kategori", `<div class="row" style="gap:20px">
-        <div>${U.donut([{ k: "IT Equipment", v: 412, c: "var(--brand-500)" }, { k: "Lab Equipment", v: 268, c: "var(--teal-500)" },
-          { k: "Furniture", v: 331, c: "var(--violet-500)" }, { k: "Audio Visual", v: 148, c: "var(--amber-500)" },
-          { k: "Lainnya", v: 125, c: "var(--slate-500)" }], { label: "Total Aset" })}</div>
-        <div style="flex:1">${[["IT Equipment", 412, "var(--brand-500)"], ["Lab Equipment", 268, "var(--teal-500)"],
-          ["Furniture", 331, "var(--violet-500)"], ["Audio Visual", 148, "var(--amber-500)"], ["Lainnya", 125, "var(--slate-500)"]]
-          .map(([k, v, c]) => `<div class="row small" style="padding:4px 0"><i style="width:9px;height:9px;border-radius:3px;background:${c};display:inline-block"></i>
-          <span style="flex:1">${k}</span><b>${v}</b></div>`).join("")}</div></div>`)}
-      ${U.card("Kondisi Aset", `<div class="col gap-12">
-        ${[["Baik", 1124, "var(--green-500)"], ["Perlu Perawatan", 108, "var(--amber-500)"], ["Rusak Ringan", 34, "var(--brand-500)"], ["Rusak Berat", 12, "var(--red-500)"], ["Disposal", 6, "var(--slate-500)"]]
-          .map(([k, v, c]) => U.meter(`<span class="small">${k}</span>`, (v / 1284) * 100, c, U.num(v))).join("")}</div>`)}
-    </div>
-    ${U.card("Rincian Aset", U.table([
-      { t: "Kode", render: (a) => `<span class="mono small">${a.code}</span>` },
-      { t: "Nama Aset", render: (a) => `<b>${U.esc(a.name)}</b>` },
-      { t: "Kategori", render: (a) => `<span class="badge outline">${U.esc(a.cat)}</span>` },
-      { t: "Perolehan", cls: "right", render: (a) => U.rp(a.price) },
-      { t: "Nilai Buku", cls: "right", render: (a) => U.rp(a.book) },
-      { t: "Penyusutan", cls: "right", render: (a) => `<span class="muted">${U.rp(a.price - a.book)}</span>` },
-      { t: "Kondisi", render: (a) => U.badge(a.cond) }
-    ], D.assets), { bodyCls: "flush" })}`);
+  /* Laporan Aset — ringkasan agregat, bukan daftar per-baris.
+   *
+   * Purwarupa punya tabel "Rincian Aset" berisi baris per-aset — DIJATUHKAN
+   * di sini karena layar Asset Register (V["assets"]) sudah menyediakan
+   * daftar lengkap yang sama persis, lengkap dengan cari dan tapis.
+   * Menduplikasinya di layar laporan hanya mengulang data yang sama tanpa
+   * nilai tambah; laporan ini murni angka agregat.
+   *
+   * "Komposisi Aset per Kategori" (donut 5 kategori purwarupa yang dikarang
+   * bebas — IT Equipment/Lab Equipment/Furniture/Audio Visual/Lainnya)
+   * DIGANTI komposisi per kode barang BMN (`per_kode_barang` dari
+   * RingkasanAset — 10 kode barang terbanyak) — pola yang sama dengan
+   * penggantian "Kategori" pada Asset Register.
+   *
+   * "Penyusutan YTD" DIGANTI "Akumulasi Penyusutan" — Penyusutan::hitung()
+   * hanya menjumlah akumulasi total sejak perolehan, tidak memisahkan
+   * bagian yang jatuh pada tahun berjalan. Melabeli angka totalnya sebagai
+   * "YTD" akan salah, bukan sekadar kurang presisi.
+   *
+   * Sakelar periode "Bulan Ini/YTD/Kustom" DIHILANGKAN — ringkasan aset
+   * adalah potret posisi SAAT INI (kondisi, nilai buku), bukan metrik
+   * deret waktu; sakelar periode purwarupa tidak berpadanan dengan apa pun
+   * di sini.
+   */
+  const RAS = { ringkasan: null, memuat: true, galat: null };
+
+  async function muatLaporanAset() {
+    RAS.memuat = true; RAS.galat = null; isiLaporanAset();
+    try { RAS.ringkasan = await Repo.aset.ringkasan(); }
+    catch (e) { RAS.ringkasan = null; RAS.galat = e.message; }
+    finally { RAS.memuat = false; isiLaporanAset(); }
+  }
+
+  function isiLaporanAset() {
+    const w = document.getElementById("rasIsi");
+    if (!w) return;
+    if (RAS.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RAS.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RAS.galat)}</span></div></div>`; return; }
+    const r = RAS.ringkasan;
+    const jml = (k) => (r.kondisi.find((x) => x.kode === k) || { jumlah: 0 }).jumlah;
+    w.innerHTML = `
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Nilai Perolehan", value: U.rpShort(r.nilai_perolehan), icon: "money", tint: "brand", note: U.num(r.jumlah) + " aset" })}
+        ${U.kpi({ label: "Nilai Buku", value: U.rpShort(r.nilai_buku), icon: "chart", tint: "teal", note: "Setelah penyusutan" })}
+        ${U.kpi({ label: "Akumulasi Penyusutan", value: U.rpShort(r.akumulasi_penyusutan), icon: "refresh", tint: "amber", note: "Metode garis lurus" })}
+        ${U.kpi({ label: "Aset Dihapuskan", value: U.num(r.disposal.jumlah), icon: "trash", tint: "red", note: r.disposal.jumlah ? "Nilai buku " + U.rpShort(r.disposal.nilai_buku) : "Belum ada" })}
+      </div>
+      <div class="grid g2 mb-16">
+        ${U.card("Komposisi per Kode Barang", r.per_kode_barang.length
+          ? U.hbars(r.per_kode_barang.map((k) => ({ n: k.uraian, v: k.jumlah })), { color: "var(--brand-500)", suffix: " unit" })
+          : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada aset terdaftar.</span></div>`,
+          { sub: "10 kode barang BMN terbanyak" })}
+        ${U.card("Kondisi Aset", `<div class="col gap-12">
+          ${[["B", "Baik", "var(--green-500)"], ["RR", "Rusak Ringan", "var(--amber-500)"], ["RB", "Rusak Berat", "var(--red-500)"]]
+            .map(([kode, nama, c]) => U.meter(`<span class="small">${nama}</span>`, r.jumlah ? (jml(kode) / r.jumlah) * 100 : 0, c, U.num(jml(kode)))).join("")}</div>`)}
+      </div>`;
+  }
+
+  V["reportasset"] = {
+    title: "Laporan Aset",
+    sub: "Nilai, penyusutan, kondisi, dan komposisi aset.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="rasIsi"></div>`; },
+    mount() { muatLaporanAset(); }
+  };
 
   V["reportrental"] = reportPage("Laporan Penyewaan", "Pendapatan sewa fasilitas, konversi, dan piutang.", () => `
     <div class="grid g4 mb-16">

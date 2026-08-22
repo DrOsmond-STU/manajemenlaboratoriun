@@ -49,8 +49,9 @@ class RingkasanAset
         // kerja laboratorium — ratusan sampai beberapa ribu aset dengan tujuh
         // kolom — ini murah. Bila kelak puluhan ribu, penggantinya adalah
         // kolom penyusutan yang dihitung terjadwal, bukan rumus SQL kedua.
-        $baris = $query->get([
-            'id', 'kondisi', 'nilai_perolehan', 'masa_manfaat', 'tgl_perolehan', 'garansi_berakhir',
+        $baris = $query->with('kodeBarang:kode,uraian')->get([
+            'id', 'kode_barang', 'kondisi', 'status_penggunaan',
+            'nilai_perolehan', 'masa_manfaat', 'tgl_perolehan', 'garansi_berakhir',
         ]);
 
         $perolehan = 0;
@@ -60,6 +61,9 @@ class RingkasanAset
         $garansiAkanBerakhir = 0;
         $sekarang = now()->startOfDay();
         $batasGaransi = $sekarang->copy()->addDays(90);
+        $disposalJumlah = 0;
+        $disposalNilaiBuku = 0;
+        $perKodeBarang = [];
 
         foreach ($baris as $aset) {
             $p = $aset->penyusutan;
@@ -80,7 +84,36 @@ class RingkasanAset
                 && $aset->garansi_berakhir->lessThanOrEqualTo($batasGaransi)) {
                 $garansiAkanBerakhir++;
             }
+
+            // 'Dihapuskan' adalah satu-satunya nilai baku status_penggunaan
+            // dalam kode ini sendiri (lihat AssetService::hapus()) — kolom
+            // ini bebas teks di luar itu, sehingga hanya nilai baku inilah
+            // yang dapat dihitung dengan pasti sebagai "sudah dihapuskan".
+            if ($aset->status_penggunaan === 'Dihapuskan') {
+                $disposalJumlah++;
+                $disposalNilaiBuku += $p->nilaiBuku;
+            }
+
+            $kb = $aset->kode_barang;
+            if (! isset($perKodeBarang[$kb])) {
+                $perKodeBarang[$kb] = [
+                    'kode_barang' => $kb,
+                    'uraian' => $aset->kodeBarang?->uraian ?? $kb,
+                    'jumlah' => 0,
+                    'nilai_perolehan' => 0,
+                    'nilai_buku' => 0,
+                ];
+            }
+            $perKodeBarang[$kb]['jumlah']++;
+            $perKodeBarang[$kb]['nilai_perolehan'] += $p->nilaiPerolehan;
+            $perKodeBarang[$kb]['nilai_buku'] += $p->nilaiBuku;
         }
+
+        // Sepuluh kode barang terbanyak — cukup untuk gambaran komposisi
+        // tanpa menenggelamkan layar bila satuan kerja punya ratusan kode
+        // barang berbeda. Diurutkan dari yang paling banyak, bukan abjad,
+        // karena itulah yang pertama ingin dilihat pengelola aset.
+        $komposisi = collect($perKodeBarang)->sortByDesc('jumlah')->take(10)->values()->all();
 
         return [
             'jumlah' => $baris->count(),
@@ -88,6 +121,8 @@ class RingkasanAset
             'akumulasi_penyusutan' => $akumulasi,
             'nilai_buku' => $buku,
             'garansi_akan_berakhir' => $garansiAkanBerakhir,
+            'disposal' => ['jumlah' => $disposalJumlah, 'nilai_buku' => $disposalNilaiBuku],
+            'per_kode_barang' => $komposisi,
             'kondisi' => collect(Asset::KONDISI)->map(fn ($nama, $kode) => [
                 'kode' => $kode,
                 'nama' => $nama,

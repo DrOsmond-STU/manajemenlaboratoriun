@@ -39,7 +39,7 @@ const ok = (c, m, extra) => { if (!c) fail++; console.log((c ? '✅ ' : '❌ ') 
 
   /* ---------- 3. Detail BMN ---------- */
   errs.length = 0;
-  await page.evaluate(() => showBmnDetail('EQ-0001')); await page.waitForTimeout(300);
+  await page.evaluate(() => showBmnDetailPurwarupa('EQ-0001')); await page.waitForTimeout(300);
   const drawerTxt = await page.$eval('.drawer', e => e.innerText);
   ok(/Kode Lokasi/.test(drawerTxt) && /NUP/.test(drawerTxt) && /Masa Manfaat/.test(drawerTxt)
      && /Akumulasi Penyusutan/.test(drawerTxt) && /Status Penggunaan/.test(drawerTxt),

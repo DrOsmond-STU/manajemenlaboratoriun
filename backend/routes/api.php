@@ -191,6 +191,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('laboratories', LaboratoryController::class);
 
     // --- Aset & BMN ------------------------------------------------------
+    // Ringkasan didaftarkan SEBELUM assets/{asset}, kalau tidak "ringkasan"
+    // akan tertangkap sebagai id aset dan menghasilkan 404.
+    Route::get('assets/ringkasan', [AssetController::class, 'ringkasan'])
+        ->middleware('can:aset.lihat')->name('assets.ringkasan');
+
     Route::get('assets', [AssetController::class, 'index'])
         ->middleware('can:aset.lihat');
     Route::post('assets', [AssetController::class, 'store'])

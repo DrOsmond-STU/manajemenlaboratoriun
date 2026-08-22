@@ -10,6 +10,7 @@ use App\Http\Resources\AssetMutationResource;
 use App\Http\Resources\AssetResource;
 use App\Models\Asset;
 use App\Services\AssetService;
+use App\Services\RingkasanAset;
 use App\Support\Satker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,13 +18,37 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class AssetController extends Controller
 {
-    public function __construct(private readonly AssetService $assets) {}
+    public function __construct(
+        private readonly AssetService $assets,
+        private readonly RingkasanAset $ringkasan,
+    ) {}
+
+    /**
+     * Angka ringkasan atas SELURUH aset dalam cakupan, bukan atas halaman
+     * yang sedang tampil.
+     *
+     * Terpisah dari index() karena daftarnya berhalaman: ringkasan yang
+     * dihitung antarmuka dari 25 baris pertama akan melaporkan nilai perolehan
+     * seperempat miliar untuk satuan kerja yang asetnya puluhan miliar — dan
+     * angka itu tidak tampak salah, ia hanya kecil.
+     */
+    public function ringkasan(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->ringkasan->untuk($request->user(), [
+                'kode_barang' => $request->string('kode_barang')->toString() ?: null,
+                'kondisi' => $request->string('kondisi')->toString() ?: null,
+                'room_id' => $request->integer('room_id') ?: null,
+                'laboratory_id' => $request->integer('laboratory_id') ?: null,
+            ]),
+        ]);
+    }
 
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = Asset::query()
             ->dalamCakupan($request->user())
-            ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+            ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'laboratory:id,kode,nama', 'fotoUtama'])
             ->withCount('photos')
             ->latest('id');
 
@@ -56,14 +81,14 @@ class AssetController extends Controller
         );
 
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'fotoUtama'])->loadCount('photos')
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'laboratory:id,kode,nama', 'fotoUtama'])->loadCount('photos')
         )->response()->setStatusCode(201);
     }
 
     public function show(Asset $asset): AssetResource
     {
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'laboratory:id,kode,nama', 'fotoUtama'])
                 ->loadCount('photos')
         );
     }
@@ -77,7 +102,7 @@ class AssetController extends Controller
         $asset = $this->assets->ubah($asset, $data, $request->user(), $catatan);
 
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'fotoUtama'])
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'laboratory:id,kode,nama', 'fotoUtama'])
                 ->loadCount('photos')
         );
     }
@@ -93,7 +118,7 @@ class AssetController extends Controller
         );
 
         return AssetResource::make(
-            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'fotoUtama'])->loadCount('photos')
+            $asset->load(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'laboratory:id,kode,nama', 'fotoUtama'])->loadCount('photos')
         );
     }
 

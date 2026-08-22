@@ -475,7 +475,7 @@
           filters: [["Semua Lab"].concat(D.labs.map((l) => l.name)), ["Semua Kategori"].concat([...new Set(D.equipment.map((e) => e.cat))]), ["Semua Status", "Available", "In Use", "Borrowed", "Maintenance", "Calibration", "Broken"]],
           right: `<div class="seg"><button class="active">${U.icon("list", 13)}</button><button onclick="UI.demo('Tampilan kartu')">${U.icon("grid", 13)}</button></div>`
         }) + U.table([
-          { t: "Kode BMN / Internal", w: "215px", render: (e) => `<span class="lnk mono" style="font-size:11px" onclick="showBmnDetail('${e.id}')">${e.bmnId}</span>
+          { t: "Kode BMN / Internal", w: "215px", render: (e) => `<span class="lnk mono" style="font-size:11px" onclick="showBmnDetailPurwarupa('${e.id}')">${e.bmnId}</span>
               <div class="tiny faint mono">${U.esc(e.kodeInternal)}</div>` },
           { t: "Nama Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${U.esc(e.brand)} ${U.esc(e.model)} • SN ${U.esc(e.sn)}</div>` },
           { t: "Kategori", render: (e) => `<span class="badge outline">${U.esc(e.cat)}</span>` },
@@ -556,7 +556,7 @@
            { t: "Status", render: (b) => U.badge(b.status) }], use)
           : U.emptyState("Belum ada penggunaan tercatat", ""), { bodyCls: "flush" })}`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
-             <button class="btn" onclick="UI.closeDrawer();showBmnDetail('${e.id}')">${U.icon("box")} Data BMN</button>
+             <button class="btn" onclick="UI.closeDrawer();showBmnDetailPurwarupa('${e.id}')">${U.icon("box")} Data BMN</button>
              <button class="btn" onclick="UI.closeDrawer();lblOpenFor('${e.id}')">${U.icon("qr")} Cetak Label</button>
              <div class="spacer"></div>
              <button class="btn btn-primary" ${overdue ? "disabled" : ""} onclick="UI.closeDrawer();eqNew()">Reservasi Alat</button>`

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-402 uji lulus, 1.204 asersi, 0 gagal — dijalankan di PostgreSQL 16
+410 uji lulus, 1.232 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,19 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Ringkasan Register BMN dihitung server atas seluruh aset dalam cakupan.**
+  Daftarnya berhalaman 25 baris; ringkasan yang dihitung antarmuka dari
+  halaman pertama akan melaporkan nilai perolehan seperempat miliar untuk
+  satuan kerja yang asetnya puluhan miliar. **Angka itu tidak tampak salah —
+  ia hanya kecil** — dan justru karena itu tidak ada yang mempertanyakannya.
+  Endpoint `GET /api/assets/ringkasan` didaftarkan sebelum `assets/{asset}`,
+  kalau tidak "ringkasan" tertangkap sebagai id aset.
+- **Penyusutan pada ringkasan dihitung kelas `Penyusutan`, bukan diulang
+  sebagai rumus SQL.** Rumus yang ditulis dua kali akan menyimpang, dan yang
+  menyimpang di sini adalah angka laporan keuangan. Konsekuensinya seluruh
+  aset dalam cakupan ditarik ke memori — murah untuk ratusan sampai beberapa
+  ribu aset dengan lima kolom; bila kelak puluhan ribu, penggantinya kolom
+  penyusutan terjadwal, bukan rumus SQL kedua.
 - **NUP tidak pernah dikirim peramban.** Wizard registrasi menampilkan
   pratinjau NUP, tetapi nomor yang tersimpan diterbitkan server: peramban
   menghitungnya dari data yang sudah dimuatnya sendiri, dan dua petugas yang

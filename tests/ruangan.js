@@ -192,7 +192,48 @@ function apiTiruan() {
       }
 
       if (req.method === 'GET') {
-        return kirim(200, { data: aset.map((a) => ({ id: a.id, nama: a.nama })), meta: { total: aset.length } });
+        const bentukAset = (a) => ({
+          id: a.id,
+          bmn: {
+            id: '024.05.0100.652431.000.' + a.kode_barang + '.' + String(a.nup).padStart(5, '0'),
+            kode_lokasi: '024.05.0100.652431.000',
+            kode_barang: a.kode_barang,
+            uraian_barang: 'Unit Alat Laboratorium',
+            nup: a.nup, nup_fmt: String(a.nup).padStart(5, '0'), kib: 'B'
+          },
+          kode_internal: 'STU/SRV/' + String(a.nup).padStart(4, '0'),
+          nama: a.nama, merk: a.merk || null, tipe: a.tipe || null,
+          serial_number: a.serial_number || null,
+          spesifikasi: null, kapasitas_ukur: null, kelengkapan: [],
+          foto: { utama: null, jumlah: 0 },
+          perolehan: { cara: null, tanggal: '2022-07-14', sumber_dana: null,
+                       no_bukti: null, no_kontrak: null, kuantitas: 1, satuan: 'Unit' },
+          penyusutan: { nilai_perolehan: a.nilai_perolehan || 0, masa_manfaat: 8,
+                        akumulasi_penyusutan: 0, nilai_buku: a.nilai_perolehan || 0,
+                        habis_masa_manfaat: false },
+          kondisi: { kode: 'B', nama: 'Baik' },
+          status_penggunaan: null, psp: { nomor: null, tanggal: null },
+          wajib_kalibrasi: false, unit_kerja: null,
+          laboratorium: null, ruangan: null, penanggung_jawab: null, keterangan: null
+        });
+
+        if (req.url.indexOf('/ringkasan') !== -1) {
+          // Ringkasan atas SELURUH aset. Nilainya sengaja dibuat berbeda dari
+          // jumlah halaman supaya uji dapat membuktikan angkanya datang dari
+          // sini, bukan dihitung antarmuka dari baris yang tampil.
+          const perolehan = aset.reduce((s, a) => s + (a.nilai_perolehan || 0), 0);
+          return kirim(200, { data: {
+            jumlah: aset.length + 99,
+            nilai_perolehan: perolehan + 7000000000,
+            akumulasi_penyusutan: 1000000000,
+            nilai_buku: perolehan + 6000000000,
+            kondisi: [{ kode: 'B', nama: 'Baik', jumlah: aset.length + 99 },
+                      { kode: 'RR', nama: 'Rusak Ringan', jumlah: 0 },
+                      { kode: 'RB', nama: 'Rusak Berat', jumlah: 4 }]
+          } });
+        }
+
+        return kirim(200, { data: aset.map(bentukAset), meta: { total: aset.length } });
       }
     }
 
@@ -502,6 +543,34 @@ function apiTiruan() {
     'Nomor seri dibersihkan setelah simpan, agar tidak terbawa ke barang berikutnya');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada registrasi aset', errs.join(' | '));
+
+  /* ============ 9. REGISTER BMN ============ */
+  console.log('\n--- 9. Register BMN tersambung ---');
+  await page.evaluate(() => { location.hash = '#/bmn'; });
+  await page.waitForTimeout(1000);
+
+  const tabel = await page.textContent('#bmnTabel');
+  ok(/HPLC Shimadzu LC-2050/.test(tabel), 'Barang yang didaftarkan tadi muncul di register');
+  ok(/00007/.test(tabel), 'Kode BMN dengan NUP terbitan server tampil di daftar');
+
+  // Inti bagian ini: ringkasan datang dari server, dihitung atas SELURUH aset
+  // dalam cakupan — bukan dari satu baris yang kebetulan tampil.
+  const kpiBmn = await page.textContent('#bmnKpi');
+  ok(/100/.test(kpiBmn),
+    'Jumlah BMN diambil dari ringkasan server (100), bukan dihitung dari 1 baris yang tampil',
+    kpiBmn.replace(/\s+/g, ' ').slice(0, 120));
+  ok(/Rusak Berat/.test(kpiBmn) && /\b4\b/.test(kpiBmn),
+    'Hitungan rusak berat juga dari server');
+
+  await page.click('#bmnTabel .lnk');
+  await page.waitForTimeout(700);
+  const detail = await page.textContent('.drawer, body');
+  ok(/IDENTITAS BMN/.test(detail), 'Detail BMN terbuka');
+  ok(/SHZ-LC-88421/.test(detail), 'Nomor seri tersimpan dan tampil');
+  ok(/00007/.test(detail), 'Detail memakai NUP terbitan server');
+  ok(/[Cc]hecklist/.test(detail), 'Bagian checklist tetap ada pada detail BMN');
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada Register BMN', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

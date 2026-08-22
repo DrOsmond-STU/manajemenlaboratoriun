@@ -68,34 +68,286 @@
   ];
 
   /* =======================================================================
-     REGISTER BMN (KIB B)
+     REGISTER BMN (KIB B) — tersambung ke basis data
      ======================================================================= */
+
+  const BMN = { baris: [], ringkas: null, memuat: true, galat: null, tapis: {} };
+
+  const KOND_TINT = { B: "green", RR: "amber", RB: "red" };
+
+  function bmnBarisHTML(x) {
+    const b = x.bmn || {};
+    const lokasi = x.laboratorium ? x.laboratorium.nama
+      : (x.ruangan ? x.ruangan.nama : null);
+    const p = x.penyusutan || {};
+
+    return `
+      <tr>
+        <td><span class="lnk mono" style="font-size:11.5px"
+              onclick="showBmnDetail('${U.esc(String(x.id))}')">${U.esc(b.id || "—")}</span>
+          <div class="tiny faint">NUP ${U.esc(b.nup_fmt || "—")} • ${U.esc(b.kode_barang || "—")}</div></td>
+        <td><span class="mono small">${U.esc(x.kode_internal || "—")}</span></td>
+        <td><b class="small">${U.esc(b.uraian_barang || "—")}</b>
+          <div class="tiny faint">${U.esc(x.nama)}</div></td>
+        <td><span class="small">${U.esc([x.merk, x.tipe].filter(Boolean).join(" ") || "—")}</span>
+          <div class="tiny faint mono">${U.esc(x.serial_number || "-")}</div></td>
+        <td class="center">${x.perolehan && x.perolehan.tanggal ? x.perolehan.tanggal.slice(0, 4) : "—"}</td>
+        <td class="right">${U.rp(p.nilai_perolehan || 0)}</td>
+        <td class="right">${U.rp(p.nilai_buku || 0)}</td>
+        <td class="center"><span class="badge ${KOND_TINT[x.kondisi.kode] || "slate"}">${U.esc(x.kondisi.kode)}</span></td>
+        <td><span class="small">${U.esc(lokasi || "—")}</span></td>
+        <td class="actions"><button class="icon-btn" onclick="showBmnDetail('${U.esc(String(x.id))}')">${U.icon("eye", 15)}</button></td>
+      </tr>`;
+  }
+
+  function isiTabelBmn() {
+    const wadah = document.getElementById("bmnTabel");
+    if (!wadah) return;
+
+    if (BMN.memuat) {
+      wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat register…</span></div>`;
+      return;
+    }
+
+    if (BMN.galat) {
+      wadah.innerHTML = `<div style="padding:20px"><div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat register BMN.</b><br><span class="small">${U.esc(BMN.galat)}</span></div></div></div>`;
+      return;
+    }
+
+    if (!BMN.baris.length) {
+      const adaTapis = Object.keys(BMN.tapis).some((k) => BMN.tapis[k]);
+      wadah.innerHTML = `<div style="padding:40px;text-align:center">
+        <div class="muted mb-12">${adaTapis
+          ? "Tidak ada barang yang cocok dengan penyaringan ini."
+          : "Belum ada barang yang terdaftar pada Register BMN."}</div>
+        ${adaTapis
+          ? `<button class="btn btn-sm" onclick="bmnHapusTapis()">Hapus penyaringan</button>`
+          : (Repo.dapatMenulis()
+            ? `<button class="btn btn-primary btn-sm" onclick="location.hash='#/equipment/new'">${U.icon("plus")} Registrasi Barang Pertama</button>`
+            : `<span class="small muted">Masuk dengan akun untuk mendaftarkan barang.</span>`)}
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr>
+        <th style="width:230px">Kode BMN (kunci utama)</th>
+        <th>Kode Internal</th><th>Uraian Barang (BMN)</th><th>Merk / Tipe</th>
+        <th class="center">Th.</th><th class="right">Nilai Perolehan</th>
+        <th class="right">Nilai Buku</th><th class="center">Kondisi</th>
+        <th>Lokasi</th><th></th>
+      </tr></thead>
+      <tbody>${BMN.baris.map(bmnBarisHTML).join("")}</tbody>
+    </table></div>`;
+  }
+
+  function isiRingkasanBmn() {
+    const wadah = document.getElementById("bmnKpi");
+    if (!wadah) return;
+
+    const r = BMN.ringkas;
+
+    if (!r) {
+      wadah.innerHTML = `<div class="card" style="grid-column:1/-1;padding:20px;text-align:center">
+        <span class="muted">Memuat ringkasan…</span></div>`;
+      return;
+    }
+
+    const rb = (r.kondisi || []).find((k) => k.kode === "RB");
+
+    // Seluruh angka di bawah datang dari server, dihitung atas SELURUH aset
+    // dalam cakupan. Menghitungnya di sini dari baris yang tampil akan
+    // melaporkan nilai perolehan satu halaman sebagai nilai perolehan
+    // satuan kerja — angka yang tidak tampak salah, hanya kecil.
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Jumlah BMN", value: U.num(r.jumlah), icon: "box", tint: "brand", note: "Seluruh yang tercatat" })}
+      ${U.kpi({ label: "Nilai Perolehan", value: U.rpShort(r.nilai_perolehan), icon: "money", tint: "teal", note: "Harga perolehan" })}
+      ${U.kpi({ label: "Akumulasi Penyusutan", value: U.rpShort(r.akumulasi_penyusutan), icon: "refresh", tint: "amber", note: "PMK 65/PMK.06/2017" })}
+      ${U.kpi({ label: "Nilai Buku", value: U.rpShort(r.nilai_buku), icon: "chart", tint: "violet", note: "Perolehan − penyusutan" })}
+      ${U.kpi({ label: "Kondisi Rusak Berat", value: rb ? rb.jumlah : 0, icon: "alert",
+                tint: rb && rb.jumlah ? "red" : "slate", note: "Kandidat penghapusan" })}`;
+  }
+
+  async function muatBmn() {
+    BMN.memuat = true;
+    BMN.galat = null;
+    isiTabelBmn();
+    isiRingkasanBmn();
+
+    // Daftar dan ringkasan diminta BERSAMAAN. Berurutan berarti pengguna
+    // menunggu dua kali waktu jaringan untuk halaman yang sama.
+    const [daftar, ringkas] = await Promise.all([
+      Repo.aset.daftar(BMN.tapis).catch((e) => ({ galat: e })),
+      Repo.aset.ringkasan(BMN.tapis).catch(() => null)
+    ]);
+
+    if (daftar.galat) {
+      BMN.baris = [];
+      BMN.galat = daftar.galat.message;
+    } else {
+      BMN.baris = daftar.data;
+      BMN.purwarupa = !!daftar.purwarupa;
+    }
+
+    BMN.ringkas = ringkas;
+    BMN.memuat = false;
+    isiTabelBmn();
+    isiRingkasanBmn();
+  }
+
+  window.bmnTapis = function (kunci, nilai) {
+    if (nilai) BMN.tapis[kunci] = nilai; else delete BMN.tapis[kunci];
+    muatBmn();
+  };
+
+  window.bmnHapusTapis = function () {
+    BMN.tapis = {};
+    const c = document.getElementById("bmnCari");
+    if (c) c.value = "";
+    muatBmn();
+  };
+
+  /* --------------------------------------------------------------- detail */
+
+  window.showBmnDetail = async function (id) {
+    const x = BMN.baris.find((r) => String(r.id) === String(id));
+    if (!x) return;
+
+    const b = x.bmn || {};
+    const p = x.penyusutan || {};
+    const baris = (k, v) => v === null || v === undefined || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`;
+
+    U.drawer({
+      size: "wide",
+      title: x.nama,
+      sub: [b.id, x.kode_internal].filter(Boolean).join(" • "),
+      body: `
+        <div id="bmnFoto" class="mb-16"></div>
+
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${KOND_TINT[x.kondisi.kode] || "slate"}">${U.esc(x.kondisi.nama)}</span>
+          ${x.wajib_kalibrasi ? `<span class="badge brand">Wajib kalibrasi</span>` : ""}
+          ${x.status_penggunaan ? `<span class="badge outline">${U.esc(x.status_penggunaan)}</span>` : ""}
+        </div>
+
+        <h4 class="mb-8 muted">IDENTITAS BMN</h4>
+        <div class="dl mb-16">
+          ${baris("Kode BMN", `<span class="mono">${U.esc(b.id || "—")}</span>`)}
+          ${baris("Kode Lokasi", `<span class="mono">${U.esc(b.kode_lokasi || "—")}</span>`)}
+          ${baris("Kode Barang", `<span class="mono">${U.esc(b.kode_barang || "—")}</span>`)}
+          ${baris("Uraian Barang", U.esc(b.uraian_barang || "—"))}
+          ${baris("NUP", `<span class="mono">${U.esc(b.nup_fmt || "—")}</span>`)}
+          ${baris("Kode Internal", `<span class="mono">${U.esc(x.kode_internal || "—")}</span>`)}
+        </div>
+
+        <h4 class="mb-8 muted">DATA TEKNIS</h4>
+        <div class="dl mb-16">
+          ${baris("Merk", U.esc(x.merk || ""))}
+          ${baris("Tipe", U.esc(x.tipe || ""))}
+          ${baris("Nomor Seri", x.serial_number ? `<span class="mono">${U.esc(x.serial_number)}</span>` : "")}
+          ${baris("Kapasitas / Rentang", U.esc(x.kapasitas_ukur || ""))}
+          ${baris("Spesifikasi", U.esc(x.spesifikasi || ""))}
+          ${baris("Kelengkapan", (x.kelengkapan || []).length
+            ? x.kelengkapan.map((k) => `<span class="fac">${U.esc(k)}</span>`).join(" ") : "")}
+        </div>
+
+        <h4 class="mb-8 muted">PEROLEHAN &amp; PENYUSUTAN</h4>
+        <div class="dl mb-16">
+          ${baris("Cara Perolehan", U.esc((x.perolehan || {}).cara || ""))}
+          ${baris("Tanggal Perolehan", U.esc((x.perolehan || {}).tanggal || ""))}
+          ${baris("Sumber Dana", U.esc((x.perolehan || {}).sumber_dana || ""))}
+          ${baris("Nilai Perolehan", U.rp(p.nilai_perolehan || 0))}
+          ${baris("Masa Manfaat", p.masa_manfaat ? p.masa_manfaat + " tahun" : "")}
+          ${baris("Akumulasi Penyusutan", U.rp(p.akumulasi_penyusutan || 0))}
+          ${baris("Nilai Buku", `<b>${U.rp(p.nilai_buku || 0)}</b>`)}
+          ${p.habis_masa_manfaat ? `<dt>Catatan</dt><dd><span class="badge amber">Masa manfaat telah habis</span></dd>` : ""}
+        </div>
+
+        <h4 class="mb-8 muted">PENEMPATAN</h4>
+        <div class="dl mb-16">
+          ${baris("Laboratorium", x.laboratorium ? U.esc(x.laboratorium.nama) : "")}
+          ${baris("Ruangan", x.ruangan ? U.esc(x.ruangan.nama) + " (" + U.esc(x.ruangan.kode) + ")" : "")}
+          ${baris("Penanggung Jawab", x.penanggung_jawab ? U.esc(x.penanggung_jawab.nama) : "")}
+          ${baris("Keterangan", U.esc(x.keterangan || ""))}
+        </div>
+
+        <div class="mt-16" style="padding-top:16px;border-top:1px solid var(--border)">
+          ${ckForResource(x.id)}</div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
+             <div class="spacer"></div>
+             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>`
+    });
+
+    // Foto dimuat setelah panel terbuka: panelnya muncul seketika, gambarnya
+    // menyusul. Menunggunya lebih dulu membuat klik terasa tidak merespons.
+    muatFotoAset(x.id);
+  };
+
+  async function muatFotoAset(asetId) {
+    const wadah = document.getElementById("bmnFoto");
+    if (!wadah) return;
+
+    if (!Repo.dapatMenulis()) { wadah.innerHTML = ""; return; }
+
+    let foto = [];
+    try {
+      foto = (await Repo.aset.foto(asetId)).data || [];
+    } catch (e) {
+      wadah.innerHTML = `<div class="alert warn small">${U.icon("alert", 15)}<div>
+        Foto tidak dapat dimuat: ${U.esc(e.message || "")}</div></div>`;
+      return;
+    }
+
+    if (!foto.length) {
+      wadah.innerHTML = `<div class="thumb" style="aspect-ratio:21/9;display:grid;place-items:center">
+        <span class="small muted">Belum ada foto</span></div>`;
+      return;
+    }
+
+    const utama = foto.find((f) => f.utama) || foto[0];
+
+    wadah.innerHTML = `
+      <div class="thumb mb-8" style="aspect-ratio:16/9;overflow:hidden">
+        <img src="${U.esc(utama.url)}" alt="${U.esc(utama.keterangan || "Foto aset")}"
+             style="width:100%;height:100%;object-fit:cover">
+      </div>
+      ${foto.length > 1 ? `<div class="row wrap gap-6">
+        ${foto.map((f) => `<img src="${U.esc(f.url)}" alt=""
+            style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;
+                   border:2px solid ${f.utama ? "var(--brand-600)" : "transparent"}"
+            onclick="bmnFotoUtama('${U.esc(String(asetId))}', '${U.esc(String(f.id))}')">`).join("")}
+      </div>` : ""}`;
+  }
+
+  window.bmnFotoUtama = async function (asetId, fotoId) {
+    try {
+      await Repo.aset.jadikanFotoUtama(asetId, fotoId);
+      await muatFotoAset(asetId);
+      U.toast("Foto utama diperbarui", "Foto ini kini dipakai pada daftar aset.");
+      muatBmn();
+    } catch (e) {
+      Repo.tampilkanGalat(e, "Gagal mengubah foto utama");
+    }
+  };
+
   V["bmn"] = {
     title: "Register BMN — KIB B",
     sub: "Penatausahaan Barang Milik Negara: kodefikasi PMK 29/PMK.06/2010, pembukuan PMK 181/PMK.06/2016.",
-    actions: `<button class="btn btn-sm" onclick="bmnRefModal()">${U.icon("list")} Referensi Kode Barang</button>
+    get actions() {
+      return `<button class="btn btn-sm" onclick="bmnRefModal()">${U.icon("list")} Referensi Kode Barang</button>
               <button class="btn btn-sm" onclick="location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>
-              <button class="btn btn-sm" onclick="UI.demo('Ekspor Register BMN ke Excel / format SAKTI')">${U.icon("download")} Ekspor</button>
-              <button class="btn btn-primary btn-sm" onclick="location.hash='#/equipment/new'">${U.icon("plus")} Registrasi Barang</button>`,
+              ${Repo.dapatMenulis()
+                ? `<button class="btn btn-primary btn-sm" onclick="location.hash='#/equipment/new'">${U.icon("plus")} Registrasi Barang</button>`
+                : ""}`;
+    },
     render() {
-      const items = allItems();
-      const perolehan = items.reduce((a, x) => a + x.bmn.nilaiPerolehan, 0);
-      const akum = items.reduce((a, x) => a + x.bmn.akumPenyusutan, 0);
-      const buku = items.reduce((a, x) => a + x.bmn.nilaiBuku, 0);
-      const rb = items.filter((x) => x.bmn.kondisi === "RB").length;
-
       return `
         <div class="alert info mb-16">${U.icon("shield", 17)}<div><b>Identitas barang mengikuti dua penomoran</b>
           Kunci utama adalah identitas BMN <span class="mono">kode lokasi · kode barang · NUP</span> sesuai PMK 29/PMK.06/2010;
           penomoran kedua adalah kode internal satuan kerja yang polanya dapat diatur sendiri pada Pengaturan Sistem.</div></div>
 
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Jumlah BMN", value: items.length, icon: "box", tint: "brand", note: "Golongan 3 — Peralatan dan Mesin" })}
-          ${U.kpi({ label: "Nilai Perolehan", value: U.rpShort(perolehan), icon: "money", tint: "teal", note: "Harga perolehan" })}
-          ${U.kpi({ label: "Akumulasi Penyusutan", value: U.rpShort(akum), icon: "refresh", tint: "amber", note: "PMK 65/PMK.06/2017" })}
-          ${U.kpi({ label: "Nilai Buku", value: U.rpShort(buku), icon: "chart", tint: "violet", note: "Perolehan − penyusutan" })}
-          ${U.kpi({ label: "Kondisi Rusak Berat", value: rb, icon: "alert", tint: "red", note: "Kandidat penghapusan" })}
-        </div>
+        <div class="grid g5 mb-16" id="bmnKpi"></div>
 
         <div class="card mb-16"><div class="card-body">
           <div class="grid g4" style="gap:12px">
@@ -106,30 +358,32 @@
           </div>
         </div></div>
 
-        ${U.card("", U.toolbar({
-          ph: "Cari kode BMN, kode internal, NUP, nama barang, atau nomor seri…",
-          filters: [
-            ["Semua Bidang"].concat(D.bmnRef.bidang.map((b) => b.k + " " + b.n)),
-            ["Semua Kondisi", "Baik", "Rusak Ringan", "Rusak Berat"],
-            ["Semua Status Penggunaan"].concat(D.bmnRef.statusPenggunaan)
-          ],
-          right: `<button class="btn btn-sm" onclick="UI.demo('Cetak Kartu Identitas Barang (KIB B)')">${U.icon("print")} KIB B</button>`
-        }) + U.table([
-          { t: "Kode BMN (kunci utama)", w: "230px", render: (x) => `<span class="lnk mono" style="font-size:11.5px" onclick="showBmnDetail('${x.id}')">${x.bmnId}</span>
-              <div class="tiny faint">NUP ${x.bmn.nupFmt} • ${x.bmn.kodeBarang}</div>` },
-          { t: "Kode Internal", render: (x) => `<span class="mono small">${U.esc(x.kodeInternal)}</span>` },
-          { t: "Uraian Barang (BMN)", render: (x) => `<b class="small">${U.esc(x.bmn.uraianBarang)}</b>
-              <div class="tiny faint">${U.esc(x.name)}</div>` },
-          { t: "Merk / Tipe", render: (x) => `<span class="small">${U.esc([x.brand, x.model].filter(Boolean).join(" "))}</span>
-              <div class="tiny faint mono">${U.esc(x.sn || "-")}</div>` },
-          { t: "Th.", cls: "center", render: (x) => x.bmn.thnPerolehan },
-          { t: "Nilai Perolehan", cls: "right", render: (x) => U.rp(x.bmn.nilaiPerolehan) },
-          { t: "Nilai Buku", cls: "right", render: (x) => U.rp(x.bmn.nilaiBuku) },
-          { t: "Kondisi", cls: "center", render: (x) => `<span class="badge ${kondTone[x.bmn.kondisi]}">${x.bmn.kondisi}</span>` },
-          { t: "Lokasi", render: (x) => `<span class="small">${U.esc(D.resName(x.lab || x.room || "-"))}</span>` },
-          { t: "", cls: "actions", render: (x) => `<button class="icon-btn" onclick="showBmnDetail('${x.id}')">${U.icon("eye", 15)}</button>
-              <button class="icon-btn" onclick="lblOpenFor('${x.id}')">${U.icon("qr", 15)}</button>` }
-        ], items) + U.pager(items.length, 1, items.length), { bodyCls: "flush" })}`;
+        <div class="card"><div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="bmnCari" placeholder="Cari kode BMN, kode internal, nama barang, atau nomor seri…"></div>
+          <select class="select" style="width:auto" onchange="bmnTapis('kondisi', this.value)">
+            <option value="">Semua Kondisi</option>
+            <option value="B">Baik</option>
+            <option value="RR">Rusak Ringan</option>
+            <option value="RB">Rusak Berat</option></select>
+          <select class="select" style="width:auto" onchange="bmnTapis('kode_barang', this.value)">
+            <option value="">Semua Bidang</option>
+            ${D.bmnRef.bidang.map((b) => `<option value="${b.k}">${b.k} — ${U.esc(b.n)}</option>`).join("")}</select>
+          <div class="spacer"></div>
+        </div>
+        <div id="bmnTabel"></div></div>`;
+    },
+    mount() {
+      const cari = document.getElementById("bmnCari");
+      if (cari) {
+        cari.value = BMN.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => bmnTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatBmn();
     }
   };
 
@@ -193,8 +447,12 @@
     if (cb) cb(kode);
   };
 
-  /* --- Detail BMN --------------------------------------------------------- */
-  window.showBmnDetail = function (id) {
+  /* --- Detail BMN versi PURWARUPA -----------------------------------------
+     Masih membaca data.js. Dipakai layar Alat Laboratorium yang belum
+     dikonversi; namanya menyebut "purwarupa" supaya sisa pekerjaan terlihat
+     dari kodenya sendiri. Detail yang tersambung ada di atas.
+     ----------------------------------------------------------------------- */
+  window.showBmnDetailPurwarupa = function (id) {
     const x = findItem(id);
     if (!x) return U.demo("Data tidak ditemukan.");
     const b = x.bmn;

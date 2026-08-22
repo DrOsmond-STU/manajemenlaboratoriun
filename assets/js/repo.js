@@ -251,15 +251,95 @@
   };
 
 
+
+  const KOND_NAMA = { B: "Baik", RR: "Rusak Ringan", RB: "Rusak Berat" };
+
+  /**
+   * Satu aset purwarupa → bentuk server.
+   *
+   * Purwarupa memakai dua koleksi terpisah (peralatan lab dan aset fasilitas)
+   * dengan nama medan yang berbeda dari server. Dipetakan di sini supaya
+   * layarnya tidak perlu tahu sedang berjalan di mode mana — dan supaya saat
+   * mode purwarupa kelak dilepas, tidak ada layar yang berubah.
+   */
+  function asetDariPurwarupa(x) {
+    const b = x.bmn || {};
+    const nama = (id) => (window.DB ? DB.personName(id) : id);
+    const lab = window.DB && x.lab ? DB.byId(DB.labs, x.lab) : null;
+    const ruang = window.DB && x.room ? DB.byId(DB.rooms, x.room) : null;
+
+    return {
+      id: x.id,
+      bmn: {
+        id: x.bmnId,
+        kode_lokasi: b.kodeLokasi,
+        kode_barang: b.kodeBarang,
+        uraian_barang: b.uraianBarang,
+        nup: b.nup,
+        nup_fmt: b.nupFmt,
+        kib: b.kib || "B"
+      },
+      kode_internal: x.kodeInternal || x.code,
+      nama: x.name,
+      merk: x.brand || null,
+      tipe: x.model || null,
+      serial_number: x.sn || null,
+      spesifikasi: b.spesifikasi || null,
+      kapasitas_ukur: null,
+      kelengkapan: [],
+      foto: { utama: null, jumlah: (x.foto || []).length },
+      perolehan: {
+        cara: b.caraPerolehan || null,
+        tanggal: b.thnPerolehan ? b.thnPerolehan + "-01-01" : null,
+        sumber_dana: b.sumberDana || null,
+        no_bukti: b.noBukti || null,
+        no_kontrak: b.noKontrak || null,
+        kuantitas: b.kuantitas || 1,
+        satuan: b.satuan || "Unit"
+      },
+      penyusutan: {
+        nilai_perolehan: b.nilaiPerolehan || 0,
+        masa_manfaat: b.masaManfaat || 0,
+        akumulasi_penyusutan: b.akumPenyusutan || 0,
+        nilai_buku: b.nilaiBuku || 0,
+        habis_masa_manfaat: (b.nilaiBuku || 0) <= 0
+      },
+      kondisi: { kode: b.kondisi || "B", nama: KOND_NAMA[b.kondisi] || "Baik" },
+      status_penggunaan: b.statusPenggunaan || null,
+      psp: { nomor: b.noPsp || null, tanggal: b.tglPsp || null },
+      wajib_kalibrasi: !!x.calDue,
+      unit_kerja: null,
+      laboratorium: lab ? { id: lab.id, kode: lab.code, nama: lab.name } : null,
+      ruangan: ruang ? { id: ruang.id, kode: ruang.code, nama: ruang.name } : null,
+      penanggung_jawab: x.pic ? { id: x.pic, nama: nama(x.pic) } : null,
+      keterangan: b.keterangan || null
+    };
+  }
+
+  function asetPurwarupaSemua() {
+    if (!window.DB) return [];
+    return (DB.equipment || []).concat(DB.assets || []).map(asetDariPurwarupa);
+  }
+
   /* ------------------------------------------------------------------ aset */
 
   const aset = {
     async daftar(tapis) {
       if (!langsungKeApi()) {
-        // Purwarupa memakai bentuknya sendiri untuk aset; daftar penuh belum
-        // dipetakan. Yang dipetakan baru jalur tulis, yang memang tidak
-        // tersedia di mode contoh.
-        return { data: [], total: 0, purwarupa: true };
+        let baris = asetPurwarupaSemua();
+
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((a) =>
+            ((a.nama || "") + " " + (a.kode_internal || "") + " " +
+             (a.bmn.id || "") + " " + (a.serial_number || "")).toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.kondisi) baris = baris.filter((a) => a.kondisi.kode === tapis.kondisi);
+        if (tapis && tapis.kode_barang) {
+          baris = baris.filter((a) => (a.bmn.kode_barang || "").indexOf(tapis.kode_barang) === 0);
+        }
+
+        return { data: baris, total: baris.length, purwarupa: true };
       }
       const j = await API.get("/api/assets" + qs(tapis));
       return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
@@ -289,6 +369,46 @@
       if (keterangan) form.append("keterangan", keterangan);
 
       return API.kirimForm("/api/assets/" + encodeURIComponent(asetId) + "/foto", form);
+    },
+
+    async ringkasan(tapis) {
+      if (!langsungKeApi()) {
+        const baris = (await aset.daftar(tapis)).data;
+        const jml = (k) => baris.filter((a) => a.kondisi.kode === k).length;
+        const total = (f) => baris.reduce((a, x) => a + (x.penyusutan[f] || 0), 0);
+
+        return {
+          jumlah: baris.length,
+          nilai_perolehan: total("nilai_perolehan"),
+          akumulasi_penyusutan: total("akumulasi_penyusutan"),
+          nilai_buku: total("nilai_buku"),
+          kondisi: Object.keys(KOND_NAMA).map((k) => ({ kode: k, nama: KOND_NAMA[k], jumlah: jml(k) })),
+          purwarupa: true
+        };
+      }
+      return (await API.get("/api/assets/ringkasan" + qs(tapis))).data;
+    },
+
+    async ambil(id) {
+      if (!langsungKeApi()) {
+        return asetPurwarupaSemua().find((a) => String(a.id) === String(id)) || null;
+      }
+      return (await API.get("/api/assets/" + encodeURIComponent(id))).data;
+    },
+
+    async foto(asetId) {
+      if (!langsungKeApi()) return { data: [] };
+      return API.get("/api/assets/" + encodeURIComponent(asetId) + "/foto");
+    },
+
+    hapusFoto(asetId, fotoId) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menghapus foto");
+      return API.hapus("/api/assets/" + encodeURIComponent(asetId) + "/foto/" + encodeURIComponent(fotoId));
+    },
+
+    jadikanFotoUtama(asetId, fotoId) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengubah foto utama");
+      return API.post("/api/assets/" + encodeURIComponent(asetId) + "/foto/" + encodeURIComponent(fotoId) + "/utama");
     },
 
     kodeBarang(awalan) {

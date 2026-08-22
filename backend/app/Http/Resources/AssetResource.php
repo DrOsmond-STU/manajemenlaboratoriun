@@ -73,6 +73,15 @@ class AssetResource extends JsonResource
                 'tanggal' => $this->tgl_psp?->toDateString(),
             ],
 
+            'wajib_kalibrasi' => (bool) $this->wajib_kalibrasi,
+            'unit_kerja' => $this->unit_kerja,
+
+            'laboratorium' => $this->whenLoaded('laboratory', fn () => $this->laboratory ? [
+                'id' => $this->laboratory->id,
+                'kode' => $this->laboratory->kode,
+                'nama' => $this->laboratory->nama,
+            ] : null),
+
             'ruangan' => $this->whenLoaded('room', fn () => $this->room ? [
                 'id' => $this->room->id,
                 'kode' => $this->room->kode,

@@ -79,6 +79,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:dashboard.ubah')->name('bsc.realisasi');
 
     // --- Booking ruangan -------------------------------------------------
+    // Didaftarkan sebelum bookings/{booking}, kalau tidak "ketersediaan"
+    // tertangkap sebagai id pemesanan.
+    Route::get('bookings/ketersediaan', [BookingController::class, 'ketersediaan'])
+        ->middleware('can:booking-ruangan.lihat')->name('bookings.ketersediaan');
+
     Route::get('bookings', [BookingController::class, 'index'])
         ->middleware('can:booking-ruangan.lihat');
     Route::post('bookings', [BookingController::class, 'store'])

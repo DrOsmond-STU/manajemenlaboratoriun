@@ -21,6 +21,8 @@ function apiTiruan() {
   const aset = [];
   const ruangan = [];
   const lab = [];
+  const pesanan = [];
+  let idBooking = 0;
   const orang = [
     { id: 91, nama: 'Dr. Sri Wahyuni', unit_kerja: 'Litbang' },
     { id: 92, nama: 'Andi Teknisi', unit_kerja: 'Pengujian' },
@@ -135,6 +137,87 @@ function apiTiruan() {
           isi.id = ++idRuang;
           ruangan.push(isi);
           return kirim(201, { data: bentuk(isi) });
+        });
+      }
+    }
+
+    if (req.url.startsWith('/api/bookings/ketersediaan')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+      const u = new URL(req.url, 'http://x');
+      const m = new Date(u.searchParams.get('mulai'));
+      const sl = new Date(u.searchParams.get('selesai'));
+      const kapMin = Number(u.searchParams.get('kapasitas_min') || 0);
+
+      return kirim(200, { data: ruangan
+        .filter((r) => !kapMin || (r.kapasitas || 0) >= kapMin)
+        .map((r) => {
+          // Rentang setengah terbuka, sama seperti pemicu basis data.
+          const bentrok = pesanan.filter((b) =>
+            b.room_id === r.id &&
+            ['menunggu', 'disetujui', 'berlangsung', 'selesai'].indexOf(b.status) !== -1 &&
+            new Date(b.mulai) < sl && new Date(b.selesai) > m);
+
+          return {
+            id: r.id, kode: r.kode, nama: r.nama, jenis: r.jenis || null,
+            gedung: r.gedung || null, lantai: r.lantai || null,
+            kapasitas: r.kapasitas || 0,
+            status_ruangan: { kode: 'tersedia', nama: 'Tersedia' },
+            tarif: { skema: r.skema_tarif || 'internal', skema_nama: 'Internal', nilai: r.tarif || null },
+            fasilitas: r.fasilitas || [], tata_letak: r.tata_letak || [],
+            perlu_persetujuan: false,
+            tersedia: bentrok.length === 0,
+            alasan: bentrok.length ? 'Bentrok dengan pemesanan lain' : null,
+            bentrok: bentrok.map((b) => ({ id: b.id, keperluan: b.keperluan,
+              mulai: b.mulai, selesai: b.selesai, status: b.status }))
+          };
+        }) });
+    }
+
+    if (req.url.startsWith('/api/bookings')) {
+      if (!punyaSesi(req)) return kirim(401, { message: 'Unauthenticated.' });
+
+      const bentukBooking = (b) => ({
+        id: b.id, keperluan: b.keperluan, jumlah_peserta: b.jumlah_peserta || null,
+        mulai: b.mulai, selesai: b.selesai,
+        status: { kode: b.status, nama: { menunggu: 'Menunggu persetujuan',
+          disetujui: 'Disetujui', ditolak: 'Ditolak', dibatalkan: 'Dibatalkan' }[b.status],
+          memblokir: ['ditolak', 'dibatalkan'].indexOf(b.status) === -1 },
+        catatan: b.catatan || null,
+        persetujuan: { disetujui_pada: null, alasan_penolakan: null, oleh: null },
+        ruangan: (() => { const r = ruangan.find((x) => x.id === b.room_id);
+          return r ? { id: r.id, kode: r.kode, nama: r.nama } : null; })(),
+        pemohon: { id: 1, nama: 'Siti Aminah' }
+      });
+
+      if (req.method === 'GET') {
+        return kirim(200, { data: pesanan.map(bentukBooking), meta: { total: pesanan.length } });
+      }
+
+      if (req.method === 'POST') {
+        let b = ''; req.on('data', (d) => (b += d));
+        return req.on('end', () => {
+          const isi = JSON.parse(b || '{}');
+          const m = new Date(isi.mulai), sl = new Date(isi.selesai);
+
+          // Penjaga yang sesungguhnya: pemicu basis data. Pesannya menyebut
+          // pemesanan penabraknya, karena itulah yang memberi tahu pengguna
+          // harus menggeser ke jam berapa.
+          const tabrak = pesanan.find((x) =>
+            x.room_id === isi.room_id &&
+            ['menunggu', 'disetujui', 'berlangsung'].indexOf(x.status) !== -1 &&
+            new Date(x.mulai) < sl && new Date(x.selesai) > m);
+
+          if (tabrak) {
+            const jam = (t) => new Date(t).toTimeString().slice(0, 5);
+            return kirim(422, { message: 'Jadwal bentrok.', errors: { mulai: [
+              'Ruangan sudah dipesan untuk "' + tabrak.keperluan + '" pukul ' +
+              jam(tabrak.mulai) + '-' + jam(tabrak.selesai) + '.'] } });
+          }
+
+          isi.id = ++idBooking;
+          isi.status = 'menunggu';
+          pesanan.push(isi);
+          return kirim(201, { data: bentukBooking(isi) });
         });
       }
     }
@@ -571,6 +654,78 @@ function apiTiruan() {
   ok(/[Cc]hecklist/.test(detail), 'Bagian checklist tetap ada pada detail BMN');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada Register BMN', errs.join(' | '));
+
+  /* ============ 10. BOOKING RUANGAN ============ */
+  console.log('\n--- 10. Booking ruangan tersambung ---');
+  await page.evaluate(() => { UI.closeDrawer(); location.hash = '#/booking/new'; });
+  await page.waitForTimeout(800);
+
+  await page.evaluate(() => { wzSet('people', 10); wzGo(1); });
+  await page.waitForTimeout(1000);
+
+  const langkah2 = await page.textContent('#wzHost');
+  ok(/Conference Room Garuda/.test(langkah2),
+    'Pilihan ruangan datang dari ketersediaan server, bukan dari data purwarupa');
+
+  // Id ruangan dibaca dari DOM, bukan dari keadaan internal wizard: keadaan
+  // itu memang tidak diekspos ke window, dan membacanya lewat celah khusus
+  // uji berarti menguji sesuatu yang tidak dilalui pengguna.
+  const idRuang = await page.$eval('#wzHost .res-card[onclick*="wzPick"]',
+    (el) => (el.getAttribute('onclick').match(/wzPick\('([^']+)'\)/) || [])[1]);
+  ok(!!idRuang, 'Kartu ruangan yang tersedia dapat dipilih', 'ruangan=' + idRuang);
+
+  await page.evaluate((id) => { wzPick(id); wzSetAgenda('Rapat Koordinasi Fasilitas'); }, idRuang);
+  await page.waitForTimeout(300);
+  await page.evaluate(() => wzGo(4));
+  await page.waitForTimeout(400);
+  await page.click('#wzKirim');
+  await page.waitForTimeout(900);
+
+  const modalBook = await page.textContent('.overlay .modal');
+  ok(/berhasil diajukan/i.test(modalBook), 'Pengajuan pertama berhasil');
+  ok(/Slot sudah tertahan/.test(modalBook),
+    'Pengguna diberi tahu slotnya sudah tertahan walau belum disetujui');
+
+  /* --- pengajuan kedua pada slot yang sama harus DITOLAK SERVER --- */
+  await page.evaluate(() => UI.closeModal());
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { location.hash = '#/booking/new'; });
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { wzSet('people', 10); wzGo(1); });
+  await page.waitForTimeout(1000);
+
+  // Server kini menandainya tidak tersedia.
+  const langkah2b = await page.textContent('#wzHost');
+  ok(/Bentrok dengan pemesanan lain/.test(langkah2b),
+    'Ruangan yang baru dipesan ditandai bentrok oleh server');
+
+  // Dipaksa memilih ruangan yang sudah penuh — inilah jalur yang membuktikan
+  // penjaganya server, bukan tampilan.
+  await page.evaluate((id) => { wzPick(id); wzSetAgenda('Pengajuan Tabrakan'); wzGo(4); }, idRuang);
+  await page.waitForTimeout(400);
+  await page.click('#wzKirim');
+  await page.waitForTimeout(900);
+
+  const modalTolak = await page.textContent('.overlay .modal');
+  ok(/tidak dapat dipesan/i.test(modalTolak), 'Pengajuan kedua ditolak');
+  ok(/Rapat Koordinasi Fasilitas/.test(modalTolak),
+    'Pesan penolakan menyebut pemesanan yang menabraknya — bukan galat teknis',
+    modalTolak.replace(/\s+/g, ' ').slice(0, 140));
+
+  await page.evaluate(() => UI.closeModal());
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { location.hash = '#/booking'; });
+  await page.waitForTimeout(900);
+
+  const daftarBook = await page.textContent('#bookTabel');
+  ok(/Rapat Koordinasi Fasilitas/.test(daftarBook), 'Pemesanan muncul di daftar');
+  ok(!/Pengajuan Tabrakan/.test(daftarBook),
+    'Pengajuan yang ditolak TIDAK tersimpan');
+
+  const kpiBook = await page.textContent('#bookKpi');
+  ok(/Menunggu Persetujuan/.test(kpiBook), 'Ringkasan pemesanan tampil');
+
+  ok(errs.length === 0, 'Tanpa galat halaman pada booking', errs.join(' | '));
 
   server.close();
   console.log(fail === 0 ? '\n=== SEMUA UJI LULUS ===' : `\n=== ${fail} UJI GAGAL ===`);

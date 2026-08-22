@@ -40,7 +40,8 @@ class BookingApiTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('data.keperluan', 'Rapat koordinasi bulanan')
-            ->assertJsonPath('data.status', 'menunggu')
+            ->assertJsonPath('data.status.kode', 'menunggu')
+            ->assertJsonPath('data.status.nama', 'Menunggu persetujuan')
             ->assertJsonPath('data.ruangan.id', $room->id);
     }
 

@@ -417,8 +417,99 @@
     }
   };
 
+
+  /* --------------------------------------------------------------- booking */
+
+  const STATUS_BOOKING_PURWARUPA = {
+    "Waiting Approval": ["menunggu", "Menunggu persetujuan", true],
+    "Approved": ["disetujui", "Disetujui", true],
+    "In Use": ["berlangsung", "Sedang berlangsung", true],
+    "Completed": ["selesai", "Selesai", true],
+    "Cancelled": ["dibatalkan", "Dibatalkan", false],
+    "Rejected": ["ditolak", "Ditolak", false]
+  };
+
+  function bookingDariPurwarupa(b) {
+    const st = STATUS_BOOKING_PURWARUPA[b.status] || ["menunggu", "Menunggu persetujuan", true];
+    const nama = (id) => (window.DB ? DB.personName(id) : id);
+
+    return {
+      id: b.id,
+      keperluan: b.agenda,
+      jumlah_peserta: b.people || null,
+      mulai: b.date + "T" + b.start + ":00",
+      selesai: b.date + "T" + b.end + ":00",
+      status: { kode: st[0], nama: st[1], memblokir: st[2] },
+      catatan: null,
+      persetujuan: { disetujui_pada: null, alasan_penolakan: null, oleh: null },
+      ruangan: { id: b.res, kode: b.res, nama: b.resName },
+      pemohon: b.requester ? { id: b.requester, nama: nama(b.requester) } : null
+    };
+  }
+
+  const booking = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.bookings : []).map(bookingDariPurwarupa);
+
+        if (tapis && tapis.status) baris = baris.filter((b) => b.status.kode === tapis.status);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((b) =>
+            ((b.keperluan || "") + " " + (b.ruangan ? b.ruangan.nama : "") + " " +
+             (b.pemohon ? b.pemohon.nama : "")).toLowerCase().indexOf(k) !== -1);
+        }
+
+        return { data: baris, total: baris.length, purwarupa: true };
+      }
+
+      const j = await API.get("/api/bookings" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
+    },
+
+    async ambil(id) {
+      if (!langsungKeApi()) {
+        return (window.DB ? DB.bookings : []).map(bookingDariPurwarupa)
+          .find((b) => String(b.id) === String(id)) || null;
+      }
+      return (await API.get("/api/bookings/" + encodeURIComponent(id))).data;
+    },
+
+    /**
+     * Mengajukan pemesanan.
+     *
+     * Bentrok jadwal datang sebagai galat validasi 422 biasa dengan pesan yang
+     * sudah menyebut pemesanan yang menabraknya — diterjemahkan server dari
+     * pelanggaran batasan basis data. Antarmuka TIDAK memeriksa bentrok
+     * sendiri lebih dulu: pemeriksaan di peramban selalu memakai data yang
+     * sudah usang beberapa detik, dan dua orang yang memesan bersamaan akan
+     * sama-sama lolos.
+     */
+    simpan(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mengajukan pemesanan");
+      return API.post("/api/bookings", isi).then((j) => j.data);
+    },
+
+    /**
+     * Ruangan mana yang bebas pada rentang waktu tertentu.
+     *
+     * Selalu ditanyakan ke server, tidak pernah dihitung di sini: daftar
+     * pemesanan yang sudah dimuat peramban berumur beberapa detik sampai
+     * menit, dan dalam rentang itu orang lain sudah dapat memesan.
+     */
+    async ketersediaan(mulai, selesai, kapasitasMin) {
+      if (!langsungKeApi()) return { data: [], purwarupa: true };
+
+      const j = await API.get("/api/bookings/ketersediaan" + qs({
+        mulai: mulai, selesai: selesai, kapasitas_min: kapasitasMin || null
+      }));
+      return { data: j.data };
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    booking: booking,
     aset: aset,
     laboratorium: laboratorium,
     pengguna: pengguna,

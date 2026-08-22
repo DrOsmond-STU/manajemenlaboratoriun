@@ -127,7 +127,7 @@ class PersetujuanTest extends TestCase
         $this->actingAs($fm)
             ->postJson("/api/persetujuan/booking/{$booking->id}/setujui", ['catatan' => 'Silakan'])
             ->assertOk()
-            ->assertJsonPath('data.status', 'disetujui');
+            ->assertJsonPath('data.status.kode', 'disetujui');
 
         $segar = $booking->fresh();
         $this->assertSame($fm->id, $segar->disetujui_oleh);
@@ -157,7 +157,7 @@ class PersetujuanTest extends TestCase
                 'alasan' => 'Ruangan sedang direnovasi pada tanggal tersebut',
             ])
             ->assertOk()
-            ->assertJsonPath('data.status', 'ditolak')
+            ->assertJsonPath('data.status.kode', 'ditolak')
             ->assertJsonPath('data.persetujuan.alasan_penolakan', 'Ruangan sedang direnovasi pada tanggal tersebut');
     }
 

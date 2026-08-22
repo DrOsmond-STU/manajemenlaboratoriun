@@ -185,7 +185,9 @@ window.VIEWS = window.VIEWS || {};
   /* =======================================================================
      DETAIL BOOKING (drawer)
      ======================================================================= */
-  window.showBooking = function (id) {
+  /* Detail versi PURWARUPA — masih membaca data.js. Dipakai kalender, agenda,
+     dan reservasi alat yang belum dikonversi. */
+  window.showBookingPurwarupa = function (id) {
     const b = D.bookings.find((x) => x.id === id) || D.eqBookings.find((x) => x.id === id) ||
       D.maintenance.find((x) => x.id === id);
     if (!b) { U.demo("Detail tidak tersedia pada purwarupa."); return; }
@@ -254,7 +256,45 @@ window.VIEWS = window.VIEWS || {};
   /* =======================================================================
      WIZARD BOOKING RUANGAN
      ======================================================================= */
-  const WZ = { step: 0, date: D.shift(1), start: "09:00", end: "11:00", people: 20, room: null, layout: null, addons: {}, agenda: "", kind: "Rapat Internal" };
+  const WZ = { step: 0, date: D.shift(1), start: "09:00", end: "11:00", people: 20, room: null, layout: null, addons: {}, agenda: "", kind: "Rapat Internal",
+
+    // Ruangan beserta ketersediaannya, diambil dari server. Kosong berarti
+    // belum dimuat — dibedakan dari "tidak ada ruangan yang cocok", karena
+    // keduanya menuntut pesan yang berbeda.
+    ruanganServer: null, memuatRuangan: false, galatRuangan: null };
+
+  function wzMulaiIso() { return WZ.date + "T" + WZ.start + ":00"; }
+  function wzSelesaiIso() { return WZ.date + "T" + WZ.end + ":00"; }
+
+  /**
+   * Memuat ketersediaan ruangan dari server.
+   *
+   * Dipanggil setiap kali tanggal atau jam berubah. Hasilnya TIDAK di-cache
+   * antar-perubahan: ketersediaan adalah keadaan yang berubah tanpa
+   * sepengetahuan halaman ini, dan menyimpannya berarti menampilkan jawaban
+   * untuk rentang waktu yang sudah tidak ditanyakan lagi.
+   */
+  window.wzMuatRuangan = async function () {
+    if (!window.Repo || !Repo.dapatMenulis()) return;
+
+    WZ.memuatRuangan = true;
+    WZ.galatRuangan = null;
+
+    const host = document.getElementById("wzHost");
+    if (host && WZ.step === 1) host.innerHTML = wizardHTML();
+
+    try {
+      const hasil = await Repo.booking.ketersediaan(wzMulaiIso(), wzSelesaiIso(), WZ.people);
+      WZ.ruanganServer = hasil.data;
+    } catch (e) {
+      WZ.ruanganServer = [];
+      WZ.galatRuangan = e.message;
+    } finally {
+      WZ.memuatRuangan = false;
+      const h = document.getElementById("wzHost");
+      if (h && WZ.step === 1) h.innerHTML = wizardHTML();
+    }
+  };
 
   V["booking/new"] = {
     title: "Buat Booking Ruangan",
@@ -268,27 +308,164 @@ window.VIEWS = window.VIEWS || {};
     WZ.step = Math.max(0, Math.min(4, s));
     document.getElementById("wzHost").innerHTML = wizardHTML();
     window.scrollTo({ top: 0, behavior: "smooth" });
+
+    if (s === 1 && WZ.ruanganServer === null) wzMuatRuangan();
   };
   window.wzPick = function (id) { WZ.room = id; WZ.layout = null; document.getElementById("wzHost").innerHTML = wizardHTML(); };
-  window.wzSet = function (k, v) { WZ[k] = v; if (k === "people" || k === "date") document.getElementById("wzHost").innerHTML = wizardHTML(); };
+  window.wzSet = function (k, v) {
+    WZ[k] = v;
+
+    // Mengubah waktu atau kapasitas membuat pilihan ruangan sebelumnya
+    // mungkin tidak lagi sah. Membiarkannya terpilih akan mengirimkan
+    // pengajuan untuk ruangan yang barusan berubah statusnya.
+    if (k === "date" || k === "start" || k === "end" || k === "people") {
+      WZ.room = null;
+      WZ.ruanganServer = null;
+      document.getElementById("wzHost").innerHTML = wizardHTML();
+      wzMuatRuangan();
+    }
+  };
+  /**
+   * Menetapkan agenda dari luar wizard.
+   *
+   * Ada karena kolom agenda berada di langkah 4, sementara pemilihan ruangan
+   * di langkah 2 — dan berpindah langkah merender ulang seluruh formulir.
+   * Dipakai juga oleh uji peramban untuk mengisi agenda tanpa perlu menembus
+   * keadaan internal wizard, yang memang tidak diekspos.
+   */
+  window.wzSetAgenda = function (teks) { WZ.agenda = teks; };
+
+  /**
+   * Ruangan yang sedang dipilih, dari sumber mana pun.
+   *
+   * Saat tersambung, id-nya angka dari server dan TIDAK ada di D.rooms —
+   * mencarinya di sana mengembalikan null, dan seluruh langkah ringkasan
+   * gagal dirender tanpa satu pun pesan. Bentuk keluarannya disamakan dengan
+   * bentuk purwarupa supaya kartu ringkasan yang sudah ada tidak perlu
+   * ditulis ulang.
+   */
+  function wzRuangan() {
+    if (WZ.room === null || WZ.room === undefined) return null;
+
+    if (window.Repo && Repo.dapatMenulis()) {
+      const r = (WZ.ruanganServer || []).find((x) => String(x.id) === String(WZ.room));
+      if (!r) return null;
+
+      return {
+        id: r.id, code: r.kode, name: r.nama, type: r.jenis || "—",
+        building: r.gedung || "", floor: r.lantai || "",
+        cap: r.kapasitas, area: null,
+        layout: r.tata_letak && r.tata_letak.length ? r.tata_letak : ["Boardroom"],
+        facs: r.fasilitas || [],
+        pricing: r.tarif.skema === "berbayar" ? "PAID" : "INTERNAL",
+        rate: r.tarif.nilai || 0
+      };
+    }
+
+    return D.byId(D.rooms, WZ.room);
+  }
+
   window.wzLayout = function (l) { WZ.layout = l; document.getElementById("wzHost").innerHTML = wizardHTML(); };
   window.wzAddon = function (id, qty) { WZ.addons[id] = Math.max(0, qty); document.getElementById("wzHost").innerHTML = wizardHTML(); };
-  window.wzSubmit = function () {
+  window.wzSubmit = async function () {
+    if (!WZ.room) {
+      U.toast("Pilih ruangan", "Silakan pilih ruangan lebih dulu.", "warn");
+      return;
+    }
+    if (!WZ.agenda) {
+      U.toast("Agenda belum diisi", "Isi agenda kegiatan supaya penyetuju tahu keperluannya.", "warn");
+      return;
+    }
+
+    /* ---- Mode data contoh: jangan berpura-pura mengajukan ---- */
+    if (!window.Repo || !Repo.dapatMenulis()) {
+      U.modal({
+        title: "Simulasi pengajuan",
+        sub: "Mode data contoh — tidak ada yang tersimpan",
+        body: `<div class="alert warn">${U.icon("alert", 15)}<div>
+          <b>Pengajuan ini TIDAK tersimpan ke mana pun.</b> Anda sedang menelusuri purwarupa.
+          Masuk dengan akun untuk mengajukan pemesanan sungguhan.</div></div>`,
+        foot: `<button class="btn btn-primary" onclick="UI.closeModal()">Mengerti</button>`
+      });
+      return;
+    }
+
+    /* ---- Tersambung ---- */
+    const tombol = document.getElementById("wzKirim");
+    if (tombol) { tombol.disabled = true; tombol.textContent = "Mengirim…"; }
+
+    let hasil;
+    try {
+      hasil = await Repo.booking.simpan({
+        // Diubah menjadi angka: WZ.room berasal dari atribut DOM, jadi
+        // isinya string. Laravel memang menerima "1" untuk aturan integer,
+        // tetapi mengirim tipe yang benar membuat perbandingan di sisi mana
+        // pun tidak bergantung pada pemaksaan tipe yang diam-diam.
+        room_id: Number(WZ.room),
+        keperluan: WZ.agenda,
+        jumlah_peserta: Number(WZ.people) || null,
+        mulai: wzMulaiIso(),
+        selesai: wzSelesaiIso(),
+        catatan: WZ.kind ? "Jenis kegiatan: " + WZ.kind : null
+      });
+    } catch (e) {
+      if (tombol) { tombol.disabled = false; tombol.textContent = "Ajukan Booking"; }
+
+      // Bentrok jadwal datang sebagai 422 dengan pesan yang sudah menyebut
+      // pemesanan penabraknya — diterjemahkan server dari pelanggaran batasan
+      // basis data. Ditampilkan apa adanya, bukan diganti pesan sendiri:
+      // pesan server memuat nama kegiatan dan jamnya, dan itulah yang membuat
+      // pengguna tahu harus menggeser ke jam berapa.
+      const pesan = (e.status === 422 && e.perMedan)
+        ? Object.keys(e.perMedan).map((k) => e.perMedan[k].join(" ")).join(" ")
+        : (e.message || "Gagal mengajukan pemesanan.");
+
+      U.modal({
+        title: e.status === 422 ? "Slot tidak dapat dipesan" : "Pengajuan gagal",
+        body: `<div class="alert err">${U.icon("alert", 15)}<div>${U.esc(pesan)}</div></div>
+          ${e.status === 422 ? `<p class="small muted mt-12">Ubah tanggal atau jamnya, lalu pilih
+            ulang ruangan — daftar ketersediaan akan diperiksa ulang ke server.</p>` : ""}`,
+        foot: `<button class="btn btn-primary" onclick="UI.closeModal();wzGo(0)">Ubah Jadwal</button>`
+      });
+
+      // Ketersediaan yang tersimpan sudah jelas usang — orang lain baru saja
+      // memesan slot ini.
+      WZ.ruanganServer = null;
+      return;
+    }
+
+    if (tombol) { tombol.disabled = false; tombol.textContent = "Ajukan Booking"; }
+
+    const st = hasil.status || {};
+
     U.modal({
       title: "Booking berhasil diajukan",
-      sub: "ID Booking: BK-2026-000445",
+      sub: "ID Booking: #" + hasil.id,
       body: `<div class="center">
         <div class="tint-green" style="width:62px;height:62px;border-radius:50%;display:grid;place-items:center;margin:0 auto 16px">${U.icon("check", 30)}</div>
-        <h3 class="mb-8">Pengajuan terkirim ke alur persetujuan</h3>
-        <p class="muted small">Alur: <b>Pemohon → PIC Ruangan${wzTotal() > 0 ? " → Finance" : ""}</b>. Notifikasi telah dikirim melalui in-app, email, dan WhatsApp.</p>
-        <div class="mt-16">${U.stepper(["Diajukan", "PIC Ruangan", wzTotal() > 0 ? "Finance" : "Konfirmasi", "Selesai"], 1)}</div>
-        <div class="mt-16 row gap-16" style="justify-content:center">${U.qrBox("BK-2026-000445")}
-          <div class="small muted left" style="text-align:left">QR check-in akan aktif setelah<br>booking disetujui.</div></div>
+        <h3 class="mb-8">${U.esc(hasil.keperluan)}</h3>
+        <p class="muted small">${U.esc(hasil.ruangan ? hasil.ruangan.nama : "")} ·
+          ${U.fdate(WZ.date, "long")} · ${WZ.start}–${WZ.end}</p>
+        <div class="row gap-6 mt-12" style="justify-content:center">
+          <span class="badge ${STATUS_BOOK_TINT[st.kode] || "slate"}">${U.esc(st.nama || "")}</span>
+          ${st.memblokir ? `<span class="badge outline">Slot sudah tertahan atas nama Anda</span>` : ""}
+        </div>
+        <div class="alert info small mt-16" style="text-align:left">${U.icon("shield", 15)}<div>
+          Sejak detik ini ruangan tersebut tidak dapat dipesan orang lain pada rentang waktu yang sama —
+          bahkan sebelum pengajuan Anda disetujui.</div></div>
       </div>`,
       foot: `<button class="btn" onclick="UI.closeModal();location.hash='#/mybooking'">Lihat Booking Saya</button>
-             <button class="btn btn-primary" onclick="UI.closeModal();location.hash='#/calendar'">Buka Kalender</button>`
+             <button class="btn btn-primary" onclick="UI.closeModal();location.hash='#/booking'">Buka Daftar Booking</button>`
     });
+
+    // Agenda dibersihkan supaya pengajuan berikutnya tidak mewarisi keperluan
+    // yang sudah terkirim.
+    WZ.agenda = "";
+    WZ.room = null;
+    WZ.ruanganServer = null;
+    WZ.step = 0;
   };
+
   window.aiSuggestRoom = function () {
     U.modal({
       title: "Rekomendasi Ruangan oleh AI", sub: "Berdasarkan tanggal, kapasitas, fasilitas, dan anggaran",
@@ -309,7 +486,7 @@ window.VIEWS = window.VIEWS || {};
   };
 
   function wzTotal() {
-    const r = D.byId(D.rooms, WZ.room);
+    const r = wzRuangan();
     let t = 0;
     if (r && r.pricing === "PAID") {
       const h = (parseInt(WZ.end) - parseInt(WZ.start)) || 2;
@@ -324,7 +501,7 @@ window.VIEWS = window.VIEWS || {};
 
   function wizardHTML() {
     const steps = ["Waktu & Kebutuhan", "Pilih Ruangan", "Layout & Add-on", "Agenda & Peserta", "Ringkasan"];
-    const room = D.byId(D.rooms, WZ.room);
+    const room = wzRuangan();
     let body = "";
 
     if (WZ.step === 0) {
@@ -357,13 +534,54 @@ window.VIEWS = window.VIEWS || {};
     }
 
     if (WZ.step === 1) {
-      const fit = D.rooms.map((r) => {
-        let reason = "", ok = true;
-        if (r.status === "Maintenance") { ok = false; reason = "Sedang maintenance"; }
-        else if (r.cap < WZ.people) { ok = false; reason = `Kapasitas kurang (${r.cap} < ${WZ.people})`; }
-        else if (D.bookings.some((b) => b.res === r.id && b.date === WZ.date && b.status !== "Cancelled" && !(b.end <= WZ.start || b.start >= WZ.end))) { ok = false; reason = "Bentrok jadwal"; }
-        return { r, ok, reason };
-      }).sort((a, b) => (b.ok - a.ok) || (a.r.cap - b.r.cap));
+      // Ketersediaan datang dari SERVER saat tersambung. Menghitungnya di
+      // sini dari daftar pemesanan yang sudah dimuat berarti memakai data
+      // berumur beberapa detik sampai menit — dan pengguna yang melihat
+      // "tersedia" lalu ditolak pada langkah terakhir tidak punya cara tahu
+      // mengapa, karena layarnya baru saja mengatakan sebaliknya.
+      const tersambung = window.Repo && Repo.dapatMenulis();
+
+      const fit = tersambung
+        ? (WZ.ruanganServer || []).map((r) => ({
+            r: {
+              id: r.id, code: r.kode, name: r.nama, type: r.jenis || "—",
+              building: r.gedung || "", floor: r.lantai || "",
+              cap: r.kapasitas, area: null,
+              layout: r.tata_letak && r.tata_letak.length ? r.tata_letak : ["Boardroom"],
+              facs: r.fasilitas || [],
+              pricing: r.tarif.skema === "berbayar" ? "PAID" : "INTERNAL",
+              rate: r.tarif.nilai || 0
+            },
+            ok: r.tersedia,
+            reason: r.alasan || ""
+          })).sort((a, b) => (b.ok - a.ok) || (a.r.cap - b.r.cap))
+        : D.rooms.map((r) => {
+            let reason = "", ok = true;
+            if (r.status === "Maintenance") { ok = false; reason = "Sedang maintenance"; }
+            else if (r.cap < WZ.people) { ok = false; reason = `Kapasitas kurang (${r.cap} < ${WZ.people})`; }
+            else if (D.bookings.some((b) => b.res === r.id && b.date === WZ.date && b.status !== "Cancelled" && !(b.end <= WZ.start || b.start >= WZ.end))) { ok = false; reason = "Bentrok jadwal"; }
+            return { r, ok, reason };
+          }).sort((a, b) => (b.ok - a.ok) || (a.r.cap - b.r.cap));
+
+      if (tersambung && WZ.memuatRuangan) {
+        return U.card("Pilih Ruangan", `<div style="padding:32px;text-align:center">
+          <span class="muted">Memeriksa ketersediaan pada ${U.fdate(WZ.date, "long")} pukul ${WZ.start}–${WZ.end}…</span>
+        </div>`);
+      }
+
+      if (tersambung && WZ.galatRuangan) {
+        return U.card("Pilih Ruangan", `<div style="padding:20px"><div class="alert err">${U.icon("alert", 15)}<div>
+          <b>Ketersediaan tidak dapat diperiksa.</b><br><span class="small">${U.esc(WZ.galatRuangan)}</span>
+          <div class="tiny mt-6">Pengajuan tetap dapat dikirim, dan server akan menolaknya bila slotnya sudah terisi.</div>
+        </div></div></div>`);
+      }
+
+      if (tersambung && !fit.length) {
+        return U.card("Pilih Ruangan", `<div style="padding:40px;text-align:center">
+          <div class="muted mb-8">Tidak ada ruangan berkapasitas minimal ${WZ.people} orang.</div>
+          <div class="small muted">Kurangi jumlah peserta, atau daftarkan ruangan lebih dulu pada menu Ruangan.</div>
+        </div>`);
+      }
 
       body = `
         <div class="row mb-16 wrap gap-8">
@@ -489,7 +707,7 @@ window.VIEWS = window.VIEWS || {};
           <div class="alert ok">${U.icon("check", 17)}<div><b>Tidak ada benturan jadwal</b>
             Ruangan, PIC, dan seluruh add-on tersedia pada slot waktu yang dipilih.</div></div>
           <label class="check"><input type="checkbox" checked> <span class="small">Saya menyetujui <a href="#" onclick="return UI.demo('Syarat penggunaan fasilitas')">syarat &amp; ketentuan penggunaan fasilitas</a> dan bersedia menanggung biaya kerusakan bila terjadi.</span></label>
-          <button class="btn btn-primary btn-lg btn-block" onclick="wzSubmit()">${U.icon("check")} Ajukan Booking</button>
+          <button class="btn btn-primary btn-lg btn-block" id="wzKirim" onclick="wzSubmit()">${U.icon("check")} Ajukan Booking</button>
         </div>
       </div>`;
     }
@@ -541,27 +759,214 @@ window.VIEWS = window.VIEWS || {};
     ], rows);
   }
 
+  /* =======================================================================
+     BOOKING RUANGAN — tersambung ke basis data
+     ======================================================================= */
+
+  const BOOK = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  const STATUS_BOOK_TINT = {
+    menunggu: "amber", disetujui: "green", berlangsung: "teal",
+    selesai: "slate", ditolak: "red", dibatalkan: "red"
+  };
+
+  function jamDari(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+  function tanggalDari(iso) {
+    return iso ? iso.slice(0, 10) : "";
+  }
+
+  function bookingBarisHTML(b) {
+    const st = b.status;
+    return `
+      <tr>
+        <td><span class="lnk mono" onclick="showBooking('${U.esc(String(b.id))}')">#${U.esc(String(b.id))}</span></td>
+        <td><b>${U.esc(b.keperluan)}</b></td>
+        <td>${U.esc(b.ruangan ? b.ruangan.nama : "—")}
+          <div class="tiny faint">${U.esc(b.ruangan ? b.ruangan.kode : "")}</div></td>
+        <td>${U.fdate(tanggalDari(b.mulai), "short")}
+          <div class="tiny faint">${jamDari(b.mulai)} – ${jamDari(b.selesai)}</div></td>
+        <td>${b.pemohon ? `<div class="row"><span class="avatar sm">${U.initials(b.pemohon.nama)}</span>
+          <div class="small">${U.esc(b.pemohon.nama)}</div></div>` : "—"}</td>
+        <td class="center">${b.jumlah_peserta || "—"}</td>
+        <td><span class="badge ${STATUS_BOOK_TINT[st.kode] || "slate"}">${U.esc(st.nama)}</span></td>
+        <td class="actions"><button class="icon-btn" onclick="showBooking('${U.esc(String(b.id))}')">${U.icon("eye", 15)}</button></td>
+      </tr>`;
+  }
+
+  function isiTabelBooking() {
+    const wadah = document.getElementById("bookTabel");
+    if (!wadah) return;
+
+    if (BOOK.memuat) {
+      wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat pemesanan…</span></div>`;
+      return;
+    }
+    if (BOOK.galat) {
+      wadah.innerHTML = `<div style="padding:20px"><div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat pemesanan.</b><br><span class="small">${U.esc(BOOK.galat)}</span></div></div></div>`;
+      return;
+    }
+    if (!BOOK.baris.length) {
+      const adaTapis = Object.keys(BOOK.tapis).some((k) => BOOK.tapis[k]);
+      wadah.innerHTML = `<div style="padding:40px;text-align:center">
+        <div class="muted mb-12">${adaTapis
+          ? "Tidak ada pemesanan yang cocok dengan penyaringan ini."
+          : "Belum ada pemesanan ruangan."}</div>
+        ${adaTapis
+          ? `<button class="btn btn-sm" onclick="bookHapusTapis()">Hapus penyaringan</button>`
+          : (Repo.dapatMenulis()
+            ? `<button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Ajukan Pemesanan</button>`
+            : `<span class="small muted">Masuk dengan akun untuk mengajukan pemesanan.</span>`)}
+      </div>`;
+      return;
+    }
+
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th style="width:110px">ID</th><th>Keperluan</th><th>Ruangan</th>
+        <th>Jadwal</th><th>Pemohon</th><th class="center">Pax</th><th>Status</th><th></th></tr></thead>
+      <tbody>${BOOK.baris.map(bookingBarisHTML).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanBooking() {
+    const wadah = document.getElementById("bookKpi");
+    if (!wadah) return;
+
+    const b = BOOK.baris;
+    const hitung = (k) => b.filter((x) => x.status.kode === k).length;
+
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Total Pemesanan", value: b.length, icon: "calendar", tint: "brand", note: "Yang terlihat oleh Anda" })}
+      ${U.kpi({ label: "Menunggu Persetujuan", value: hitung("menunggu"), icon: "clock", tint: "amber", note: "Perlu tindakan" })}
+      ${U.kpi({ label: "Disetujui", value: hitung("disetujui"), icon: "check", tint: "green", note: "Siap digunakan" })}
+      ${U.kpi({ label: "Sedang Berlangsung", value: hitung("berlangsung"), icon: "play", tint: "teal", note: "Sedang dipakai" })}
+      ${U.kpi({ label: "Ditolak / Dibatalkan", value: hitung("ditolak") + hitung("dibatalkan"), icon: "x", tint: "red", note: "Slot kembali bebas" })}`;
+  }
+
+  async function muatBooking() {
+    BOOK.memuat = true;
+    BOOK.galat = null;
+    isiTabelBooking();
+
+    try {
+      const hasil = await Repo.booking.daftar(BOOK.tapis);
+      BOOK.baris = hasil.data;
+    } catch (e) {
+      BOOK.baris = [];
+      BOOK.galat = e.message;
+    } finally {
+      BOOK.memuat = false;
+      isiTabelBooking();
+      isiRingkasanBooking();
+    }
+  }
+
+  window.bookTapis = function (kunci, nilai) {
+    if (nilai) BOOK.tapis[kunci] = nilai; else delete BOOK.tapis[kunci];
+    muatBooking();
+  };
+  window.bookHapusTapis = function () {
+    BOOK.tapis = {};
+    const c = document.getElementById("bookCari");
+    if (c) c.value = "";
+    muatBooking();
+  };
+
+  /* --------------------------------------------------------------- detail */
+
+  /**
+   * Detail pemesanan.
+   *
+   * Bila id-nya tidak ada di daftar tersambung, dialihkan ke detail purwarupa.
+   * Kalender, agenda, dan reservasi alat masih memakai id purwarupa
+   * ("BK-2026-000431"), dan tanpa pengalihan ini mengklik jadwal di sana akan
+   * diam saja tanpa satu pun tanda — kegagalan yang paling membingungkan
+   * karena tampak seperti antarmuka yang tidak merespons.
+   */
+  window.showBooking = function (id) {
+    const b = BOOK.baris.find((x) => String(x.id) === String(id));
+    if (!b) return window.showBookingPurwarupa(id);
+
+    const baris = (k, v) => v === null || v === undefined || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`;
+    const st = b.status;
+
+    U.drawer({
+      size: "wide",
+      title: b.keperluan,
+      sub: (b.ruangan ? b.ruangan.nama + " • " : "") + U.fdate(tanggalDari(b.mulai), "long"),
+      body: `
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_BOOK_TINT[st.kode] || "slate"}">${U.esc(st.nama)}</span>
+          ${st.memblokir
+            ? `<span class="badge outline">Slot tertahan</span>`
+            : `<span class="badge slate">Slot bebas</span>`}
+        </div>
+
+        <div class="dl mb-16">
+          ${baris("Ruangan", b.ruangan ? U.esc(b.ruangan.nama) + " (" + U.esc(b.ruangan.kode) + ")" : "")}
+          ${baris("Tanggal", U.fdate(tanggalDari(b.mulai), "long"))}
+          ${baris("Waktu", jamDari(b.mulai) + " – " + jamDari(b.selesai))}
+          ${baris("Jumlah Peserta", b.jumlah_peserta || "")}
+          ${baris("Pemohon", b.pemohon ? U.esc(b.pemohon.nama) : "")}
+          ${baris("Catatan", U.esc(b.catatan || ""))}
+        </div>
+
+        ${b.persetujuan && (b.persetujuan.oleh || b.persetujuan.alasan_penolakan) ? `
+          <h4 class="mb-8 muted">PERSETUJUAN</h4>
+          <div class="dl mb-16">
+            ${baris("Oleh", b.persetujuan.oleh ? U.esc(b.persetujuan.oleh.nama) : "")}
+            ${baris("Waktu", b.persetujuan.disetujui_pada
+              ? U.fdate(b.persetujuan.disetujui_pada.slice(0, 10), "long") : "")}
+            ${baris("Alasan Penolakan", U.esc(b.persetujuan.alasan_penolakan || ""))}
+          </div>` : ""}
+
+        <div class="alert info small">${U.icon("shield", 15)}<div>
+          Selama status masih menahan slot, ruangan ini tidak dapat dipesan orang lain
+          pada rentang waktu yang sama. Penolakan atau pembatalan langsung membebaskannya.</div></div>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>`
+    });
+  };
+
   V["booking"] = {
     title: "Daftar Booking",
-    sub: "Seluruh pengajuan booking ruangan, laboratorium, dan auditorium.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Ekspor ke Excel')">${U.icon("download")} Ekspor</button>
-              <button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Booking Baru</button>`,
+    sub: "Seluruh pengajuan pemesanan ruangan.",
+    get actions() {
+      return Repo.dapatMenulis()
+        ? `<button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Booking Baru</button>`
+        : "";
+    },
     render() {
-      const s = {};
-      D.bookings.forEach((b) => s[b.status] = (s[b.status] || 0) + 1);
       return `
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Total Booking", value: D.bookings.length, icon: "calendar", tint: "brand", note: "Periode berjalan" })}
-          ${U.kpi({ label: "Menunggu Approval", value: s["Waiting Approval"] || 0, icon: "clock", tint: "amber", note: "Perlu tindakan PIC" })}
-          ${U.kpi({ label: "Disetujui", value: s["Approved"] || 0, icon: "check", tint: "green", note: "Siap digunakan" })}
-          ${U.kpi({ label: "Sedang Berlangsung", value: s["In Use"] || 0, icon: "play", tint: "teal", note: "Check-in tercatat" })}
-          ${U.kpi({ label: "Dibatalkan", value: s["Cancelled"] || 0, icon: "x", tint: "red", note: "Cancellation rate 4,2%" })}
+        <div class="grid g5 mb-16" id="bookKpi"></div>
+        <div class="card"><div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="bookCari" placeholder="Cari keperluan, ruangan, atau pemohon…"></div>
+          <select class="select" style="width:auto" onchange="bookTapis('status', this.value)">
+            <option value="">Semua Status</option>
+            <option value="menunggu">Menunggu persetujuan</option>
+            <option value="disetujui">Disetujui</option>
+            <option value="berlangsung">Sedang berlangsung</option>
+            <option value="selesai">Selesai</option>
+            <option value="ditolak">Ditolak</option>
+            <option value="dibatalkan">Dibatalkan</option></select>
+          <div class="spacer"></div>
         </div>
-        ${U.card("", U.toolbar({
-          ph: "Cari ID booking, agenda, atau pemohon…",
-          filters: [["Semua Jenis", "Ruangan", "Laboratorium", "Auditorium"], ["Semua Status", "Waiting Approval", "Approved", "In Use", "Completed", "Cancelled"], ["Semua Unit"].concat(D.org.units)],
-          right: `<button class="btn btn-sm">${U.icon("filter")} Filter Lanjutan</button>`
-        }) + bookingTable(D.bookings) + U.pager(D.bookings.length, 1, 14), { bodyCls: "flush" })}`;
+        <div id="bookTabel"></div></div>`;
+    },
+    mount() {
+      const cari = document.getElementById("bookCari");
+      if (cari) {
+        cari.value = BOOK.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => bookTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatBooking();
     }
   };
 

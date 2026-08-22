@@ -20,7 +20,16 @@ class BookingResource extends JsonResource
             'jumlah_peserta' => $this->jumlah_peserta,
             'mulai' => $this->mulai?->toIso8601String(),
             'selesai' => $this->selesai?->toIso8601String(),
-            'status' => $this->status,
+            'status' => [
+                'kode' => $this->status,
+                'nama' => Booking::STATUS[$this->status] ?? $this->status,
+                // Antarmuka perlu tahu apakah slotnya masih tertahan, dan itu
+                // bukan sesuatu yang boleh disimpulkan sendiri dari daftar
+                // kode: aturannya sama persis dengan klausa pada pemicu basis
+                // data, dan menyalinnya ke peramban berarti dua salinan yang
+                // akan menyimpang.
+                'memblokir' => ! in_array($this->status, Booking::STATUS_TIDAK_MEMBLOKIR, true),
+            ],
             'catatan' => $this->catatan,
             'persetujuan' => [
                 'disetujui_pada' => $this->disetujui_pada?->toIso8601String(),

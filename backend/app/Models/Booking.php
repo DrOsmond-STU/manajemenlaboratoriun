@@ -16,6 +16,23 @@ class Booking extends Model
     /** Status yang tidak lagi memblokir slot — harus sama dengan klausa WHERE batasan eksklusi. */
     public const STATUS_TIDAK_MEMBLOKIR = ['dibatalkan', 'ditolak'];
 
+    /**
+     * Nama status yang terbaca.
+     *
+     * Dikirim bersama kodenya supaya antarmuka tidak perlu memelihara salinan
+     * daftar yang sama — salinan itu pasti menyimpang, dan yang tampil lalu
+     * jadi kode mentah seperti "menunggu" di tengah kalimat berbahasa
+     * Indonesia yang rapi.
+     */
+    public const STATUS = [
+        'menunggu' => 'Menunggu persetujuan',
+        'disetujui' => 'Disetujui',
+        'ditolak' => 'Ditolak',
+        'berlangsung' => 'Sedang berlangsung',
+        'selesai' => 'Selesai',
+        'dibatalkan' => 'Dibatalkan',
+    ];
+
     protected $fillable = [
         'room_id', 'user_id', 'keperluan', 'unit_kerja', 'jumlah_peserta',
         'mulai', 'selesai', 'status', 'catatan',

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-410 uji lulus, 1.232 asersi, 0 gagal — dijalankan di PostgreSQL 16
+420 uji lulus, 1.259 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -503,6 +503,21 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   Komentar di kodenya menyatakan tegas bahwa jaminannya ada di basis data,
   agar tidak ada yang menghapus batasannya karena merasa validasi sudah cukup.
 
+- **Ketersediaan ruangan ditanyakan ke server, bukan dihitung peramban.**
+  Antarmuka dapat menghitungnya dari daftar pemesanan yang sudah dimuat,
+  tetapi daftar itu berumur beberapa detik sampai menit. Yang terjadi bukan
+  sekadar layar usang: pengguna melihat "tersedia", mengisi seluruh formulir,
+  lalu ditolak pada langkah terakhir — dan **ia tidak punya cara tahu
+  mengapa, karena layarnya baru saja mengatakan sebaliknya**. Jawabannya pun
+  tetap perkiraan; jaminannya tetap pemicu basis data. Endpoint ini hanya
+  membuat penolakan itu jarang, bukan mustahil.
+- **Aturan rentangnya sama persis dengan pemicu.** Setengah terbuka
+  `[mulai, selesai)`, dan status yang memblokir dibaca dari
+  `STATUS_TIDAK_MEMBLOKIR` yang sama. Berbeda sedikit saja, pemeriksaan dan
+  penyimpanan berselisih pendapat — dan yang kalah adalah pengguna.
+- **Ruangan dalam pemeliharaan ditandai tidak tersedia tetapi tetap tampil.**
+  Slotnya memang kosong, tetapi memesannya keliru; menyembunyikan ruangannya
+  membuat pemesan bertanya-tanya ke mana perginya.
 - **Ringkasan Register BMN dihitung server atas seluruh aset dalam cakupan.**
   Daftarnya berhalaman 25 baris; ringkasan yang dihitung antarmuka dari
   halaman pertama akan melaporkan nilai perolehan seperempat miliar untuk

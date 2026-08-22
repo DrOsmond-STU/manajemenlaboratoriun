@@ -447,6 +447,128 @@
     };
   }
 
+  /* ------------------------------------------------------------ pemeliharaan */
+  /*
+     SATU DAFTAR UNTUK KEDUANYA — pemeliharaan dan kalibrasi — persis seperti
+     server (lihat migrasi asset_maintenances): teknisi yang melihat "apa
+     yang jatuh tempo hari ini" tidak ingin membuka dua layar berbeda.
+     Purwarupa memakai D.maintenance (preventif/korektif/darurat) dan
+     D.calibration (kalibrasi) sebagai dua koleksi terpisah — digabungkan di
+     sini menjadi satu bentuk, sama seperti server menggabungkannya di satu
+     tabel.
+  */
+
+  const JENIS_PML_DARI_PURWARUPA = { Preventive: "preventif", Corrective: "korektif", Emergency: "darurat" };
+  const NAMA_JENIS_PML = {
+    preventif: "Pemeliharaan preventif", korektif: "Pemeliharaan korektif",
+    darurat: "Penanganan darurat", kalibrasi: "Kalibrasi"
+  };
+  const STATUS_PML_DARI_PURWARUPA = {
+    Scheduled: "dijadwalkan", "In Progress": "berjalan", "Waiting Part": "berjalan",
+    Completed: "selesai", Overdue: "dijadwalkan"
+  };
+  const NAMA_STATUS_PML = {
+    dijadwalkan: "Dijadwalkan", berjalan: "Sedang dikerjakan", selesai: "Selesai", dibatalkan: "Dibatalkan"
+  };
+
+  /** Kode target purwarupa ("RM-006", "LAB-006", "EQ-0005", "AST-…") → sumber daya ringkas. */
+  function sumberDayaPmlDariPurwarupa(kode, nama) {
+    const jenis = /^RM/.test(kode) ? "ruangan" : /^LAB/.test(kode) ? "laboratorium" : "aset";
+    return { jenis: jenis, id: kode, nama: nama };
+  }
+
+  function workOrderDariPurwarupa(m) {
+    const jenis = JENIS_PML_DARI_PURWARUPA[m.kind] || "preventif";
+    const status = STATUS_PML_DARI_PURWARUPA[m.status] || "dijadwalkan";
+    const hariIni = window.DB ? DB.shift(0) : m.sched;
+
+    return {
+      id: m.id,
+      jenis: { kode: jenis, nama: NAMA_JENIS_PML[jenis] },
+      status: { kode: status, nama: NAMA_STATUS_PML[status] },
+      jadwal: m.sched,
+      dikerjakan_pada: status === "selesai" ? m.sched : null,
+      terlambat: status !== "selesai" && status !== "dibatalkan" && m.sched < hariIni,
+      pelaksana: m.vendor || null,
+      hasil: status === "selesai" ? (m.note || null) : null,
+      biaya: m.cost || 0,
+      kalibrasi: null,
+      sumber_daya: sumberDayaPmlDariPurwarupa(m.target, m.targetName),
+      petugas: m.tech ? { id: m.tech, nama: window.DB ? DB.personName(m.tech) : m.tech } : null,
+      catatan: m.note || null
+    };
+  }
+
+  function kalibrasiDariPurwarupa(c) {
+    const status = STATUS_PML_DARI_PURWARUPA[c.status] || "dijadwalkan";
+    const hariIni = window.DB ? DB.shift(0) : c.due;
+    const kedaluwarsa = c.due < hariIni;
+
+    return {
+      id: c.id,
+      jenis: { kode: "kalibrasi", nama: "Kalibrasi" },
+      status: { kode: status, nama: NAMA_STATUS_PML[status] },
+      jadwal: c.due,
+      dikerjakan_pada: null,
+      terlambat: status !== "selesai" && status !== "dibatalkan" && kedaluwarsa,
+      pelaksana: c.lab || null,
+      hasil: c.result || null,
+      biaya: c.cost || 0,
+      kalibrasi: {
+        no_sertifikat: c.cert || null, lembaga: c.lab || null,
+        berlaku_sampai: c.due, kedaluwarsa: kedaluwarsa
+      },
+      sumber_daya: sumberDayaPmlDariPurwarupa(c.eq, c.eqName),
+      petugas: null,
+      catatan: null
+    };
+  }
+
+  function pemeliharaanPurwarupaSemua() {
+    if (!window.DB) return [];
+    return (DB.maintenance || []).map(workOrderDariPurwarupa)
+      .concat((DB.calibration || []).map(kalibrasiDariPurwarupa));
+  }
+
+  const pemeliharaan = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = pemeliharaanPurwarupaSemua();
+        if (tapis) {
+          if (tapis.jenis) baris = baris.filter((m) => m.jenis.kode === tapis.jenis);
+          if (tapis.status) baris = baris.filter((m) => m.status.kode === tapis.status);
+          if (tapis.terlambat) baris = baris.filter((m) => m.terlambat);
+        }
+        return { data: baris, meta: { total: baris.length } };
+      }
+      return API.get("/api/pemeliharaan" + qs(tapis));
+    },
+
+    async lihat(id) {
+      if (!langsungKeApi()) {
+        return pemeliharaanPurwarupaSemua().find((m) => String(m.id) === String(id)) || null;
+      }
+      return API.get("/api/pemeliharaan/" + encodeURIComponent(id)).then((j) => j.data);
+    },
+
+    jadwalkan(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menjadwalkan pemeliharaan");
+      return API.post("/api/pemeliharaan", isi).then((j) => j.data);
+    },
+
+    selesaikan(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menyelesaikan pemeliharaan");
+      return API.post("/api/pemeliharaan/" + encodeURIComponent(id) + "/selesaikan", isi).then((j) => j.data);
+    },
+
+    async kalibrasiKedaluwarsa() {
+      if (!langsungKeApi()) {
+        return { data: asetPurwarupaSemua().filter((a) => a.wajib_kalibrasi) };
+      }
+      return API.get("/api/pemeliharaan/kalibrasi-kedaluwarsa");
+    }
+  };
+
   const booking = {
     async daftar(tapis) {
       if (!langsungKeApi()) {
@@ -895,6 +1017,7 @@
     checklist: checklist,
     dashboard: dashboard,
     bsc: bsc,
+    pemeliharaan: pemeliharaan,
     peminjaman: peminjaman,
     persetujuan: persetujuan,
     booking: booking,

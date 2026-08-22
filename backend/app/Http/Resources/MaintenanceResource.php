@@ -33,11 +33,11 @@ class MaintenanceResource extends JsonResource
                 'berlaku_sampai' => $this->berlaku_sampai?->toDateString(),
                 'kedaluwarsa' => $this->berlaku_sampai?->isPast() ?? null,
             ]),
-            'alat' => $this->whenLoaded('asset', fn () => [
-                'id' => $this->asset->id,
-                'nama' => $this->asset->nama,
-                'kode_internal' => $this->asset->kode_internal,
-            ]),
+            // Ruangan, laboratorium, atau alat — persis tiga kemungkinan yang
+            // sama dengan checklist, dan alasannya sama: kalibrasi memang
+            // hanya berlaku untuk alat, tetapi pemeliharaan preventif,
+            // korektif, dan darurat berlaku untuk ketiganya.
+            'sumber_daya' => $this->sumberDayaRingkas(),
             'petugas' => $this->whenLoaded('petugas', fn () => $this->petugas ? [
                 'id' => $this->petugas->id,
                 'nama' => $this->petugas->name,

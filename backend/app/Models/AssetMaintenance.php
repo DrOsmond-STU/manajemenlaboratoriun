@@ -2,21 +2,29 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\MelekatPadaSumberDaya;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Satu pekerjaan pemeliharaan atau kalibrasi pada sebuah alat.
+ * Satu pekerjaan pemeliharaan atau kalibrasi — melekat pada ruangan,
+ * laboratorium, ATAU alat (lihat MelekatPadaSumberDaya). Kalibrasi sendiri
+ * khusus alat; ditegakkan batasan CHECK terpisah di basis data.
+ *
+ * Nama kelas ini ("AssetMaintenance") sisa dari sebelum modul ini melekat
+ * pada ruangan/laboratorium juga — dipertahankan sengaja, lihat migrasi
+ * `2026_08_22_090000_lengkapi_target_pemeliharaan`.
  */
 class AssetMaintenance extends Model
 {
-    use HasFactory;
+    use HasFactory, MelekatPadaSumberDaya;
 
     public const JENIS = [
         'preventif' => 'Pemeliharaan preventif',
         'korektif' => 'Pemeliharaan korektif',
+        'darurat' => 'Penanganan darurat',
         'kalibrasi' => 'Kalibrasi',
     ];
 
@@ -31,9 +39,9 @@ class AssetMaintenance extends Model
     public const JENIS_KALIBRASI = 'kalibrasi';
 
     protected $fillable = [
-        'asset_id', 'jenis', 'jadwal', 'dikerjakan_pada', 'pelaksana', 'petugas_id',
-        'status', 'hasil', 'biaya', 'no_sertifikat', 'lembaga_kalibrasi',
-        'berlaku_sampai', 'catatan',
+        'asset_id', 'room_id', 'laboratory_id', 'jenis', 'jadwal', 'dikerjakan_pada',
+        'pelaksana', 'petugas_id', 'status', 'hasil', 'biaya', 'no_sertifikat',
+        'lembaga_kalibrasi', 'berlaku_sampai', 'catatan',
     ];
 
     protected function casts(): array
@@ -44,11 +52,6 @@ class AssetMaintenance extends Model
             'berlaku_sampai' => 'immutable_date',
             'biaya' => 'integer',
         ];
-    }
-
-    public function asset(): BelongsTo
-    {
-        return $this->belongsTo(Asset::class);
     }
 
     public function petugas(): BelongsTo

@@ -564,91 +564,406 @@
   };
 
   /* =======================================================================
-     KALIBRASI
+     PEMELIHARAAN & KALIBRASI — tersambung ke basis data
+
+     Satu mesin untuk dua layar (Kalibrasi Alat, Maintenance & Work Order),
+     persis seperti server menyimpan keduanya di satu tabel — lihat
+     dokumentasi migrasi asset_maintenances. Yang membedakan kedua layar
+     hanyalah TAPISNYA: Kalibrasi menampilkan jenis=kalibrasi saja,
+     Maintenance menampilkan sisanya (preventif/korektif/darurat).
      ======================================================================= */
-  V["calibration"] = {
-    title: "Kalibrasi Alat",
-    sub: "Jadwal, sertifikat, hasil, jatuh tempo, dan pengingat kalibrasi.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Kirim pengingat ke seluruh PIC')">${U.icon("bell")} Kirim Reminder</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form jadwal kalibrasi')">${U.icon("plus")} Jadwalkan Kalibrasi</button>`,
-    render() {
-      const od = D.calibration.filter((c) => c.status === "Overdue");
-      const soon = D.calibration.filter((c) => c.status !== "Overdue" && c.due < D.shift(30));
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Overdue", value: od.length, icon: "alert", tint: "red", note: "Alat diblokir otomatis" })}
-          ${U.kpi({ label: "Jatuh Tempo ≤ 30 Hari", value: soon.length, icon: "clock", tint: "amber", note: "Perlu penjadwalan" })}
-          ${U.kpi({ label: "Terjadwal", value: D.calibration.filter((c) => c.status === "Scheduled").length, icon: "calendar", tint: "brand", note: "Sudah ada tanggal" })}
-          ${U.kpi({ label: "Biaya Kalibrasi YTD", value: U.rpShort(D.calibration.reduce((a, c) => a + c.cost, 0)), icon: "money", tint: "teal", note: "10 alat" })}
+
+  const PML = { baris: [], memuat: true, galat: null };
+
+  const STATUS_PML_TINT = { dijadwalkan: "brand", berjalan: "amber", selesai: "green", dibatalkan: "slate" };
+  const JENIS_PML_TINT = { preventif: "green", korektif: "brand", darurat: "red", kalibrasi: "violet" };
+  const JENIS_PML_IKON = { preventif: "shield", korektif: "edit", darurat: "alert", kalibrasi: "check" };
+
+  async function muatPemeliharaan(kalibrasiSaja) {
+    PML.memuat = true;
+    PML.galat = null;
+    isiPemeliharaan();
+
+    try {
+      // Server tidak mengenal filter "selain kalibrasi" — kalibrasi=false
+      // berarti ambil semuanya lalu saring di sisi klien, karena satu-
+      // satunya nilai jenis yang server pahami adalah nilai tunggal.
+      const j = await Repo.pemeliharaan.daftar(kalibrasiSaja ? { jenis: "kalibrasi" } : {});
+      PML.baris = kalibrasiSaja ? j.data : j.data.filter((m) => m.jenis.kode !== "kalibrasi");
+    } catch (e) {
+      PML.baris = [];
+      PML.galat = e.message;
+    } finally {
+      PML.memuat = false;
+      isiPemeliharaan();
+      isiRingkasanPemeliharaan();
+    }
+  }
+
+  function baristPml(m) {
+    const sd = m.sumber_daya;
+    return `
+      <tr onclick="pmlLihat('${U.esc(String(m.id))}')" style="cursor:pointer">
+        <td><b class="small">${sd ? U.esc(sd.nama) : "—"}</b>
+          <div class="tiny faint">${sd ? { ruangan: "Ruangan", laboratorium: "Laboratorium", aset: "Alat" }[sd.jenis] : ""}</div></td>
+        <td><span class="badge ${JENIS_PML_TINT[m.jenis.kode] || "slate"}">${U.esc(m.jenis.nama)}</span></td>
+        <td>${U.fdate(m.jadwal, "short")}
+          ${m.terlambat ? `<div class="tiny" style="color:var(--red-500);font-weight:600">terlambat</div>` : ""}</td>
+        <td>${U.esc(m.pelaksana || "—")}${m.petugas ? `<div class="tiny faint">${U.esc(m.petugas.nama)}</div>` : ""}</td>
+        <td class="right">${U.rp(m.biaya || 0)}</td>
+        <td><span class="badge ${STATUS_PML_TINT[m.status.kode] || "slate"}">${U.esc(m.status.nama)}</span></td>
+        <td class="actions"><button class="icon-btn" onclick="event.stopPropagation();pmlLihat('${U.esc(String(m.id))}')">${U.icon("eye", 15)}</button></td>
+      </tr>`;
+  }
+
+  function isiPemeliharaan() {
+    const wadah = document.getElementById("pmlDaftar");
+    if (!wadah) return;
+
+    if (PML.memuat) {
+      wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`;
+      return;
+    }
+    if (PML.galat) {
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div>
+        <b>Gagal memuat.</b><br><span class="small">${U.esc(PML.galat)}</span></div></div>`;
+      return;
+    }
+    if (!PML.baris.length) {
+      wadah.innerHTML = U.emptyState("Belum ada pekerjaan tercatat",
+        Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk menjadwalkan pekerjaan.");
+      return;
+    }
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Target</th><th>Jenis</th><th>Jadwal</th><th>Pelaksana</th>
+        <th class="right">Biaya</th><th>Status</th><th></th></tr></thead>
+      <tbody>${PML.baris.map(baristPml).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanPemeliharaan() {
+    const wadah = document.getElementById("pmlKpi");
+    if (!wadah) return;
+
+    const b = PML.baris;
+    const aktif = b.filter((m) => m.status.kode === "dijadwalkan" || m.status.kode === "berjalan").length;
+    const terlambat = b.filter((m) => m.terlambat).length;
+    const biaya = b.reduce((a, m) => a + (m.biaya || 0), 0);
+
+    if (wadah.dataset.halaman === "kalibrasi") {
+      wadah.innerHTML = `
+        ${U.kpi({ label: "Kedaluwarsa", value: terlambat, icon: "alert", tint: "red", note: "Alat diblokir otomatis" })}
+        ${U.kpi({ label: "Terjadwal", value: aktif - terlambat, icon: "calendar", tint: "brand", note: "Belum jatuh tempo" })}
+        ${U.kpi({ label: "Selesai", value: b.filter((m) => m.status.kode === "selesai").length, icon: "check", tint: "green", note: "Tercatat" })}
+        ${U.kpi({ label: "Biaya Kalibrasi", value: U.rpShort(biaya), icon: "money", tint: "teal", note: b.length + " pekerjaan" })}`;
+    } else {
+      const jumlahJenis = (k) => b.filter((m) => m.jenis.kode === k).length;
+      wadah.innerHTML = `
+        ${U.kpi({ label: "Aktif", value: aktif, icon: "wrench", tint: "amber", note: "Dijadwalkan/berjalan" })}
+        ${U.kpi({ label: "Preventif", value: jumlahJenis("preventif"), icon: "shield", tint: "green", note: "Rutin" })}
+        ${U.kpi({ label: "Korektif", value: jumlahJenis("korektif"), icon: "edit", tint: "brand", note: "Perbaikan" })}
+        ${U.kpi({ label: "Darurat", value: jumlahJenis("darurat"), icon: "alert", tint: "red", note: "Penanganan segera" })}
+        ${U.kpi({ label: "Total Biaya", value: U.rpShort(biaya), icon: "money", tint: "violet", note: "Periode berjalan" })}`;
+    }
+  }
+
+  function halamanPemeliharaan(halaman) {
+    const kalibrasi = halaman === "kalibrasi";
+    return {
+      title: kalibrasi ? "Kalibrasi Alat" : "Maintenance & Work Order",
+      sub: kalibrasi
+        ? "Jadwal, sertifikat, hasil, dan jatuh tempo kalibrasi alat laboratorium."
+        : "Pemeliharaan preventif, korektif, dan penanganan darurat untuk ruangan, laboratorium, dan alat.",
+      get actions() {
+        return Repo.dapatMenulis()
+          ? `<button class="btn btn-primary btn-sm" onclick="pmlForm('${halaman}')">${U.icon("plus")}
+              ${kalibrasi ? "Jadwalkan Kalibrasi" : "Work Order Baru"}</button>`
+          : "";
+      },
+      render() {
+        return `<div class="grid g4 mb-16" id="pmlKpi" data-halaman="${halaman}"></div>
+          <div id="pmlAlert" class="mb-16"></div>
+          ${U.card(kalibrasi ? "Jadwal Kalibrasi" : "Daftar Work Order", `<div id="pmlDaftar"></div>`, { bodyCls: "flush" })}`;
+      },
+      mount() {
+        muatPemeliharaan(kalibrasi);
+        if (kalibrasi) muatAlertKalibrasi();
+      }
+    };
+  }
+
+  async function muatAlertKalibrasi() {
+    const wadah = document.getElementById("pmlAlert");
+    if (!wadah) return;
+    try {
+      const j = await Repo.pemeliharaan.kalibrasiKedaluwarsa();
+      if (!j.data.length) { wadah.innerHTML = ""; return; }
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 18)}<div><b>${j.data.length} alat kalibrasinya kedaluwarsa</b>
+        ${j.data.slice(0, 6).map((a) => U.esc(a.nama)).join(", ")}${j.data.length > 6 ? ", …" : ""}.
+        Alat-alat ini tidak dapat direservasi sampai kalibrasi ulang selesai.</div></div>`;
+    } catch (e) {
+      wadah.innerHTML = "";
+    }
+  }
+
+  V["calibration"] = halamanPemeliharaan("kalibrasi");
+  V["maintenance"] = halamanPemeliharaan("maintenance");
+
+  /* --------------------------------------------------------- detail & aksi */
+
+  window.pmlLihat = async function (id) {
+    U.drawer({ title: "Memuat…", body: `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>` });
+
+    let m;
+    try {
+      m = await Repo.pemeliharaan.lihat(id);
+    } catch (e) {
+      U.closeDrawer();
+      Repo.tampilkanGalat(e, "Gagal memuat");
+      return;
+    }
+    if (!m) { U.closeDrawer(); return; }
+
+    const sd = m.sumber_daya;
+    const selesai = m.status.kode === "selesai" || m.status.kode === "dibatalkan";
+
+    U.drawer({
+      size: "wide",
+      title: sd ? sd.nama : "Pekerjaan Pemeliharaan",
+      sub: m.jenis.nama,
+      body: `
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${STATUS_PML_TINT[m.status.kode] || "slate"}">${U.esc(m.status.nama)}</span>
+          ${m.terlambat ? `<span class="badge red">Terlambat</span>` : ""}
         </div>
+        <div class="dl small mb-16" style="grid-template-columns:140px 1fr">
+          <dt>Jadwal</dt><dd>${U.fdate(m.jadwal, "long")}</dd>
+          ${m.dikerjakan_pada ? `<dt>Dikerjakan</dt><dd>${U.fdate(m.dikerjakan_pada, "long")}</dd>` : ""}
+          <dt>Pelaksana</dt><dd>${U.esc(m.pelaksana || "—")}</dd>
+          ${m.petugas ? `<dt>Petugas</dt><dd>${U.esc(m.petugas.nama)}</dd>` : ""}
+          <dt>Biaya</dt><dd>${U.rp(m.biaya || 0)}</dd>
+          ${m.hasil ? `<dt>Hasil</dt><dd>${U.esc(m.hasil)}</dd>` : ""}
+          ${m.catatan ? `<dt>Catatan</dt><dd>${U.esc(m.catatan)}</dd>` : ""}
+        </div>
+        ${m.kalibrasi ? `
+          <h4 class="mb-8 muted">SERTIFIKAT KALIBRASI</h4>
+          <div class="dl small mb-16" style="grid-template-columns:140px 1fr">
+            <dt>No. Sertifikat</dt><dd>${U.esc(m.kalibrasi.no_sertifikat || "—")}</dd>
+            <dt>Lembaga</dt><dd>${U.esc(m.kalibrasi.lembaga || "—")}</dd>
+            <dt>Berlaku Sampai</dt><dd>${m.kalibrasi.berlaku_sampai ? U.fdate(m.kalibrasi.berlaku_sampai, "long") : "—"}
+              ${m.kalibrasi.kedaluwarsa ? `<span class="badge red ml-6">Kedaluwarsa</span>` : ""}</dd>
+          </div>` : ""}
+        ${!selesai && Repo.dapatMenulis() ? `<div id="pmlSelesaiForm"></div>` : ""}`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
+             ${!selesai && Repo.dapatMenulis()
+               ? `<button class="btn btn-primary" onclick="pmlBukaSelesaikan('${U.esc(String(m.id))}')">${U.icon("check")} Selesaikan</button>` : ""}`
+    });
 
-        ${od.length ? `<div class="alert err mb-16">${U.icon("alert", 18)}<div><b>${od.length} alat melewati jatuh tempo kalibrasi</b>
-          ${od.map((c) => U.esc(c.eqName)).join(", ")}. Alat-alat ini tidak dapat direservasi sampai kalibrasi ulang selesai.</div></div>` : ""}
+    window.__pmlAktif = m;
+  };
 
-        <div class="grid g-2-1 mb-16">
-          ${U.card("Jadwal Kalibrasi", U.toolbar({ ph: "Cari alat / sertifikat…", filters: [["Semua Status", "Overdue", "Scheduled", "In Progress"]] }) +
-            U.table([
-              { t: "ID", w: "130px", render: (c) => `<span class="mono small">${c.id}</span>` },
-              { t: "Alat", render: (c) => `<b>${U.esc(c.eqName)}</b><div class="tiny faint">${U.esc(c.lab)}</div>` },
-              { t: "Kalibrasi Terakhir", render: (c) => U.fdate(c.last, "short") },
-              { t: "Jatuh Tempo", render: (c) => { const d = Math.round((new Date(c.due) - new Date(D.shift(0))) / 86400000);
-                  return `${U.fdate(c.due, "short")}<div class="tiny ${d < 0 ? "" : "faint"}" style="${d < 0 ? "color:var(--red-500);font-weight:600" : ""}">${d < 0 ? Math.abs(d) + " hari terlambat" : d + " hari lagi"}</div>`; } },
-              { t: "Hasil Terakhir", render: (c) => U.badge(c.result) },
-              { t: "Biaya", cls: "right", render: (c) => U.rp(c.cost) },
-              { t: "Status", render: (c) => U.badge(c.status) },
-              { t: "", cls: "actions", render: (c) => `<button class="btn btn-sm" onclick="UI.demo('Unggah sertifikat kalibrasi')">${U.icon("upload", 12)}</button>` }
-            ], D.calibration), { bodyCls: "flush" })}
+  window.pmlBukaSelesaikan = function (id) {
+    const m = window.__pmlAktif;
+    const kalibrasi = m.jenis.kode === "kalibrasi";
+    const targetAlat = m.sumber_daya && m.sumber_daya.jenis === "aset";
 
-          <div class="col gap-16">
-            ${U.card("Distribusi Jatuh Tempo", `
-              <div class="col gap-12">
-                ${[["Terlambat", od.length, "var(--red-500)"], ["≤ 7 hari", 2, "var(--amber-500)"], ["8–30 hari", 3, "var(--brand-500)"], ["> 30 hari", 2, "var(--green-500)"]]
-                  .map(([k, v, c]) => U.meter(`<span class="small">${k}</span>`, (v / D.calibration.length) * 100, c, v + " alat")).join("")}
-              </div>`)}
-            ${U.card("Pengaturan Reminder", `
-              <div class="col gap-12">
-                ${[["90 hari sebelum jatuh tempo", true], ["30 hari sebelum jatuh tempo", true], ["7 hari sebelum jatuh tempo", true], ["Pada hari jatuh tempo", true], ["Harian setelah terlambat", true]]
-                  .map(([k, on]) => `<div class="row"><span class="small" style="flex:1">${k}</span>
-                    <label class="switch"><input type="checkbox" ${on ? "checked" : ""}><span></span></label></div>`).join("")}
-                <div class="small muted mt-8">Kanal: in-app, email, dan WhatsApp ke PIC alat serta Kepala Laboratorium.</div>
-              </div>`)}
+    document.getElementById("pmlSelesaiForm").innerHTML = `
+      <div style="padding-top:16px;margin-top:16px;border-top:1px solid var(--border)">
+        <h4 class="mb-8 muted">SELESAIKAN PEKERJAAN</h4>
+        <div id="pmlSelesaiGalat" class="alert err mb-12" hidden></div>
+        <label class="fld"><span>Hasil</span>
+          <textarea class="input" id="pmlHasil" rows="2" placeholder="Uraikan hasil pekerjaan"></textarea></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Dikerjakan pada</span>
+            <input type="date" class="input" id="pmlDikerjakan" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label class="fld"><span>Biaya (Rp)</span>
+            <input type="number" class="input" id="pmlBiayaSelesai" value="${m.biaya || 0}"></label>
+        </div>
+        ${targetAlat ? `<label class="fld mt-8"><span>Kondisi alat setelah dikerjakan</span>
+          <select class="select" id="pmlKondisi">
+            <option value="">— tidak berubah —</option>
+            <option value="B">Baik</option><option value="RR">Rusak Ringan</option><option value="RB">Rusak Berat</option>
+          </select></label>` : ""}
+        ${kalibrasi ? `
+          <div class="grid g2 gap-12 mt-8">
+            <label class="fld"><span>No. Sertifikat *</span><input class="input" id="pmlSertifikat"></label>
+            <label class="fld"><span>Lembaga</span><input class="input" id="pmlLembaga" value="${U.esc(m.pelaksana || "")}"></label>
           </div>
-        </div>`;
+          <label class="fld mt-8"><span>Berlaku Sampai *</span><input type="date" class="input" id="pmlBerlakuSampai"></label>` : ""}
+        <button class="btn btn-primary btn-block mt-12" onclick="pmlSimpanSelesai('${U.esc(String(m.id))}')">Simpan Penyelesaian</button>
+      </div>`;
+  };
+
+  window.pmlSimpanSelesai = async function (id) {
+    const m = window.__pmlAktif;
+    const isi = {
+      hasil: document.getElementById("pmlHasil").value || null,
+      dikerjakan_pada: document.getElementById("pmlDikerjakan").value || null,
+      biaya: Number(document.getElementById("pmlBiayaSelesai").value) || 0
+    };
+    const kondisi = document.getElementById("pmlKondisi");
+    if (kondisi && kondisi.value) isi.kondisi_setelah = kondisi.value;
+
+    if (m.jenis.kode === "kalibrasi") {
+      isi.no_sertifikat = document.getElementById("pmlSertifikat").value;
+      isi.lembaga_kalibrasi = document.getElementById("pmlLembaga").value;
+      isi.berlaku_sampai = document.getElementById("pmlBerlakuSampai").value;
+    }
+
+    const kotak = document.getElementById("pmlSelesaiGalat");
+    kotak.hidden = true;
+
+    try {
+      await Repo.pemeliharaan.selesaikan(id, isi);
+      U.closeDrawer();
+      U.toast("Pekerjaan selesai", "Status dan riwayat diperbarui.");
+      const kalibrasi = m.jenis.kode === "kalibrasi";
+      muatPemeliharaan(kalibrasi);
+      if (kalibrasi) muatAlertKalibrasi();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else {
+        kotak.textContent = e.message || "Gagal menyelesaikan.";
+      }
+      kotak.hidden = false;
     }
   };
 
-  /* =======================================================================
-     MAINTENANCE
-     ======================================================================= */
-  V["maintenance"] = {
-    title: "Maintenance & Work Order",
-    sub: "Preventive, corrective, dan emergency maintenance untuk aset, alat, dan ruangan.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Kalender maintenance')">${U.icon("calendar")} Kalender</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form work order baru')">${U.icon("plus")} Work Order Baru</button>`,
-    render() {
-      const total = D.maintenance.reduce((a, m) => a + m.cost, 0);
-      return `
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Work Order Aktif", value: D.maintenance.filter((m) => m.status !== "Completed").length, icon: "wrench", tint: "amber", note: "Sedang berjalan" })}
-          ${U.kpi({ label: "Preventive", value: D.maintenance.filter((m) => m.kind === "Preventive").length, icon: "shield", tint: "green", note: "Terjadwal rutin" })}
-          ${U.kpi({ label: "Corrective", value: D.maintenance.filter((m) => m.kind === "Corrective").length, icon: "edit", tint: "brand", note: "Perbaikan" })}
-          ${U.kpi({ label: "Emergency", value: D.maintenance.filter((m) => m.kind === "Emergency").length, icon: "alert", tint: "red", note: "Penanganan darurat" })}
-          ${U.kpi({ label: "Total Biaya", value: U.rpShort(total), icon: "money", tint: "violet", delta: 11, note: "Periode berjalan" })}
+  /* --------------------------------------------------------------- formulir */
+
+  window.pmlForm = async function (halaman) {
+    if (!Repo.dapatMenulis()) {
+      U.toast("Tidak tersedia", "Menjadwalkan pekerjaan hanya bisa setelah masuk dengan akun.");
+      return;
+    }
+    const kalibrasi = halaman === "kalibrasi";
+
+    let ruangan = [], lab = [], aset = [], orang = [];
+    try {
+      [ruangan, lab, aset, orang] = await Promise.all([
+        kalibrasi ? [] : Repo.ruangan.daftar().then((j) => j.data).catch(() => []),
+        kalibrasi ? [] : Repo.laboratorium.daftar().then((j) => j.data).catch(() => []),
+        Repo.aset.daftar().then((j) => j.data).catch(() => []),
+        Repo.pengguna.daftar().then((j) => j.data).catch(() => [])
+      ]);
+    } catch (e) { /* pemilih tetap dibuka dengan opsi kosong */ }
+
+    window.__pmlPilihan = { room_id: ruangan, laboratory_id: lab, asset_id: aset, orang: orang };
+
+    U.drawer({
+      title: kalibrasi ? "Jadwalkan Kalibrasi" : "Work Order Baru",
+      sub: "Target, jenis, dan jadwal pekerjaan",
+      body: `
+        <div id="pmlFormGalat" class="alert err mb-16" hidden></div>
+        ${kalibrasi ? `
+          <label class="fld"><span>Alat *</span>
+            <select class="select" id="pmlSumberDaya">
+              <option value="">— pilih alat —</option>
+              ${aset.map((a) => `<option value="${U.esc(String(a.id))}">${U.esc(a.nama)} (${U.esc(a.kode_internal || "")})</option>`).join("")}
+            </select></label>
+          <label class="fld mt-8"><span>Lembaga Kalibrasi</span>
+            <input class="input" id="pmlLembagaForm" placeholder="mis. BSN, PT Kalibrasi Presisi"></label>` : `
+          <label class="fld"><span>Jenis Target *</span>
+            <select class="select" id="pmlJenisTarget" onchange="pmlGantiJenisTarget()">
+              <option value="room_id">Ruangan</option>
+              <option value="laboratory_id">Laboratorium</option>
+              <option value="asset_id">Alat</option>
+            </select></label>
+          <label class="fld mt-8" id="pmlSumberDayaWadah">
+            <select class="select" id="pmlSumberDaya">
+              <option value="">— pilih ruangan —</option>
+              ${ruangan.map((r) => `<option value="${U.esc(String(r.id))}">${U.esc(r.nama)} (${U.esc(r.kode)})</option>`).join("")}
+            </select></label>
+          <label class="fld mt-8"><span>Jenis Pekerjaan *</span>
+            <select class="select" id="pmlJenis">
+              <option value="preventif">Pemeliharaan preventif</option>
+              <option value="korektif">Pemeliharaan korektif</option>
+              <option value="darurat">Penanganan darurat</option>
+            </select></label>`}
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Jadwal *</span><input type="date" class="input" id="pmlJadwal"></label>
+          <label class="fld"><span>Petugas</span>
+            <select class="select" id="pmlPetugas">
+              <option value="">— pilih petugas —</option>
+              ${orang.map((o) => `<option value="${U.esc(String(o.id))}">${U.esc(o.nama)}</option>`).join("")}
+            </select></label>
         </div>
-        <div class="alert warn mb-16">${U.icon("alert", 17)}<div><b>${D.maintenance.filter((m) => m.block).length} resource sedang diblokir dari booking</b>
-          Sistem otomatis menolak pengajuan booking pada resource yang berstatus maintenance.</div></div>
-        ${U.card("Daftar Work Order", U.toolbar({ ph: "Cari work order / target…", filters: [["Semua Jenis", "Preventive", "Corrective", "Emergency"], ["Semua Status", "Scheduled", "In Progress", "Waiting Part", "Completed"]] }) +
-          U.table([
-            { t: "ID", w: "140px", render: (m) => `<span class="lnk mono" onclick="showBooking('${m.id}')">${m.id}</span>` },
-            { t: "Target", render: (m) => `<b>${U.esc(m.targetName)}</b><div class="tiny faint">${U.esc(m.note)}</div>` },
-            { t: "Jenis", render: (m) => `<span class="badge ${m.kind === "Emergency" ? "red" : m.kind === "Corrective" ? "brand" : "green"}">${m.kind}</span>` },
-            { t: "Jadwal", render: (m) => U.fdate(m.sched, "short") },
-            { t: "Vendor / Teknisi", render: (m) => `${U.esc(m.vendor)}<div class="tiny faint">${U.esc(D.personName(m.tech))}</div>` },
-            { t: "Biaya", cls: "right", render: (m) => U.rp(m.cost) },
-            { t: "Blokir", cls: "center", render: (m) => m.block ? `<span class="badge red">Ya</span>` : `<span class="faint small">—</span>` },
-            { t: "Status", render: (m) => U.badge(m.status) },
-            { t: "", cls: "actions", render: (m) => `<button class="icon-btn" onclick="showBooking('${m.id}')">${U.icon("eye", 15)}</button>` }
-          ], D.maintenance), { bodyCls: "flush" })}`;
+        <label class="fld mt-8"><span>Pelaksana (vendor/tim internal)</span>
+          <input class="input" id="pmlPelaksana" placeholder="mis. Internal, PT Cool Tech"></label>
+        <label class="fld mt-8"><span>Catatan</span>
+          <textarea class="input" id="pmlCatatan" rows="2"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="pmlFormSimpan" onclick="pmlFormSimpan('${halaman}')">Simpan</button>`
+    });
+  };
+
+  window.pmlGantiJenisTarget = function () {
+    const jenis = document.getElementById("pmlJenisTarget").value;
+    const wadah = document.getElementById("pmlSumberDayaWadah");
+    const daftar = (window.__pmlPilihan || {})[jenis] || [];
+
+    if (jenis === "asset_id") {
+      wadah.innerHTML = `<span>Alat *</span>
+        <select class="select" id="pmlSumberDaya">
+          <option value="">— pilih alat —</option>
+          ${daftar.map((a) => `<option value="${U.esc(String(a.id))}">${U.esc(a.nama)}</option>`).join("")}
+        </select>`;
+      return;
+    }
+    wadah.innerHTML = `<span>${jenis === "room_id" ? "Ruangan" : "Laboratorium"} *</span>
+      <select class="select" id="pmlSumberDaya">
+        <option value="">— pilih —</option>
+        ${daftar.map((d) => `<option value="${U.esc(String(d.id))}">${U.esc(d.nama)}</option>`).join("")}
+      </select>`;
+  };
+
+  window.pmlFormSimpan = async function (halaman) {
+    const kalibrasi = halaman === "kalibrasi";
+    const jadwal = document.getElementById("pmlJadwal").value;
+    const sumberDaya = document.getElementById("pmlSumberDaya").value;
+    const kotak = document.getElementById("pmlFormGalat");
+    const tombol = document.getElementById("pmlFormSimpan");
+    kotak.hidden = true;
+
+    if (!jadwal || !sumberDaya) {
+      kotak.textContent = "Target dan jadwal wajib diisi.";
+      kotak.hidden = false;
+      return;
+    }
+
+    const isi = {
+      jenis: kalibrasi ? "kalibrasi" : document.getElementById("pmlJenis").value,
+      jadwal: jadwal,
+      pelaksana: document.getElementById("pmlPelaksana").value || null,
+      petugas_id: document.getElementById("pmlPetugas").value || null,
+      catatan: document.getElementById("pmlCatatan").value || null
+    };
+    if (kalibrasi) {
+      isi.asset_id = Number(sumberDaya);
+      isi.lembaga_kalibrasi = document.getElementById("pmlLembagaForm").value || null;
+    } else {
+      isi[document.getElementById("pmlJenisTarget").value] = Number(sumberDaya);
+    }
+
+    tombol.disabled = true;
+    tombol.textContent = "Menyimpan…";
+
+    try {
+      await Repo.pemeliharaan.jadwalkan(isi);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Pekerjaan berhasil dijadwalkan.");
+      muatPemeliharaan(kalibrasi);
+      if (kalibrasi) muatAlertKalibrasi();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else {
+        kotak.textContent = e.message || "Gagal menyimpan.";
+      }
+      kotak.hidden = false;
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = "Simpan";
     }
   };
 

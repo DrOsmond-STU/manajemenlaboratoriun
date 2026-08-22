@@ -6,7 +6,11 @@ use App\Models\Asset;
 use App\Models\AssetMaintenance;
 use App\Models\AssetMutation;
 use App\Models\BmnKodeBarang;
+use App\Models\Dashboard;
 use App\Models\EquipmentLoan;
+use App\Models\Laboratory;
+use App\Models\Room;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -300,5 +304,133 @@ class PemeliharaanKalibrasiTest extends TestCase
         // Matriks: employee pada pemeliharaan dan kalibrasi sama-sama '—'.
         $this->actingAs($this->penggunaBerperan('employee'))
             ->getJson('/api/pemeliharaan')->assertForbidden();
+    }
+
+    // --- Target: ruangan, laboratorium, atau alat ------------------------------------
+
+    public function test_pemeliharaan_dapat_melekat_pada_ruangan(): void
+    {
+        $ruangan = Room::factory()->create();
+
+        $data = $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->postJson('/api/pemeliharaan', [
+                'room_id' => $ruangan->id, 'jenis' => 'korektif',
+                'jadwal' => now()->addWeek()->toDateString(),
+            ])
+            ->assertCreated()->json('data');
+
+        $this->assertSame('ruangan', $data['sumber_daya']['jenis']);
+        $this->assertSame($ruangan->id, $data['sumber_daya']['id']);
+    }
+
+    public function test_pemeliharaan_dapat_melekat_pada_laboratorium(): void
+    {
+        $lab = Laboratory::factory()->create();
+
+        $data = $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->postJson('/api/pemeliharaan', [
+                'laboratory_id' => $lab->id, 'jenis' => 'darurat',
+                'jadwal' => now()->toDateString(),
+            ])
+            ->assertCreated()->json('data');
+
+        $this->assertSame('laboratorium', $data['sumber_daya']['jenis']);
+        $this->assertSame('Penanganan darurat', $data['jenis']['nama']);
+    }
+
+    public function test_target_wajib_tepat_satu(): void
+    {
+        $alat = $this->alat();
+        $ruangan = Room::factory()->create();
+
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->postJson('/api/pemeliharaan', [
+                'asset_id' => $alat->id, 'room_id' => $ruangan->id, 'jenis' => 'preventif',
+                'jadwal' => now()->addWeek()->toDateString(),
+            ])
+            ->assertStatus(422);
+
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->postJson('/api/pemeliharaan', [
+                'jenis' => 'preventif', 'jadwal' => now()->addWeek()->toDateString(),
+            ])
+            ->assertStatus(422);
+
+        $this->assertDatabaseCount('asset_maintenances', 0);
+    }
+
+    public function test_kalibrasi_ditolak_untuk_ruangan(): void
+    {
+        $ruangan = Room::factory()->create();
+
+        // Kalibrasi hanya bermakna untuk alat — menegakkannya di lapisan
+        // aplikasi dengan pesan yang terbaca; batasan CHECK menegakkannya
+        // lagi di basis data walau lapisan ini dilewati.
+        $this->actingAs($this->penggunaBerperan('lab-manager'))
+            ->postJson('/api/pemeliharaan', [
+                'room_id' => $ruangan->id, 'jenis' => 'kalibrasi',
+                'jadwal' => now()->addWeek()->toDateString(),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('asset_id');
+    }
+
+    public function test_basis_data_menolak_kalibrasi_pada_ruangan_walau_lapis_aplikasi_dilewati(): void
+    {
+        $ruangan = Room::factory()->create();
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessageMatches('/asset_maintenances_kalibrasi_hanya_alat/');
+
+        AssetMaintenance::create([
+            'room_id' => $ruangan->id, 'jenis' => 'kalibrasi',
+            'jadwal' => now()->addWeek()->toDateString(), 'status' => 'dijadwalkan',
+        ]);
+    }
+
+    public function test_basis_data_menolak_target_ganda_walau_lapis_aplikasi_dilewati(): void
+    {
+        $ruangan = Room::factory()->create();
+        $alat = $this->alat();
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessageMatches('/asset_maintenances_target_tunggal/');
+
+        AssetMaintenance::create([
+            'room_id' => $ruangan->id, 'asset_id' => $alat->id, 'jenis' => 'preventif',
+            'jadwal' => now()->addWeek()->toDateString(), 'status' => 'dijadwalkan',
+        ]);
+    }
+
+    public function test_menyelesaikan_pemeliharaan_ruangan_tidak_menyentuh_kondisi_aset(): void
+    {
+        // Tidak ada asset_id sama sekali pada pekerjaan ini — pastikan
+        // penyelesaiannya tidak mencoba membaca ->asset->kondisi dan gagal.
+        $kerja = AssetMaintenance::factory()->room()->create(['jenis' => 'korektif']);
+
+        $this->actingAs($this->penggunaBerperan('facility-manager'))
+            ->postJson("/api/pemeliharaan/{$kerja->id}/selesaikan", [
+                'hasil' => 'Plafon diperbaiki', 'kondisi_setelah' => 'B',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status.kode', 'selesai');
+    }
+
+    public function test_widget_pemeliharaan_ikut_menghitung_target_ruangan_dan_laboratorium(): void
+    {
+        $gedungA = Room::factory()->create(['gedung' => 'Gedung A']);
+        AssetMaintenance::factory()->room()->create(['room_id' => $gedungA->id, 'jenis' => 'korektif']);
+        AssetMaintenance::factory()->laboratory()->create(['jenis' => 'preventif']);
+        AssetMaintenance::factory()->create(['asset_id' => $this->alat()->id, 'jenis' => 'preventif']);
+
+        $pengelola = $this->penggunaBerperan('facility-manager');
+        $d = Dashboard::create(['nama' => 'x', 'user_id' => $pengelola->id, 'jenis' => 'operasional']);
+        $d->widgets()->create(['widget' => 'pemeliharaan.aktif', 'kolom' => 0, 'baris' => 0, 'lebar' => 3, 'tinggi' => 2]);
+
+        $data = $this->actingAs($pengelola)->getJson('/api/dashboard/'.$d->id)
+            ->assertOk()->json('data.widgets.0.data');
+
+        // Ketiganya terhitung — bukan hanya yang melekat pada alat.
+        $this->assertSame(3, $data['nilai']);
     }
 }

@@ -4,6 +4,8 @@ namespace Database\Factories;
 
 use App\Models\Asset;
 use App\Models\AssetMaintenance;
+use App\Models\Laboratory;
+use App\Models\Room;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /** @extends Factory<AssetMaintenance> */
@@ -27,6 +29,18 @@ class AssetMaintenanceFactory extends Factory
     public function kalibrasi(): static
     {
         return $this->state(fn () => ['jenis' => 'kalibrasi']);
+    }
+
+    /** Melekat pada ruangan, bukan alat — hanya sah untuk jenis selain kalibrasi. */
+    public function room(): static
+    {
+        return $this->state(fn () => ['asset_id' => null, 'room_id' => Room::factory()]);
+    }
+
+    /** Melekat pada laboratorium, bukan alat — hanya sah untuk jenis selain kalibrasi. */
+    public function laboratory(): static
+    {
+        return $this->state(fn () => ['asset_id' => null, 'laboratory_id' => Laboratory::factory()]);
     }
 
     public function selesai(?string $berlakuSampai = null): static

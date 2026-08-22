@@ -18,6 +18,7 @@ use App\Models\Rental;
 use App\Models\Room;
 use App\Models\User;
 use App\Support\RegistriWidget;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
@@ -168,17 +169,19 @@ class DataWidget
             'kalibrasi.kedaluwarsa' => $this->kalibrasiKedaluwarsa($pengguna, $batas),
             'pemeliharaan.terjadwal' => $this->pemeliharaanTerjadwal($pengguna, $batas, $hari),
             'pemeliharaan.aktif' => $this->angka(
-                AssetMaintenance::query()->whereIn('status', ['dijadwalkan', 'berjalan'])
-                    ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->count()
+                $this->pemeliharaanDalamCakupan(
+                    AssetMaintenance::query()->whereIn('status', ['dijadwalkan', 'berjalan']), $pengguna
+                )->count()
             ),
             'pemeliharaan.jenis' => $this->sebaranDari(
-                AssetMaintenance::query()->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))
+                $this->pemeliharaanDalamCakupan(AssetMaintenance::query(), $pengguna)
                     ->selectRaw('jenis, count(*) as jumlah')->groupBy('jenis')->pluck('jumlah', 'jenis'),
                 AssetMaintenance::JENIS
             ),
-            'pemeliharaan.biaya-ytd' => $this->angka((int) AssetMaintenance::query()
-                ->where('status', 'selesai')->whereYear('dikerjakan_pada', now()->year)
-                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->sum('biaya')),
+            'pemeliharaan.biaya-ytd' => $this->angka((int) $this->pemeliharaanDalamCakupan(
+                AssetMaintenance::query()->where('status', 'selesai')->whereYear('dikerjakan_pada', now()->year),
+                $pengguna
+            )->sum('biaya')),
             'pemeliharaan.tren-biaya' => $this->pemeliharaanTrenBiaya($pengguna),
 
             'checklist.tugas-saya' => $this->tugasSaya($pengguna, $batas),
@@ -492,18 +495,18 @@ class DataWidget
     /** @return array<string,mixed> */
     private function pemeliharaanTerjadwal(User $pengguna, int $batas, int $hari): array
     {
-        $kueri = fn () => AssetMaintenance::query()
-            ->jatuhTempo($hari)
-            ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna));
+        $kueri = fn () => $this->pemeliharaanDalamCakupan(
+            AssetMaintenance::query()->jatuhTempo($hari), $pengguna
+        );
 
-        $baris = $kueri()->with('asset:id,nama')
+        $baris = $kueri()->with(['asset:id,nama', 'room:id,nama', 'laboratory:id,nama'])
             ->orderBy('jadwal')
             ->limit($batas)
             ->get()
             ->map(fn (AssetMaintenance $m) => [
                 'id' => $m->id,
-                'judul' => $m->asset?->nama ?? '—',
-                'keterangan' => $m->jadwal?->translatedFormat('j M Y').' · '.$m->jenis,
+                'judul' => $m->sumberDayaRingkas()['nama'] ?? '—',
+                'keterangan' => $m->jadwal?->translatedFormat('j M Y').' · '.$m->jenisNama(),
                 'status' => $m->status,
             ]);
 
@@ -518,17 +521,33 @@ class DataWidget
         for ($i = 5; $i >= 0; $i--) {
             $bulan = now()->subMonthsNoOverflow($i);
 
-            $jumlah = AssetMaintenance::query()
-                ->where('status', 'selesai')
-                ->whereYear('dikerjakan_pada', $bulan->year)
-                ->whereMonth('dikerjakan_pada', $bulan->month)
-                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))
-                ->sum('biaya');
+            $jumlah = $this->pemeliharaanDalamCakupan(
+                AssetMaintenance::query()
+                    ->where('status', 'selesai')
+                    ->whereYear('dikerjakan_pada', $bulan->year)
+                    ->whereMonth('dikerjakan_pada', $bulan->month),
+                $pengguna
+            )->sum('biaya');
 
             $titik[] = ['label' => $bulan->translatedFormat('M Y'), 'nilai' => (int) $jumlah];
         }
 
         return ['titik' => $titik, 'satuan' => 'rupiah'];
+    }
+
+    /**
+     * Cakupan gedung untuk pemeliharaan berlaku lintas ketiga kemungkinan
+     * targetnya — ruangan, laboratorium, ATAU alat — bukan hanya alat.
+     * whereHas('asset', ...) sendirian akan mengecualikan seluruh pekerjaan
+     * yang melekat pada ruangan/laboratorium, karena asset_id-nya memang
+     * kosong pada baris itu.
+     */
+    private function pemeliharaanDalamCakupan(Builder $query, User $pengguna): Builder
+    {
+        return $query->where(fn ($q) => $q
+            ->whereHas('asset', fn ($qq) => $qq->dalamCakupan($pengguna))
+            ->orWhereHas('room', fn ($qq) => $qq->dalamCakupan($pengguna))
+            ->orWhereHas('laboratory', fn ($qq) => $qq->dalamCakupan($pengguna)));
     }
 
     // --- Checklist -----------------------------------------------------------
@@ -743,8 +762,7 @@ class DataWidget
         }
 
         if (Gate::forUser($pengguna)->allows('pemeliharaan.lihat')) {
-            $n = AssetMaintenance::query()->terlambat()
-                ->whereHas('asset', fn ($q) => $q->dalamCakupan($pengguna))->count();
+            $n = $this->pemeliharaanDalamCakupan(AssetMaintenance::query()->terlambat(), $pengguna)->count();
 
             if ($n > 0) {
                 $butir->push([

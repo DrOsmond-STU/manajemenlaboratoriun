@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-451 uji lulus, 1.359 asersi, 0 gagal — dijalankan di PostgreSQL 16
+459 uji lulus, 1.379 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -442,6 +442,11 @@ Pemeliharaan & kalibrasi:
 | Kondisi setelah perbaikan memperbarui master + riwayat | pola yang sama dengan pengembalian peminjaman |
 | Izin kalibrasi dan pemeliharaan terpisah | facility manager: pemeliharaan PENUH, kalibrasi hanya LIHAT |
 | Keterlambatan dapat ditapis | daftar kerja harian teknisi |
+| Pekerjaan dapat melekat pada ruangan atau laboratorium, bukan alat saja | purwarupa memang punya work order fasilitas, bukan alat semata |
+| **Target wajib tepat satu** | `422` aplikasi, dan `CHECK` basis data menolak walau lapis aplikasi dilewati |
+| **Kalibrasi ditolak untuk ruangan/laboratorium** | `422` aplikasi, dan `CHECK` basis data menolak walau lapis aplikasi dilewati |
+| Menyelesaikan pekerjaan ruangan tidak menyentuh kondisi aset | tidak ada aset untuk diperbarui |
+| Widget dashboard ikut menghitung target ruangan & laboratorium | bukan hanya yang menempel pada alat |
 
 Peminjaman alat:
 
@@ -836,6 +841,55 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   sebagai galat halaman tak tertangani begitu rute manapun dibuka setelah
   masuk — karena rute bawaan aplikasi memang `#/dashboard`. Diperbaiki
   dengan try/catch yang sama seperti jalur pemuatan dashboard lainnya.
+
+- **`asset_maintenances` diperluas dari "hanya menempel pada alat" menjadi
+  boleh menempel pada ruangan, laboratorium, atau alat** — pola yang sama
+  dengan `MelekatPadaSumberDaya` yang sudah dipakai Checklist, karena
+  purwarupa yang disetujui memang punya work order pemeliharaan pada
+  ruangan dan laboratorium, bukan alat saja. `asset_id`, yang tadinya
+  `NOT NULL`, dibuat nullable, dan `CHECK num_nonnulls(room_id,
+  laboratory_id, asset_id) = 1` menegakkan "tepat satu target" di basis
+  data, bukan hanya di lapis aplikasi.
+- **Kalibrasi tetap dibatasi hanya untuk alat, walau target pemeliharaan
+  diperluas.** Menyuntik alat kalibrasi tidak masuk akal untuk ruangan atau
+  laboratorium — dijaga dua lapis: `StoreMaintenanceRequest` menolak dengan
+  pesan berbahasa Indonesia, dan `CHECK jenis <> 'kalibrasi' OR asset_id IS
+  NOT NULL` menegakkannya lagi di basis data seandainya lapis aplikasi
+  terlewati.
+- **Nama tabel dan model — `AssetMaintenance` / `asset_maintenances` —
+  sengaja TIDAK diganti** walau cakupannya sudah melampaui aset. Mengubah
+  nama berarti menyentuh setiap referensi (model, migrasi, factory,
+  resource, controller, rute, dokumen) untuk nol manfaat fungsional, dan
+  belum ada data produksi yang bergantung pada nama lama. Keputusan ini
+  dicatat tegas di docblock migrasi `2026_08_22_090000_lengkapi_target_
+  pemeliharaan.php` supaya tidak diam-diam ditafsirkan sebagai kealpaan
+  saat modul ini dibaca ulang nanti.
+- **Cakupan data (`dalamCakupan`) pada widget dashboard pemeliharaan
+  harus diperiksa lewat KETIGA relasinya, bukan `asset` saja.** Widget
+  `pemeliharaan.aktif`, `pemeliharaan.jenis`, `pemeliharaan.biaya-ytd`, dan
+  panel peringatan operasional semula memfilter cakupan lewat
+  `whereHas('asset', ...)` peninggalan sebelum perluasan ini — yang berarti
+  pekerjaan pada ruangan atau laboratorium akan diam-diam TIDAK PERNAH
+  ikut terhitung, bukan galat yang kelihatan, melainkan angka yang salah
+  tanpa tanda apa pun. Ditangkap sebelum sempat jadi bug produksi dan
+  diperbaiki dengan helper `pemeliharaanDalamCakupan()` yang memeriksa
+  ketiga relasi sekaligus (`asset` ATAU `room` ATAU `laboratory`).
+- **Layar Kalibrasi Alat dan Maintenance & Work Order di sisi antarmuka
+  adalah SATU mesin dengan dua tapis, bukan dua sumber data terpisah** —
+  mengikuti persis bagaimana server menyimpan keduanya di satu tabel.
+  Purwarupa memakai dua koleksi berbeda (`D.maintenance` dan
+  `D.calibration`, dengan nama medan yang berbeda pula); `Repo.pemeliharaan`
+  memetakan keduanya ke satu bentuk yang sama dengan jawaban server sebelum
+  digabungkan, supaya kedua layar tidak perlu tahu sedang berjalan di mode
+  purwarupa atau tersambung.
+- **Bug tertangkap saat pengkabelan: spanduk "alat kalibrasinya
+  kedaluwarsa" hanya disegarkan saat halaman pertama kali dibuka, tidak
+  setelah menjadwalkan atau menyelesaikan kalibrasi dari halaman yang
+  sama.** Uji peramban yang menjadwalkan kalibrasi lampau lalu memeriksa
+  spanduknya langsung menangkap ini — spanduk tetap kosong walau baris
+  barunya sudah tampil di tabel. Diperbaiki dengan memanggil ulang
+  `muatAlertKalibrasi()` di titik yang sama dengan penyegaran daftarnya,
+  bukan hanya di `mount()`.
 
 ---
 

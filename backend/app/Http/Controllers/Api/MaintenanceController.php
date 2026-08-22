@@ -26,6 +26,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  */
 class MaintenanceController extends Controller
 {
+    /** Dimuat di mana pun resource ini dikembalikan — paling banyak satu yang benar-benar terisi. */
+    private const RELASI = ['asset:id,nama,kode_internal', 'room:id,kode,nama', 'laboratory:id,kode,nama', 'petugas:id,name'];
+
     public function __construct(private readonly MaintenanceService $pemeliharaan) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -33,11 +36,19 @@ class MaintenanceController extends Controller
         $this->pastikanBolehMembaca($request);
 
         $query = AssetMaintenance::query()
-            ->with(['asset:id,nama,kode_internal', 'petugas:id,name'])
+            ->with(self::RELASI)
             ->orderBy('jadwal');
 
         if ($request->filled('asset_id')) {
             $query->where('asset_id', $request->integer('asset_id'));
+        }
+
+        if ($request->filled('room_id')) {
+            $query->where('room_id', $request->integer('room_id'));
+        }
+
+        if ($request->filled('laboratory_id')) {
+            $query->where('laboratory_id', $request->integer('laboratory_id'));
         }
 
         if ($request->filled('jenis')) {
@@ -65,7 +76,7 @@ class MaintenanceController extends Controller
 
         $pekerjaan = $this->pemeliharaan->jadwalkan($request->validated());
 
-        return MaintenanceResource::make($pekerjaan->load('asset:id,nama,kode_internal'))
+        return MaintenanceResource::make($pekerjaan->load(self::RELASI))
             ->response()->setStatusCode(201);
     }
 
@@ -73,9 +84,7 @@ class MaintenanceController extends Controller
     {
         $this->pastikanBolehMembaca($request);
 
-        return MaintenanceResource::make(
-            $pemeliharaan->load(['asset:id,nama,kode_internal', 'petugas:id,name'])
-        );
+        return MaintenanceResource::make($pemeliharaan->load(self::RELASI));
     }
 
     public function selesaikan(
@@ -92,7 +101,7 @@ class MaintenanceController extends Controller
             $request->user(),
         );
 
-        return MaintenanceResource::make($hasil->load('asset:id,nama,kode_internal'));
+        return MaintenanceResource::make($hasil->load(self::RELASI));
     }
 
     /**

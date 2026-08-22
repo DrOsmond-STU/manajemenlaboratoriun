@@ -15,7 +15,8 @@ const SUITES = [
   ['feattest', 'Dashboard, BSC, checklist, notifikasi email'],
   ['masuk',    'Gerbang masuk, mode data contoh, penghubung API'],
   ['ruangan',  'Ruangan & Laboratorium tersambung: baca, simpan, tapis, bertahan'],
-  ['dashboard', 'Dashboard & Balanced Scorecard tersambung: widget sungguhan, bobot ditegakkan server']
+  ['dashboard', 'Dashboard & Balanced Scorecard tersambung: widget sungguhan, bobot ditegakkan server'],
+  ['pemeliharaan', 'Pemeliharaan & Kalibrasi tersambung: satu tabel dua layar, kalibrasi hanya untuk alat']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

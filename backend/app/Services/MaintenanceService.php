@@ -64,8 +64,11 @@ class MaintenanceService
 
             // Pemeliharaan korektif lazimnya memperbaiki alat; bila kondisinya
             // dilaporkan berubah, master aset dan riwayatnya ikut diperbarui —
-            // sama seperti pada pengembalian peminjaman.
-            if (isset($data['kondisi_setelah']) && $data['kondisi_setelah'] !== $pekerjaan->asset->kondisi) {
+            // sama seperti pada pengembalian peminjaman. Hanya berlaku bila
+            // pekerjaannya sungguhan melekat pada alat — pekerjaan yang
+            // melekat pada ruangan atau laboratorium tidak punya "kondisi
+            // aset" untuk diperbarui.
+            if ($pekerjaan->asset && isset($data['kondisi_setelah']) && $data['kondisi_setelah'] !== $pekerjaan->asset->kondisi) {
                 $aset->ubah(
                     $pekerjaan->asset,
                     ['kondisi' => $data['kondisi_setelah']],

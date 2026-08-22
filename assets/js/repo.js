@@ -1231,6 +1231,58 @@
     }
   };
 
+  /* ------------------------------------------------------------------ audit */
+  /*
+     Hanya baca — tidak ada tindakan tulis di modul ini, dan sengaja begitu:
+     basis data sendiri menolak UPDATE/DELETE pada audit_logs lewat pemicu.
+
+     Jejak audit sungguhan HANYA mencatat perubahan kolom model (dibuat/
+     diubah/dihapus/dipulihkan) — tidak ada peristiwa LOGIN, APPROVE
+     tersendiri, atau NOTIFY seperti pada purwarupa, karena menyetujui
+     pengajuan atau login pengguna tidak selalu mengubah kolom model yang
+     diaudit. Purwarupa punya kategori aktivitas yang lebih kaya (act:
+     CREATE/UPDATE/DELETE/APPROVE/LOGIN/NOTIFY/CHECKIN) — dipetakan ke tiga
+     peristiwa yang server benar-benar simpan, bukan dipangkas: APPROVE/
+     LOGIN/NOTIFY/CHECKIN dipetakan sebagai "diubah" dengan satu baris nilai
+     ringkas, karena itulah makna aslinya (suatu keadaan berubah).
+  */
+
+  const PERISTIWA_AUDIT_DARI_PURWARUPA = {
+    CREATE: "dibuat", UPDATE: "diubah", DELETE: "dihapus",
+    APPROVE: "diubah", LOGIN: "diubah", NOTIFY: "diubah", CHECKIN: "diubah"
+  };
+  const NAMA_PERISTIWA_AUDIT = { dibuat: "Dibuat", diubah: "Diubah", dihapus: "Dihapus", dipulihkan: "Dipulihkan" };
+
+  function auditDariPurwarupa(a, i) {
+    const peristiwa = PERISTIWA_AUDIT_DARI_PURWARUPA[a.act] || "diubah";
+    const nama = window.DB ? DB.personName(a.user) : a.user;
+    const hariIni = window.DB ? DB.shift(0) : "2026-01-01";
+
+    return {
+      id: i + 1,
+      peristiwa: { kode: peristiwa, nama: NAMA_PERISTIWA_AUDIT[peristiwa] },
+      objek: { model: a.obj.split(" ")[0], id: null, label: a.obj },
+      pelaku: { id: a.user === "SYSTEM" ? null : a.user, nama: a.user === "SYSTEM" ? "Sistem" : nama },
+      sebelum: peristiwa === "dibuat" ? null : { nilai: a.before },
+      sesudah: peristiwa === "dihapus" ? null : { nilai: a.after },
+      ip: a.ip,
+      rute: a.dev,
+      waktu: hariIni + "T" + a.time
+    };
+  }
+
+  const audit = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.audit : []).map(auditDariPurwarupa);
+        if (tapis && tapis.peristiwa) baris = baris.filter((a) => a.peristiwa.kode === tapis.peristiwa);
+        return { data: baris, meta: { total: baris.length } };
+      }
+      const j = await API.get("/api/audit" + qs(tapis));
+      return { data: j.data, meta: j.meta };
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     checklist: checklist,
@@ -1248,6 +1300,7 @@
     penawaran: penawaran,
     tagihan: tagihan,
     pembayaran: pembayaran,
+    audit: audit,
     NAMA_SKEMA: NAMA_SKEMA,
 
     /** Apakah tindakan tulis tersedia saat ini. */

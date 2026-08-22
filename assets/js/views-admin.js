@@ -372,33 +372,132 @@
   /* =======================================================================
      AUDIT TRAIL
      ======================================================================= */
+  /* =======================================================================
+     AUDIT TRAIL — tersambung ke basis data, hanya baca
+
+     Jejak audit sungguhan hanya mencatat perubahan kolom model (dibuat/
+     diubah/dihapus/dipulihkan) — lihat catatan desain di repo.js tepat
+     sebelum Repo.audit untuk pemetaan dari kategori purwarupa yang lebih
+     kaya (CREATE/UPDATE/DELETE/APPROVE/LOGIN/NOTIFY/CHECKIN).
+     ======================================================================= */
+
+  const AUD = { baris: [], memuat: true, galat: null, tapis: {}, ringkasan: null };
+
+  const NAMA_PERISTIWA_TINT = { dibuat: "green", diubah: "brand", dihapus: "red", dipulihkan: "teal" };
+
+  async function muatAudit() {
+    AUD.memuat = true; AUD.galat = null; isiAudit();
+    try {
+      const [utama, hariIni, dibuat, diubah, dihapus] = await Promise.all([
+        Repo.audit.daftar(AUD.tapis),
+        Repo.audit.daftar({ sejak: new Date().toISOString().slice(0, 10) }),
+        Repo.audit.daftar({ peristiwa: "dibuat" }),
+        Repo.audit.daftar({ peristiwa: "diubah" }),
+        Repo.audit.daftar({ peristiwa: "dihapus" })
+      ]);
+      AUD.baris = utama.data;
+      AUD.ringkasan = {
+        total: utama.meta.total, hariIni: hariIni.meta.total,
+        dibuat: dibuat.meta.total, diubah: diubah.meta.total, dihapus: dihapus.meta.total
+      };
+    } catch (e) { AUD.baris = []; AUD.galat = e.message; AUD.ringkasan = null; }
+    finally { AUD.memuat = false; isiAudit(); isiRingkasanAudit(); }
+  }
+
+  function isiAudit() {
+    const wadah = document.getElementById("audDaftar");
+    if (!wadah) return;
+    if (AUD.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (AUD.galat) { wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(AUD.galat)}</span></div></div>`; return; }
+    if (!AUD.baris.length) { wadah.innerHTML = U.emptyState("Tidak ada entri yang cocok dengan tapisan"); return; }
+
+    wadah.innerHTML = `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Waktu</th><th>Pengguna</th><th>Peristiwa</th><th>Objek</th><th>Perubahan</th><th></th></tr></thead>
+      <tbody>${AUD.baris.map((a) => {
+        const kunci = Object.keys(a.sesudah || a.sebelum || {});
+        const ringkas = kunci.slice(0, 1).map((k) => {
+          const s = a.sebelum ? a.sebelum[k] : undefined, d = a.sesudah ? a.sesudah[k] : undefined;
+          return `${U.esc(k)}: ${s !== undefined ? U.esc(String(s)) : "—"} → ${d !== undefined ? U.esc(String(d)) : "—"}`;
+        }).join("");
+        return `<tr onclick="audLihat(${a.id})" style="cursor:pointer">
+          <td><span class="mono small">${U.fdate(a.waktu, "short")}</span></td>
+          <td>${a.pelaku.id === null ? `<span class="badge slate">SISTEM</span>` :
+            `<div class="row"><span class="avatar sm">${U.initials(a.pelaku.nama || "?")}</span><span class="small">${U.esc(a.pelaku.nama || "—")}</span></div>`}</td>
+          <td><span class="badge ${NAMA_PERISTIWA_TINT[a.peristiwa.kode] || "slate"}">${U.esc(a.peristiwa.nama)}</span></td>
+          <td><b class="small">${U.esc(a.objek.model)}</b><div class="tiny faint">${U.esc(a.objek.label || "")}</div></td>
+          <td><span class="small muted">${ringkas || "—"}${kunci.length > 1 ? ` <span class="tiny">+${kunci.length - 1} lainnya</span>` : ""}</span></td>
+          <td class="actions"><button class="icon-btn" onclick="event.stopPropagation();audLihat(${a.id})">${U.icon("eye", 15)}</button></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+  }
+
+  function isiRingkasanAudit() {
+    const wadah = document.getElementById("audKpi");
+    if (!wadah) return;
+    const r = AUD.ringkasan;
+    if (!r) { wadah.innerHTML = ""; return; }
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Aktivitas Hari Ini", value: U.num(r.hariIni), icon: "list", tint: "brand", note: "Seluruh pengguna" })}
+      ${U.kpi({ label: "Dibuat", value: U.num(r.dibuat), icon: "plus", tint: "green", note: "Seluruh riwayat" })}
+      ${U.kpi({ label: "Diubah", value: U.num(r.diubah), icon: "edit", tint: "amber", note: "Seluruh riwayat" })}
+      ${U.kpi({ label: "Dihapus", value: U.num(r.dihapus), icon: "x", tint: "red", note: "Seluruh riwayat" })}`;
+  }
+
   V["audit"] = {
     title: "Audit Trail",
-    sub: "Rekam jejak seluruh aktivitas: user, waktu, IP, perangkat, nilai sebelum, dan nilai sesudah.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Ekspor audit log')">${U.icon("download")} Ekspor Log</button>`,
+    sub: "Rekam jejak perubahan data: siapa, kapan, objek apa, nilai sebelum dan sesudah.",
     render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Aktivitas Hari Ini", value: U.num(1482), icon: "list", tint: "brand", note: "Seluruh pengguna" })}
-          ${U.kpi({ label: "Perubahan Data", value: 214, icon: "edit", tint: "amber", note: "Create / update / delete" })}
-          ${U.kpi({ label: "Login Berhasil", value: 187, icon: "shield", tint: "green", note: "3 gagal login" })}
-          ${U.kpi({ label: "Retensi Log", value: "24", suffix: "bulan", icon: "clock", tint: "violet", note: "Sesuai kebijakan" })}
+      return `<div class="grid g4 mb-16" id="audKpi"></div>
+        ${U.card("Log Aktivitas", `
+          <div class="row wrap gap-8" style="padding:12px 16px;border-bottom:1px solid var(--border)">
+            <label class="fld" style="min-width:160px"><span>Peristiwa</span>
+              <select class="select" id="audFilterPeristiwa" onchange="audTerapkanTapis()">
+                <option value="">Semua peristiwa</option>
+                <option value="dibuat">Dibuat</option><option value="diubah">Diubah</option>
+                <option value="dihapus">Dihapus</option><option value="dipulihkan">Dipulihkan</option>
+              </select></label>
+            <label class="fld" style="min-width:150px"><span>Sejak</span><input type="date" class="input" id="audFilterSejak" onchange="audTerapkanTapis()"></label>
+            <label class="fld" style="min-width:150px"><span>Sampai</span><input type="date" class="input" id="audFilterSampai" onchange="audTerapkanTapis()"></label>
+          </div>
+          <div id="audDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { AUD.tapis = {}; muatAudit(); }
+  };
+
+  window.audTerapkanTapis = function () {
+    AUD.tapis = {
+      peristiwa: document.getElementById("audFilterPeristiwa").value || undefined,
+      sejak: document.getElementById("audFilterSejak").value || undefined,
+      sampai: document.getElementById("audFilterSampai").value || undefined
+    };
+    muatAudit();
+  };
+
+  window.audLihat = function (id) {
+    const a = AUD.baris.find((x) => x.id === id);
+    if (!a) return;
+    const kunci = Array.from(new Set([...(a.sebelum ? Object.keys(a.sebelum) : []), ...(a.sesudah ? Object.keys(a.sesudah) : [])]));
+
+    U.modal({
+      title: a.objek.model + (a.objek.label ? " — " + a.objek.label : ""), sub: U.fdate(a.waktu, "long"),
+      body: `
+        <div class="row wrap gap-6 mb-16">
+          <span class="badge ${NAMA_PERISTIWA_TINT[a.peristiwa.kode] || "slate"}">${U.esc(a.peristiwa.nama)}</span>
         </div>
-        ${U.card("Log Aktivitas — " + U.fdate(D.shift(0), "long"), U.toolbar({
-          ph: "Cari user, objek, atau aktivitas…",
-          filters: [["Semua Aktivitas", "CREATE", "UPDATE", "DELETE", "APPROVE", "LOGIN", "NOTIFY"], ["Semua Pengguna"].concat(D.people.map((p) => p.name)), ["Semua Modul"]]
-        }) + U.table([
-          { t: "Waktu", w: "95px", render: (a) => `<span class="mono small">${a.time}</span>` },
-          { t: "Pengguna", render: (a) => a.user === "SYSTEM" ? `<span class="badge slate">SISTEM</span>` :
-            `<div class="row"><span class="avatar sm">${U.initials(D.personName(a.user))}</span><span class="small">${U.esc(D.personName(a.user))}</span></div>` },
-          { t: "Aktivitas", render: (a) => `<span class="badge ${{ CREATE: "green", UPDATE: "brand", DELETE: "red", APPROVE: "teal", LOGIN: "slate", NOTIFY: "violet", CHECKIN: "amber" }[a.act] || "slate"}">${a.act}</span>` },
-          { t: "Objek", render: (a) => `<b class="small">${U.esc(a.obj)}</b>` },
-          { t: "Nilai Sebelum", render: (a) => `<span class="small muted">${U.esc(a.before)}</span>` },
-          { t: "Nilai Sesudah", render: (a) => `<span class="small">${U.esc(a.after)}</span>` },
-          { t: "IP", render: (a) => `<span class="mono tiny">${a.ip}</span>` },
-          { t: "Perangkat", render: (a) => `<span class="tiny muted">${U.esc(a.dev)}</span>` }
-        ], D.audit) + U.pager(1482, 1, 10), { bodyCls: "flush" })}`;
-    }
+        <div class="dl small mb-16" style="grid-template-columns:110px 1fr">
+          <dt>Pelaku</dt><dd>${a.pelaku.id === null ? "Sistem" : U.esc(a.pelaku.nama || "—")}</dd>
+          <dt>IP</dt><dd class="mono">${U.esc(a.ip || "—")}</dd>
+          <dt>Rute</dt><dd class="mono small">${U.esc(a.rute || "—")}</dd>
+        </div>
+        ${kunci.length ? `
+          <h4 class="mb-8 muted">PERUBAHAN</h4>
+          ${U.table([
+            { t: "Kolom", render: (k) => `<b class="small mono">${U.esc(k)}</b>` },
+            { t: "Sebelum", render: (k) => `<span class="small muted">${a.sebelum && a.sebelum[k] !== undefined ? U.esc(String(a.sebelum[k])) : "—"}</span>` },
+            { t: "Sesudah", render: (k) => `<span class="small">${a.sesudah && a.sesudah[k] !== undefined ? U.esc(String(a.sesudah[k])) : "—"}</span>` }
+          ], kunci)}` : `<div class="small muted">Tidak ada rincian kolom untuk peristiwa ini.</div>`}`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Tutup</button>`
+    });
   };
 
   /* =======================================================================

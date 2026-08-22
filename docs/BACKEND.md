@@ -976,6 +976,30 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   naik/turun: yang dijaga adalah kebenaran datanya, bukan kehalusan
   dekorasi alur yang tidak berpadanan dengan skema.
 
+- **Audit Trail disambungkan tanpa satu pun perubahan backend** —
+  `AuditController`/`AuditLogResource` sudah lengkap sejak modul BMN
+  dibangun, hanya belum pernah dipakai layarnya sendiri. Kategori
+  aktivitas purwarupa yang lebih kaya (`CREATE`/`UPDATE`/`DELETE`/
+  `APPROVE`/`LOGIN`/`NOTIFY`/`CHECKIN`) dipetakan ke tiga peristiwa yang
+  benar-benar tersimpan server (`dibuat`/`diubah`/`dihapus`) di
+  `Repo.audit`, karena jejak audit sungguhan hanya mencatat perubahan
+  kolom model — menyetujui pengajuan atau login pengguna tidak selalu
+  mengubah kolom yang diaudit, sehingga tidak punya padanan peristiwa
+  tersendiri di server.
+- **KPI Audit Trail dihitung dari EMPAT permintaan paralel** (hari ini,
+  dibuat, diubah, dihapus), masing-masing hanya membaca `meta.total` dari
+  jawaban terpaginasi — bukan dihitung dari baris yang kebetulan tampil
+  di satu halaman. Purwarupa menampilkan angka tetap (1.482 aktivitas,
+  187 login berhasil) yang tidak berpadanan dengan data sungguhan sama
+  sekali; KPI "Login Berhasil" dan "Retensi Log" dijatuhkan karena tidak
+  ada data login atau kebijakan retensi yang tersimpan di mana pun.
+- **Detail perubahan ditampilkan kolom per kolom (sebelum → sesudah),
+  bukan dump JSON mentah**, karena `sebelum`/`sesudah` pada `audit_logs`
+  hanya berisi kolom yang benar-benar berubah (lihat trait `Diaudit`) —
+  menampilkannya sebagai tabel kolom/sebelum/sesudah sudah sepenuhnya
+  menjawab pertanyaan "apa yang berubah, dari apa menjadi apa" tanpa
+  perlu format tambahan.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

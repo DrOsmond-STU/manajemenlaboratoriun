@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateAssetRequest;
 use App\Http\Resources\AssetMutationResource;
 use App\Http\Resources\AssetResource;
 use App\Models\Asset;
+use App\Models\AssetMutation;
 use App\Services\AssetService;
 use App\Services\RingkasanAset;
 use App\Support\Satker;
@@ -58,6 +59,10 @@ class AssetController extends Controller
 
         if ($request->filled('kondisi')) {
             $query->kondisi($request->string('kondisi')->toString());
+        }
+
+        if ($request->filled('status_penggunaan')) {
+            $query->statusPenggunaan($request->string('status_penggunaan')->toString());
         }
 
         if ($request->filled('room_id')) {
@@ -128,6 +133,34 @@ class AssetController extends Controller
         return AssetMutationResource::collection(
             $asset->mutations()->with('user:id,name')->latest('id')->paginate(50)
         );
+    }
+
+    /**
+     * Riwayat mutasi LINTAS SELURUH aset dalam cakupan, terbaru lebih dahulu.
+     *
+     * Beda dengan riwayat(): itu satu aset, ini layar "Asset Movement &
+     * Mutasi" yang butuh feed gabungan. Dibatasi cakupan lewat `whereHas`
+     * pada relasi aset — mutasi sendiri tidak menyimpan gedung/unit kerja.
+     */
+    public function mutasiSemua(Request $request): AnonymousResourceCollection
+    {
+        $query = AssetMutation::query()
+            ->whereHas('asset', fn ($q) => $q->dalamCakupan($request->user()))
+            ->with(['user:id,name', 'asset:id,nama,kode_internal'])
+            ->latest('id');
+
+        if ($request->filled('cari')) {
+            $kata = $request->string('cari')->toString();
+            $query->whereHas('asset', fn ($q) => $q
+                ->where('nama', 'ilike', "%{$kata}%")
+                ->orWhere('kode_internal', 'ilike', "%{$kata}%"));
+        }
+
+        if ($request->filled('jenis')) {
+            $query->where('jenis', $request->string('jenis')->toString());
+        }
+
+        return AssetMutationResource::collection($query->paginate(50));
     }
 
     public function destroy(Request $request, Asset $asset): JsonResponse

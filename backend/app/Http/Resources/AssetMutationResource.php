@@ -26,6 +26,14 @@ class AssetMutationResource extends JsonResource
                 'id' => $this->user->id,
                 'nama' => $this->user->name,
             ] : null),
+            // Hanya terisi pada feed gabungan lintas aset (mutasiSemua());
+            // panggilan riwayat() per-aset tidak memuat relasi ini karena
+            // asetnya sudah diketahui dari konteks layar.
+            'aset' => $this->whenLoaded('asset', fn () => $this->asset ? [
+                'id' => $this->asset->id,
+                'nama' => $this->asset->nama,
+                'kode_internal' => $this->asset->kode_internal,
+            ] : null),
         ];
     }
 }

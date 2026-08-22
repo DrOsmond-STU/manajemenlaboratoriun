@@ -5,115 +5,282 @@
   const U = UI, D = DB, V = window.VIEWS;
 
   /* =======================================================================
-     ASET
+     ASET — Asset Register & Asset Movement tersambung ke basis data
+
+     Dua layar ini memakai backend Aset & BMN yang SAMA dengan Register BMN
+     (lihat views-bmn.js) — Repo.aset dan AssetController. Perbedaannya cuma
+     tampilan: Register BMN untuk penatausahaan formal (KIB B + studio
+     label), Asset Register untuk pemakaian sehari-hari (cari, lihat, pindah
+     ruangan). Keduanya membaca/menulis baris yang sama, sehingga aset yang
+     didaftarkan lewat satu layar langsung terlihat di layar lain.
+
+     PELEBARAN TABEL: `pemasok` dan `garansi_berakhir` ditambahkan pada aset
+     (migrasi `tambah_pemasok_garansi_pada_assets`) — penatausahaan BMN tidak
+     mengenal keduanya, tetapi layar ini sungguh membutuhkannya untuk klaim
+     garansi. "Tabel yang menyusul layar, bukan layar yang dipangkas".
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - Kolom "Kategori" purwarupa (bebas teks) → uraian kode barang BMN
+       (`bmn.uraian_barang`) — klasifikasi baku yang sudah ada, bukan
+       kategori ad hoc yang bisa menyimpang dari kode barangnya sendiri.
+     - Kolom "Lokasi" (gedung) purwarupa DIHILANGKAN, tersisa "Ruangan" saja
+       — pola yang sama dengan penyederhanaan Kalender Terpadu: ruangan
+       sudah menyiratkan gedungnya.
+     - "Status" bukan lagi badge kode tertutup, melainkan teks bebas
+       `status_penggunaan` apa adanya — kolom itu SUDAH freeform di server
+       (dipakai untuk kalimat seperti "Digunakan untuk Operasional Satker",
+       dan "Dihapuskan" sebagai penanda baku dari `AssetService::hapus()`),
+       memaksanya jadi enum lima nilai akan bertentangan dengan pemakaian
+       yang sudah ada.
+     - Tombol "Buat BAST" purwarupa DIJATUHKAN — tidak ada dokumen serah
+       terima bertanda tangan yang dimodelkan di server; riwayat mutasi
+       adalah catatan sistem, bukan dokumen legal.
+     - Tombol "Pinjamkan" mengarahkan ke modul Peminjaman Alat (layar
+       terpisah, sudah tersambung penuh) alih-alih membuka form sendiri —
+       satu alur peminjaman, bukan dua yang bisa menyimpang.
      ======================================================================= */
+
+  const AST = { baris: [], ringkasan: null, memuat: true, galat: null, tapis: { cari: "", kondisi: "", status_penggunaan: "" } };
+  const MOV = { baris: [], memuat: true, galat: null, tapis: { cari: "" } };
+
+  async function muatAset() {
+    AST.memuat = true; AST.galat = null; isiAset(); isiRingkasanAset();
+    try {
+      const [daftar, ringkasan] = await Promise.all([
+        Repo.aset.daftar(AST.tapis),
+        Repo.aset.ringkasan(AST.tapis)
+      ]);
+      AST.baris = daftar.data || [];
+      AST.ringkasan = ringkasan;
+    } catch (e) { AST.baris = []; AST.galat = e.message; }
+    finally { AST.memuat = false; isiAset(); isiRingkasanAset(); }
+  }
+
+  function isiRingkasanAset() {
+    const w = document.getElementById("astKpi");
+    if (!w) return;
+    const r = AST.ringkasan;
+    const bermasalah = r ? (r.kondisi.find((k) => k.kode === "RB") || { jumlah: 0 }).jumlah : 0;
+    w.innerHTML = `
+      ${U.kpi({ label: "Total Aset", value: r ? U.num(r.jumlah) : "—", icon: "box", tint: "brand", note: "Sesuai tapisan aktif" })}
+      ${U.kpi({ label: "Nilai Perolehan", value: r ? U.rpShort(r.nilai_perolehan) : "—", icon: "money", tint: "teal", note: "Harga pembelian" })}
+      ${U.kpi({ label: "Nilai Buku", value: r ? U.rpShort(r.nilai_buku) : "—", icon: "chart", tint: "violet", note: "Setelah penyusutan" })}
+      ${U.kpi({ label: "Rusak Berat", value: r ? U.num(bermasalah) : "—", icon: "alert", tint: "red", note: "Kondisi RB" })}
+      ${U.kpi({ label: "Garansi Berakhir ≤90 Hari", value: r ? U.num(r.garansi_akan_berakhir) : "—", icon: "shield", tint: "amber", note: "Perlu perpanjangan" })}`;
+  }
+
+  function isiAset() {
+    const w = document.getElementById("astTabel");
+    if (!w) return;
+    if (AST.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (AST.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(AST.galat)}</span></div></div>`; return; }
+    if (!AST.baris.length) { w.innerHTML = U.emptyState("Belum ada aset terdaftar", "Daftarkan lewat Register BMN."); return; }
+    w.innerHTML = U.table([
+      { t: "Kode Internal", w: "150px", render: (a) => `<span class="lnk mono" onclick="showAsset(${JSON.stringify(a.id)})">${U.esc(a.kode_internal || "—")}</span>` },
+      { t: "Nama Aset", render: (a) => `<b>${U.esc(a.nama)}</b><div class="tiny faint">${U.esc(a.merk || "—")}${a.serial_number ? " • SN " + U.esc(a.serial_number) : ""}</div>` },
+      { t: "Kategori", render: (a) => `<span class="badge outline">${U.esc(a.bmn.uraian_barang || a.bmn.kode_barang)}</span>` },
+      { t: "Ruangan", render: (a) => a.ruangan ? U.esc(a.ruangan.nama) : `<span class="faint">—</span>` },
+      { t: "Penanggung Jawab", render: (a) => a.penanggung_jawab ? `<span class="small">${U.esc(a.penanggung_jawab.nama)}</span>` : `<span class="faint">—</span>` },
+      { t: "Nilai Buku", cls: "right", render: (a) => U.rp(a.penyusutan.nilai_buku) },
+      { t: "Kondisi", render: (a) => U.badge(a.kondisi.nama) },
+      { t: "Status", render: (a) => `<span class="small">${U.esc(a.status_penggunaan || "—")}</span>` },
+      { t: "", cls: "actions", render: (a) => `<button class="icon-btn" onclick="showAsset(${JSON.stringify(a.id)})">${U.icon("eye", 15)}</button>` }
+    ], AST.baris);
+  }
+
+  window.astTapis = function (field, value) {
+    AST.tapis[field] = value;
+    muatAset();
+  };
+
   V["assets"] = {
     title: "Asset Register",
     sub: "Registrasi lengkap aset: identitas, nilai, lokasi, PIC, kondisi, dan dokumen.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Cetak label QR/barcode aset')">${U.icon("qr")} Cetak Label</button>
-              <button class="btn btn-sm" onclick="UI.demo('Impor data aset dari Excel')">${U.icon("upload")} Impor</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form registrasi aset baru')">${U.icon("plus")} Registrasi Aset</button>`,
+    actions: `<button class="btn btn-sm" onclick="location.hash='#/bmn'">${U.icon("plus")} Registrasi Aset</button>`,
     render() {
-      const val = D.assets.reduce((a, x) => a + x.price, 0);
-      const book = D.assets.reduce((a, x) => a + x.book, 0);
       return `
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Total Aset", value: U.num(1284), icon: "box", tint: "brand", delta: 3, note: "Seluruh kategori" })}
-          ${U.kpi({ label: "Nilai Perolehan", value: U.rpShort(val * 62), icon: "money", tint: "teal", note: "Harga pembelian" })}
-          ${U.kpi({ label: "Nilai Buku", value: U.rpShort(book * 62), icon: "chart", tint: "violet", note: "Setelah penyusutan" })}
-          ${U.kpi({ label: "Aset Bermasalah", value: D.assets.filter((a) => ["Rusak", "Maintenance"].includes(a.status)).length, icon: "alert", tint: "red", note: "Rusak / maintenance" })}
-          ${U.kpi({ label: "Garansi Berakhir ≤90 Hari", value: D.assets.filter((a) => a.warranty > D.shift(0) && a.warranty < D.shift(90)).length, icon: "shield", tint: "amber", note: "Perlu perpanjangan" })}
-        </div>
-        ${U.card("", U.toolbar({
-          ph: "Cari nama, kode aset, atau serial number…",
-          filters: [["Semua Kategori"].concat([...new Set(D.assets.map((a) => a.cat))]), ["Semua Status", "Tersedia", "Digunakan", "Dipinjam", "Maintenance", "Rusak", "Disposal"], ["Semua Lokasi"].concat(D.org.buildings.map((b) => b.name))],
-          right: `<button class="btn btn-sm" onclick="UI.demo('Ekspor ke Excel')">${U.icon("download")} Ekspor</button>`
-        }) + U.table([
-          { t: "Kode Aset", w: "125px", render: (a) => `<span class="lnk mono" onclick="showAsset('${a.id}')">${a.code}</span>` },
-          { t: "Nama Aset", render: (a) => `<b>${U.esc(a.name)}</b><div class="tiny faint">${U.esc(a.brand)} • SN ${U.esc(a.sn)}</div>` },
-          { t: "Kategori", render: (a) => `<span class="badge outline">${U.esc(a.cat)}</span>` },
-          { t: "Lokasi", render: (a) => `${U.esc(a.loc)}<div class="tiny faint">${a.room !== "-" ? U.esc(D.resName(a.room)) : "—"}</div>` },
-          { t: "PIC", render: (a) => `<span class="small">${U.esc(D.personName(a.pic))}</span>` },
-          { t: "Nilai Buku", cls: "right", render: (a) => U.rp(a.book) },
-          { t: "Kondisi", render: (a) => U.badge(a.cond) },
-          { t: "Status", render: (a) => U.badge(a.status) },
-          { t: "", cls: "actions", render: (a) => `<button class="icon-btn" onclick="showAsset('${a.id}')">${U.icon("eye", 15)}</button>` }
-        ], D.assets) + U.pager(1284, 1, 12), { bodyCls: "flush" })}`;
+        <div class="grid g5 mb-16" id="astKpi"></div>
+        ${U.card("", `<div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="astCari" placeholder="Cari nama, kode internal, atau serial number…"></div>
+          <select class="select" style="width:auto" onchange="astTapis('kondisi', this.value)">
+            <option value="">Semua Kondisi</option>
+            <option value="B">Baik</option><option value="RR">Rusak Ringan</option><option value="RB">Rusak Berat</option></select>
+          <select class="select" style="width:auto" onchange="astTapis('status_penggunaan', this.value)">
+            <option value="">Semua Status</option>
+            <option value="Digunakan untuk Operasional Satker">Digunakan</option>
+            <option value="Dihapuskan">Dihapuskan</option></select>
+          <div class="spacer"></div>
+        </div><div id="astTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() {
+      const cari = document.getElementById("astCari");
+      if (cari) {
+        cari.value = AST.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => astTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatAset();
     }
   };
 
-  window.showAsset = function (id) {
-    const a = D.byId(D.assets, id);
+  window.showAsset = async function (id) {
+    U.drawer({ size: "wide", title: "Memuat…", body: `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`, foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>` });
+
+    let a, foto, riwayat;
+    try {
+      [a, foto, riwayat] = await Promise.all([
+        Repo.aset.ambil(id),
+        Repo.aset.foto(id).then((j) => j.data).catch(() => []),
+        Repo.aset.riwayat(id).then((j) => j.data).catch(() => [])
+      ]);
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal memuat aset"); UI.closeDrawer(); return; }
+    if (!a) { UI.closeDrawer(); return; }
+
     U.drawer({
-      size: "wide", title: a.name, sub: a.code + " • " + a.cat,
+      size: "wide", title: a.nama, sub: (a.kode_internal || a.bmn.id) + " • " + (a.bmn.uraian_barang || a.bmn.kode_barang),
       body: `
         <div class="row gap-16 mb-16">
-          <div class="thumb" style="width:170px;flex:0 0 170px;aspect-ratio:4/3"><div class="lbl">${U.esc(a.cat)}</div></div>
+          <div class="thumb" style="width:170px;flex:0 0 170px;aspect-ratio:4/3">${foto.length ? `<img src="${U.esc(foto[0].url || "")}" style="width:100%;height:100%;object-fit:cover">` : `<div class="lbl">${U.esc(a.bmn.uraian_barang || "Aset")}</div>`}</div>
           <div style="flex:1">
-            <div class="row wrap gap-6 mb-12">${U.badge(a.status)}${U.badge(a.cond)}<span class="badge outline">Tahun ${a.year}</span></div>
+            <div class="row wrap gap-6 mb-12">${U.badge(a.status_penggunaan || "—")}${U.badge(a.kondisi.nama)}</div>
             <div class="dl small" style="grid-template-columns:130px 1fr">
-              <dt>Serial Number</dt><dd class="mono">${U.esc(a.sn)}</dd>
-              <dt>Merk</dt><dd>${U.esc(a.brand)}</dd>
-              <dt>Supplier</dt><dd>${U.esc(a.supplier)}</dd>
-              <dt>Garansi s/d</dt><dd>${a.warranty > D.shift(0) ? `<span class="badge green">${U.fdate(a.warranty, "short")}</span>` : `<span class="badge red">Berakhir ${U.fdate(a.warranty, "short")}</span>`}</dd>
+              <dt>Serial Number</dt><dd class="mono">${U.esc(a.serial_number || "—")}</dd>
+              <dt>Merk / Tipe</dt><dd>${U.esc([a.merk, a.tipe].filter(Boolean).join(" — ") || "—")}</dd>
+              <dt>Pemasok</dt><dd>${U.esc(a.pemasok || "—")}</dd>
+              <dt>Garansi s/d</dt><dd>${a.garansi_berakhir
+                ? (new Date(a.garansi_berakhir) > new Date()
+                    ? `<span class="badge green">${U.fdate(a.garansi_berakhir, "short")}</span>`
+                    : `<span class="badge red">Berakhir ${U.fdate(a.garansi_berakhir, "short")}</span>`)
+                : `<span class="faint">—</span>`}</dd>
             </div>
           </div>
-          <div class="center">${U.qrBox(a.code)}<div class="tiny faint mt-4">QR / Barcode / RFID</div></div>
         </div>
         <div class="grid g3 mb-16" style="gap:10px">
-          ${[["Harga Perolehan", U.rp(a.price)], ["Nilai Buku", U.rp(a.book)], ["Penyusutan", U.rp(a.price - a.book)]]
+          ${[["Harga Perolehan", U.rp(a.penyusutan.nilai_perolehan)], ["Nilai Buku", U.rp(a.penyusutan.nilai_buku)], ["Akumulasi Penyusutan", U.rp(a.penyusutan.akumulasi_penyusutan)]]
             .map(([k, v]) => `<div class="card"><div class="card-body tight center"><div class="tiny faint">${k}</div><b>${v}</b></div></div>`).join("")}
         </div>
         <div class="dl mb-16">
-          <dt>Lokasi</dt><dd>${U.esc(a.loc)}</dd>
-          <dt>Ruangan</dt><dd>${a.room !== "-" ? U.esc(D.resName(a.room)) : "—"}</dd>
-          <dt>Penanggung Jawab</dt><dd>${U.esc(D.personName(a.pic))}</dd>
+          <dt>Ruangan</dt><dd>${a.ruangan ? U.esc(a.ruangan.nama) : "—"}</dd>
+          <dt>Penanggung Jawab</dt><dd>${a.penanggung_jawab ? U.esc(a.penanggung_jawab.nama) : "—"}</dd>
         </div>
         <h4 class="mb-8 muted">RIWAYAT PERGERAKAN ASET</h4>
-        <div class="tline">
-          <div class="tline-item now"><div class="tt">Posisi saat ini — ${U.esc(a.loc)}</div><div class="tm">Sejak ${U.fdate(D.shift(-45), "long")} • PIC ${U.esc(D.personName(a.pic))}</div></div>
-          <div class="tline-item ok"><div class="tt">Mutasi dari Gudang Pusat</div><div class="tm">${U.fdate(D.shift(-46), "long")} • BAST DOC-2026-0512</div></div>
-          <div class="tline-item ok"><div class="tt">Registrasi aset</div><div class="tm">${U.fdate(D.shift(-380), "long")} • Pembelian dari ${U.esc(a.supplier)}</div></div>
-        </div>`,
+        ${riwayat.length ? `<div class="tline">
+          ${riwayat.map((r) => `<div class="tline-item ok"><div class="tt">${U.esc(r.jenis_nama)}${r.dari || r.ke ? ": " + U.esc(r.dari || "—") + " → " + U.esc(r.ke || "—") : ""}</div>
+            <div class="tm">${U.fdate(r.waktu, "long")}${r.oleh ? " • " + U.esc(r.oleh.nama) : ""}${r.catatan ? " • " + U.esc(r.catatan) : ""}</div></div>`).join("")}
+        </div>` : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada riwayat perubahan.</span></div>`}`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
-             <button class="btn" onclick="UI.demo('Form mutasi aset')">${U.icon("send")} Mutasi</button>
-             <button class="btn" onclick="UI.demo('Buat BAST serah terima')">${U.icon("doc")} Buat BAST</button>
+             ${Repo.dapatMenulis() ? `<button class="btn" onclick="astMutasiForm(${JSON.stringify(a.id)})">${U.icon("send")} Mutasi</button>` : ""}
              <div class="spacer"></div>
-             <button class="btn btn-primary" onclick="UI.demo('Form peminjaman aset')">Pinjamkan</button>`
+             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/eqbooking'">Pinjamkan</button>`
     });
   };
 
-  V["assetmovement"] = {
-    title: "Asset Movement & Mutasi",
-    sub: "Perpindahan aset antar lokasi, ruangan, dan penanggung jawab lengkap dengan berita acara.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form mutasi aset')">${U.icon("plus")} Buat Mutasi</button>`,
-    render() {
-      const rows = [
-        { id: "MV-2026-00231", asset: "AST-IT-0131", name: "Laptop Dell Latitude 5440", from: "Gudang Pusat", to: "GB-3 / MR-002", pic0: "Siti Nurhaliza", pic1: "Nadia Putri", date: D.shift(-45), doc: "BAST-2026-0512", status: "Selesai" },
-        { id: "MV-2026-00232", asset: "AST-AV-0132", name: "Proyektor Epson EB-L520U", from: "GB-2 / MR-001", to: "GB-4 / CR-001", pic0: "Andi Kurniawan", pic1: "Andi Kurniawan", date: D.shift(-30), doc: "BAST-2026-0498", status: "Selesai" },
-        { id: "MV-2026-00233", asset: "AST-FR-0142", name: "Meja Rapat Modular 16 Seat", from: "GB-2 / MR-001", to: "GD-1 / WS-001", pic0: "Andi Kurniawan", pic1: "Tommy Saputra", date: D.shift(-2), doc: "BAST-2026-0531", status: "Menunggu TTD" },
-        { id: "MV-2026-00234", asset: "AST-LB-0140", name: "Lemari Asam Mobile", from: "GA-1 / LAB-004", to: "GA-2 / LAB-001", pic0: "Rina Marlina", pic1: "Dewi Anggraini", date: D.shift(-1), doc: "BAST-2026-0533", status: "Menunggu TTD" },
-        { id: "MV-2026-00235", asset: "AST-IT-0139", name: "Laptop Lenovo ThinkPad T14", from: "GB-2 / MR-001", to: "Workshop Servis", from2: "", to2: "", pic0: "Andi Kurniawan", pic1: "Nadia Putri", date: D.shift(-9), doc: "BAST-2026-0521", status: "Selesai" }
-      ];
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Mutasi Bulan Ini", value: 14, icon: "send", tint: "brand", delta: 8, note: "Antar lokasi & PIC" })}
-          ${U.kpi({ label: "Menunggu TTD", value: 2, icon: "edit", tint: "amber", note: "Berita acara belum lengkap" })}
-          ${U.kpi({ label: "Serah Terima Selesai", value: 12, icon: "check", tint: "green", note: "Terdokumentasi BAST" })}
-          ${U.kpi({ label: "Aset Berpindah YTD", value: 87, icon: "box", tint: "violet", note: "Tercatat audit trail" })}
-        </div>
-        ${U.card("Riwayat Mutasi Aset", U.toolbar({ ph: "Cari kode aset / nomor mutasi…" }) + U.table([
-          { t: "No. Mutasi", w: "140px", render: (r) => `<span class="mono small">${r.id}</span>` },
-          { t: "Aset", render: (r) => `<b>${U.esc(r.name)}</b><div class="tiny faint mono">${r.asset}</div>` },
-          { t: "Dari", render: (r) => `${U.esc(r.from)}<div class="tiny faint">${U.esc(r.pic0)}</div>` },
-          { t: "", w: "30px", cls: "center", render: () => `<span class="faint">${U.icon("chev", 14)}</span>` },
-          { t: "Ke", render: (r) => `${U.esc(r.to)}<div class="tiny faint">${U.esc(r.pic1)}</div>` },
-          { t: "Tanggal", render: (r) => U.fdate(r.date, "short") },
-          { t: "Dokumen", render: (r) => `<span class="lnk small" onclick="UI.demo('Buka BAST PDF')">${r.doc}</span>` },
-          { t: "Status", render: (r) => U.badge(r.status) }
-        ], rows), { bodyCls: "flush" })}`;
+  window.astMutasiForm = async function (id) {
+    let ruangan = [];
+    try { ruangan = (await Repo.ruangan.daftar()).data || []; } catch (e) { /* pemilih tetap dibuka kosong */ }
+    U.modal({
+      title: "Pindahkan Aset", sub: "Perpindahan ruangan tercatat pada riwayat aset",
+      body: `
+        <div id="astMovGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Ruangan Tujuan</span>
+          <select class="select" id="astMovRoom">
+            <option value="">— keluarkan dari ruangan —</option>
+            ${ruangan.map((r) => `<option value="${r.id}">${U.esc(r.nama)}</option>`).join("")}
+          </select></label>
+        <label class="fld mt-8"><span>Catatan</span><textarea class="textarea" id="astMovCatatan" placeholder="Alasan perpindahan…"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn btn-primary" onclick="astMutasiSimpan(${JSON.stringify(id)})">Pindahkan</button>`
+    });
+  };
+
+  window.astMutasiSimpan = async function (id) {
+    const roomVal = document.getElementById("astMovRoom").value;
+    const catatan = document.getElementById("astMovCatatan").value.trim();
+    try {
+      await Repo.aset.mutasi(id, { room_id: roomVal ? Number(roomVal) : null, catatan: catatan || undefined });
+      UI.closeModal(); UI.closeDrawer();
+      UI.toast("Aset dipindahkan", "Riwayat perubahan tercatat.");
+      muatAset();
+    } catch (e) {
+      const el = document.getElementById("astMovGalat");
+      if (el) { el.hidden = false; el.innerHTML = `${U.icon("alert", 15)}<div>${U.esc(e.message || "Gagal memindahkan aset")}</div>`; }
     }
   };
+
+  async function muatMutasiAset() {
+    MOV.memuat = true; MOV.galat = null; isiMutasiAset();
+    try {
+      const j = await Repo.aset.mutasiSemua(MOV.tapis);
+      MOV.baris = j.data || [];
+    } catch (e) { MOV.baris = []; MOV.galat = e.message; }
+    finally { MOV.memuat = false; isiMutasiAset(); }
+  }
+
+  function isiMutasiAset() {
+    const w = document.getElementById("movTabel");
+    if (!w) return;
+    if (MOV.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (MOV.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(MOV.galat)}</span></div></div>`; return; }
+    if (!MOV.baris.length) { w.innerHTML = U.emptyState("Belum ada riwayat mutasi", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk melihat riwayat."); return; }
+    w.innerHTML = U.table([
+      { t: "Aset", render: (r) => r.aset ? `<b>${U.esc(r.aset.nama)}</b><div class="tiny faint mono">${U.esc(r.aset.kode_internal || "—")}</div>` : `<span class="faint">—</span>` },
+      { t: "Perubahan", render: (r) => `<span class="badge outline">${U.esc(r.jenis_nama)}</span>` },
+      { t: "Dari", render: (r) => U.esc(r.dari || "—") },
+      { t: "", w: "30px", cls: "center", render: () => `<span class="faint">${U.icon("chev", 14)}</span>` },
+      { t: "Ke", render: (r) => U.esc(r.ke || "—") },
+      { t: "Waktu", render: (r) => U.fdate(r.waktu, "short") },
+      { t: "Oleh", render: (r) => r.oleh ? U.esc(r.oleh.nama) : `<span class="faint">Sistem</span>` },
+      { t: "Catatan", render: (r) => r.catatan ? `<span class="small">${U.esc(r.catatan)}</span>` : `<span class="faint">—</span>` }
+    ], MOV.baris);
+  }
+
+  V["assetmovement"] = {
+    title: "Asset Movement & Mutasi",
+    sub: "Riwayat perpindahan ruangan, kondisi, penanggung jawab, dan status penggunaan aset.",
+    render() {
+      return `${U.card("", `<div class="tbl-toolbar">
+        <div class="tbl-search">${U.icon("search", 15, "faint")}
+          <input id="movCari" placeholder="Cari nama atau kode internal aset…"></div>
+        <div class="spacer"></div>
+      </div><div id="movTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() {
+      const cari = document.getElementById("movCari");
+      if (cari) {
+        cari.value = MOV.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => { MOV.tapis.cari = cari.value.trim(); muatMutasiAset(); }, 300);
+        });
+      }
+      muatMutasiAset();
+    }
+  };
+
+  /* =======================================================================
+     assetloan & assetaudit TETAP PURWARUPA — sengaja tidak disambungkan
+     pada iterasi ini.
+
+     assetloan ("Peminjaman & Pengembalian") menaungi domain yang SAMA
+     dengan modul Peminjaman Alat yang sudah tersambung penuh (V["eqbooking"]
+     di views-core.js, Repo.peminjaman, EquipmentLoan yang belongsTo Asset
+     persis seperti aset di layar ini) — menyambungkannya lagi di sini
+     berarti dua layar menulis ke tabel yang sama lewat dua alur berbeda,
+     yang berisiko menyimpang. Peminjaman aset diarahkan ke sana lewat
+     tombol "Pinjamkan" pada showAsset(), bukan diduplikasi.
+
+     assetaudit ("Audit Aset" — stock opname berbasis scan QR/RFID dengan
+     sesi audit, progres per lokasi, dan rekonsiliasi temuan) BUKAN
+     penyambungan ulang data yang sudah ada — ini domain baru sepenuhnya:
+     tidak ada tabel sesi audit, tidak ada status "terverifikasi/selisih/
+     tidak ditemukan" per aset per sesi. Dijatuhkan dengan sengaja untuk
+     iterasi ini, bukan dipangkas diam-diam.
+     ======================================================================= */
 
   V["assetloan"] = {
     title: "Peminjaman & Pengembalian",

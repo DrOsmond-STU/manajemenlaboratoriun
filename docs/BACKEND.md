@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-513 uji lulus, 1.521 asersi, 0 gagal — dijalankan di PostgreSQL 16
+520 uji lulus, 1.544 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -492,6 +492,20 @@ Peminjaman alat:
 | Peminjam tidak boleh menyerahkan ke dirinya sendiri | serah terima menuntut izin UBAH, bukan BUAT |
 | Keterlambatan dapat ditapis | pertanyaan pertama pengelola alat tiap pagi |
 | **Daftar dapat disaring rentang tanggal (`sejak`/`sampai`)** | dipakai Kalender Terpadu untuk mengambil satu bulan sekaligus |
+
+Asset Register & Asset Movement — layar umum di atas tabel `assets` yang
+sama dengan Register BMN:
+
+| Uji | Yang dijaga |
+|---|---|
+| Pemasok dan tanggal garansi tersimpan | kolom baru, di luar cakupan penatausahaan BMN |
+| Pemasok dan garansi boleh dikosongkan | tidak semua aset punya vendor tunggal atau garansi |
+| Daftar dapat ditapis `status_penggunaan` persis | dipakai layar Asset Register, mis. menyaring yang sudah "Dihapuskan" |
+| **Ringkasan menghitung "garansi akan berakhir" atas SELURUH aset dalam cakupan** | pola yang sama dengan `RingkasanAset` lain — bukan dari halaman yang tampil |
+| **Garansi yang sudah lewat TIDAK terhitung "akan berakhir"** | tindakannya beda: yang sudah lewat butuh keputusan lain, bukan sekadar perpanjangan |
+| **Feed mutasi menggabungkan riwayat lintas seluruh aset** | layar "Asset Movement & Mutasi" butuh satu feed, bukan riwayat per-aset satu-satu |
+| Feed mutasi dapat dicari per nama/kode aset | daftar mutasi tanpa cara mencari aset tertentu tidak berguna untuk satuan kerja besar |
+| Feed mutasi tamu ditolak | `401`, konsisten dengan seluruh endpoint aset lainnya |
 
 Master data laboratorium:
 
@@ -1109,6 +1123,54 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   — berpindah bulan/tampilan diam-diam tidak melakukan apa-apa karena
   `document.getElementById("calHost")` selalu `null`. Diperbaiki dengan
   membungkus keluaran `render()` dalam `<div id="calHost">`.
+
+- **Asset Register dan Register BMN (`V["bmn"]`) membaca/menulis TABEL
+  YANG SAMA** — dua layar, satu Repo.aset, satu `AssetController`. Register
+  BMN untuk penatausahaan formal (KIB B, studio label); Asset Register
+  untuk pemakaian sehari-hari (cari, lihat detail, pindah ruangan). Aset
+  yang didaftarkan lewat satu layar langsung terlihat di layar lain, karena
+  tidak ada salinan data — hanya dua cara memandangnya.
+- **`pemasok` dan `garansi_berakhir` DITAMBAHKAN ke tabel `assets`**
+  (migrasi `tambah_pemasok_garansi_pada_assets`) — penatausahaan BMN (PMK
+  181/PMK.06/2016) tidak mengenal vendor atau masa garansi, tetapi layar
+  Asset Register purwarupa sungguh membutuhkannya untuk klaim garansi.
+  "Tabel yang menyusul layar, bukan layar yang dipangkas".
+- **Kolom "Kategori" purwarupa (teks bebas) DIGANTI uraian kode barang BMN**
+  (`bmn.uraian_barang`) — klasifikasi baku yang sudah ada dan diaudit,
+  bukan kategori ad hoc yang bisa menyimpang dari kode barangnya sendiri.
+- **Kolom "Lokasi" (gedung) DIHILANGKAN, tersisa "Ruangan" saja** — pola
+  yang sama dengan penyederhanaan Kalender Terpadu: ruangan sudah
+  menyiratkan gedungnya, dan menampilkan keduanya hanya mengulang informasi.
+- **"Status" BUKAN LAGI badge kode tertutup, melainkan `status_penggunaan`
+  apa adanya** — kolom itu SUDAH teks bebas di server (dipakai untuk
+  kalimat seperti "Digunakan untuk Operasional Satker", dan "Dihapuskan"
+  sebagai penanda baku dari `AssetService::hapus()`); memaksanya menjadi
+  enum lima nilai purwarupa (Tersedia/Digunakan/Dipinjam/Maintenance/
+  Disposal) akan bertentangan dengan pemakaian yang sudah berjalan.
+- **Tombol "Buat BAST" purwarupa DIJATUHKAN** — tidak ada dokumen serah
+  terima bertanda tangan yang dimodelkan di server; riwayat mutasi adalah
+  catatan sistem (`AssetMutation`, append-only), bukan dokumen legal.
+- **Tombol "Pinjamkan" MENGARAH ke modul Peminjaman Alat yang sudah
+  tersambung**, bukan membuka form sendiri — `EquipmentLoan` sudah
+  `belongsTo Asset` persis seperti aset di layar ini, jadi satu alur
+  peminjaman lewat satu Repo (`Repo.peminjaman`), bukan dua yang bisa
+  menyimpang satu sama lain.
+- **`AssetController::mutasiSemua()` ditambahkan untuk feed lintas aset**
+  (layar "Asset Movement & Mutasi") — sebelumnya `riwayat()` hanya melayani
+  satu aset sekaligus (`GET /api/assets/{asset}/riwayat`), tidak ada yang
+  menggabungkan riwayat SELURUH aset dalam cakupan. Dibatasi cakupan lewat
+  `whereHas('asset', fn ($q) => $q->dalamCakupan(...))`, karena `AssetMutation`
+  sendiri tidak menyimpan gedung/unit kerja.
+- **`assetloan` ("Peminjaman & Pengembalian") dan `assetaudit` ("Audit
+  Aset") purwarupa TETAP TIDAK disambungkan pada iterasi ini.** `assetloan`
+  menaungi domain yang SAMA dengan Peminjaman Alat yang sudah tersambung —
+  menyambungkannya lagi berarti dua layar menulis ke tabel yang sama lewat
+  dua alur berbeda; sudah diarahkan lewat tombol "Pinjamkan" di atas,
+  bukan diduplikasi. `assetaudit` (stock opname berbasis scan QR/RFID
+  dengan sesi audit dan rekonsiliasi temuan) BUKAN penyambungan ulang data
+  yang sudah ada — domain baru sepenuhnya, tidak ada tabel sesi audit atau
+  status temuan per aset per sesi di mana pun. Dijatuhkan dengan sengaja,
+  bukan dipangkas diam-diam.
 
 ---
 

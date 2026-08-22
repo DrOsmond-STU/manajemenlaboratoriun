@@ -255,6 +255,20 @@
   const KOND_NAMA = { B: "Baik", RR: "Rusak Ringan", RB: "Rusak Berat" };
 
   /**
+   * D.assets (aset fasilitas) tidak punya `bmn.kondisi` — kondisinya hanya
+   * ada sebagai teks bebas `cond`. Dipetakan ke kode B/RR/RB server supaya
+   * Asset Register di mode purwarupa tidak selalu menampilkan "Baik".
+   */
+  const KOND_KODE_DARI_TEKS = {
+    "Baik": "B",
+    "Perlu Perawatan": "RR",
+    "Perlu Perbaikan": "RR",
+    "Rusak Ringan": "RR",
+    "Rusak": "RR",
+    "Rusak Berat": "RB"
+  };
+
+  /**
    * Satu aset purwarupa → bentuk server.
    *
    * Purwarupa memakai dua koleksi terpisah (peralatan lab dan aset fasilitas)
@@ -297,6 +311,10 @@
         kuantitas: b.kuantitas || 1,
         satuan: b.satuan || "Unit"
       },
+      // Di luar unsur BMN — hanya ada pada koleksi D.assets (aset fasilitas),
+      // bukan pada D.equipment (alat lab tidak punya kolom ini di purwarupa).
+      pemasok: x.supplier || null,
+      garansi_berakhir: x.warranty || null,
       penyusutan: {
         nilai_perolehan: b.nilaiPerolehan || 0,
         masa_manfaat: b.masaManfaat || 0,
@@ -304,8 +322,11 @@
         nilai_buku: b.nilaiBuku || 0,
         habis_masa_manfaat: (b.nilaiBuku || 0) <= 0
       },
-      kondisi: { kode: b.kondisi || "B", nama: KOND_NAMA[b.kondisi] || "Baik" },
-      status_penggunaan: b.statusPenggunaan || null,
+      kondisi: (() => {
+        const kode = b.kondisi || KOND_KODE_DARI_TEKS[x.cond] || "B";
+        return { kode: kode, nama: KOND_NAMA[kode] || "Baik" };
+      })(),
+      status_penggunaan: b.statusPenggunaan || x.status || null,
       psp: { nomor: b.noPsp || null, tanggal: b.tglPsp || null },
       wajib_kalibrasi: !!x.calDue,
       unit_kerja: null,
@@ -376,12 +397,19 @@
         const baris = (await aset.daftar(tapis)).data;
         const jml = (k) => baris.filter((a) => a.kondisi.kode === k).length;
         const total = (f) => baris.reduce((a, x) => a + (x.penyusutan[f] || 0), 0);
+        const sekarang = new Date(), batas = new Date(); batas.setDate(batas.getDate() + 90);
+        const garansiAkanBerakhir = baris.filter((a) => {
+          if (!a.garansi_berakhir) return false;
+          const g = new Date(a.garansi_berakhir);
+          return g >= sekarang && g <= batas;
+        }).length;
 
         return {
           jumlah: baris.length,
           nilai_perolehan: total("nilai_perolehan"),
           akumulasi_penyusutan: total("akumulasi_penyusutan"),
           nilai_buku: total("nilai_buku"),
+          garansi_akan_berakhir: garansiAkanBerakhir,
           kondisi: Object.keys(KOND_NAMA).map((k) => ({ kode: k, nama: KOND_NAMA[k], jumlah: jml(k) })),
           purwarupa: true
         };
@@ -414,6 +442,35 @@
     kodeBarang(awalan) {
       if (!langsungKeApi()) return Promise.resolve({ data: [] });
       return API.get("/api/bmn/kode-barang" + qs({ awalan: awalan }));
+    },
+
+    /**
+     * Riwayat perubahan SATU aset — dipakai panel "Riwayat Pergerakan Aset"
+     * pada layar detail. Tidak dimodelkan di purwarupa (data.js tidak
+     * menyimpan riwayat per barang, hanya baris tampilan yang dikarang
+     * langsung di layar) sehingga mode contoh jujur mengembalikan kosong.
+     */
+    async riwayat(asetId) {
+      if (!langsungKeApi()) return { data: [], purwarupa: true };
+      return API.get("/api/assets/" + encodeURIComponent(asetId) + "/riwayat");
+    },
+
+    mutasi(asetId, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memindahkan aset");
+      return API.patch("/api/assets/" + encodeURIComponent(asetId) + "/mutasi", isi).then((j) => j.data);
+    },
+
+    /**
+     * Feed mutasi LINTAS SELURUH aset — dipakai layar "Asset Movement &
+     * Mutasi". Sama seperti riwayat(), tidak ada padanan purwarupa (baris
+     * di layar itu dikarang langsung, bukan berasal dari data.js), sehingga
+     * mode contoh jujur mengembalikan kosong alih-alih data karangan yang
+     * tidak dapat ditelusuri ke aset sungguhan mana pun.
+     */
+    async mutasiSemua(tapis) {
+      if (!langsungKeApi()) return { data: [], total: 0, purwarupa: true };
+      const j = await API.get("/api/assets/mutasi" + qs(tapis));
+      return { data: j.data, total: (j.meta && j.meta.total) || j.data.length };
     }
   };
 

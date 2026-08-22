@@ -47,6 +47,8 @@ class UpdateAssetRequest extends FormRequest
             'sumber_dana' => ['nullable', 'string', 'max:100'],
             'no_bukti' => ['nullable', 'string', 'max:100'],
             'no_kontrak' => ['nullable', 'string', 'max:100'],
+            'pemasok' => ['nullable', 'string', 'max:150'],
+            'garansi_berakhir' => ['nullable', 'date'],
             'kuantitas' => ['sometimes', 'integer', 'min:1', 'max:1000000'],
             'satuan' => ['sometimes', 'string', 'max:32'],
 

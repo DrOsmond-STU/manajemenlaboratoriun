@@ -20,7 +20,8 @@ const SUITES = [
   ['penyewaan', 'Penyewaan & Tagihan tersambung: tarif, penawaran, invoice, verifikasi pembayaran'],
   ['audit', 'Audit Trail tersambung: entri, tapisan peristiwa, detail perubahan kolom'],
   ['pengguna', 'Manajemen Pengguna & Peran tersambung: hanya super-admin, matriks sungguhan'],
-  ['kalender', 'Kalender Terpadu tersambung: rentang tanggal per bulan, tiga sumber digabung']
+  ['kalender', 'Kalender Terpadu tersambung: rentang tanggal per bulan, tiga sumber digabung'],
+  ['aset', 'Asset Register & Asset Movement tersambung: pemasok/garansi, mutasi ruangan, feed lintas aset']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

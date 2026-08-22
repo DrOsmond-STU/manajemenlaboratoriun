@@ -61,6 +61,12 @@ class AssetResource extends JsonResource
                 'satuan' => $this->satuan,
             ],
 
+            // Di luar cakupan penatausahaan BMN — dicatat karena berguna
+            // untuk klaim garansi dan menghubungi pemasok, bukan karena
+            // diwajibkan PMK 181/PMK.06/2016.
+            'pemasok' => $this->pemasok,
+            'garansi_berakhir' => $this->garansi_berakhir?->toDateString(),
+
             'penyusutan' => $this->penyusutan->toArray(),
 
             'kondisi' => [

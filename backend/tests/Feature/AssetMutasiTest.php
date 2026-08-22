@@ -343,6 +343,50 @@ class AssetMutasiTest extends TestCase
         $this->assertSame('Rusak berat, SK penghapusan 12/2026', $riwayat->catatan);
     }
 
+    // --- Feed mutasi lintas aset (layar Asset Movement & Mutasi) ---------
+
+    public function test_feed_mutasi_menggabungkan_seluruh_aset(): void
+    {
+        BmnKodeBarang::factory()->kode('3.08.01.03.001')->create();
+        $a = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['nama' => 'HPLC A', 'kondisi' => 'B']);
+        $b = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['nama' => 'HPLC B', 'kondisi' => 'B']);
+        $user = $this->penggunaBerperan('asset-manager');
+
+        $this->actingAs($user)->patchJson("/api/assets/{$a->id}", ['kondisi' => 'RR'])->assertOk();
+        $this->actingAs($user)->patchJson("/api/assets/{$b->id}", ['kondisi' => 'RB'])->assertOk();
+
+        $this->actingAs($user)
+            ->getJson('/api/assets/mutasi')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            // Terbaru lebih dahulu, dan identitas asetnya ikut terbaca —
+            // feed gabungan tidak berguna bila pembacanya tidak tahu aset mana.
+            ->assertJsonPath('data.0.aset.nama', 'HPLC B')
+            ->assertJsonPath('data.1.aset.nama', 'HPLC A');
+    }
+
+    public function test_feed_mutasi_dapat_dicari_per_nama_aset(): void
+    {
+        BmnKodeBarang::factory()->kode('3.08.01.03.001')->create();
+        $a = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['nama' => 'Autoklaf Utama', 'kondisi' => 'B']);
+        $b = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['nama' => 'Mikroskop Digital', 'kondisi' => 'B']);
+        $user = $this->penggunaBerperan('asset-manager');
+
+        $this->actingAs($user)->patchJson("/api/assets/{$a->id}", ['kondisi' => 'RR'])->assertOk();
+        $this->actingAs($user)->patchJson("/api/assets/{$b->id}", ['kondisi' => 'RR'])->assertOk();
+
+        $this->actingAs($user)
+            ->getJson('/api/assets/mutasi?cari=Autoklaf')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.aset.nama', 'Autoklaf Utama');
+    }
+
+    public function test_feed_mutasi_tamu_ditolak(): void
+    {
+        $this->getJson('/api/assets/mutasi')->assertUnauthorized();
+    }
+
     // --- Autentikasi ------------------------------------------------------
 
     public function test_tamu_tidak_boleh_mengubah_memindahkan_atau_menghapus(): void

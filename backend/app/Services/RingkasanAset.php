@@ -50,13 +50,16 @@ class RingkasanAset
         // kolom — ini murah. Bila kelak puluhan ribu, penggantinya adalah
         // kolom penyusutan yang dihitung terjadwal, bukan rumus SQL kedua.
         $baris = $query->get([
-            'id', 'kondisi', 'nilai_perolehan', 'masa_manfaat', 'tgl_perolehan',
+            'id', 'kondisi', 'nilai_perolehan', 'masa_manfaat', 'tgl_perolehan', 'garansi_berakhir',
         ]);
 
         $perolehan = 0;
         $akumulasi = 0;
         $buku = 0;
         $perKondisi = array_fill_keys(array_keys(Asset::KONDISI), 0);
+        $garansiAkanBerakhir = 0;
+        $sekarang = now()->startOfDay();
+        $batasGaransi = $sekarang->copy()->addDays(90);
 
         foreach ($baris as $aset) {
             $p = $aset->penyusutan;
@@ -68,6 +71,15 @@ class RingkasanAset
             if (array_key_exists($aset->kondisi, $perKondisi)) {
                 $perKondisi[$aset->kondisi]++;
             }
+
+            // Sudah berakhir TIDAK dihitung "akan berakhir" — bedanya penting
+            // bagi asset manager: yang sudah lewat butuh tindakan lain
+            // (klaim sudah tertutup), bukan sekadar diperpanjang.
+            if ($aset->garansi_berakhir
+                && $aset->garansi_berakhir->greaterThanOrEqualTo($sekarang)
+                && $aset->garansi_berakhir->lessThanOrEqualTo($batasGaransi)) {
+                $garansiAkanBerakhir++;
+            }
         }
 
         return [
@@ -75,6 +87,7 @@ class RingkasanAset
             'nilai_perolehan' => $perolehan,
             'akumulasi_penyusutan' => $akumulasi,
             'nilai_buku' => $buku,
+            'garansi_akan_berakhir' => $garansiAkanBerakhir,
             'kondisi' => collect(Asset::KONDISI)->map(fn ($nama, $kode) => [
                 'kode' => $kode,
                 'nama' => $nama,

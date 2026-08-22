@@ -34,6 +34,7 @@ class Asset extends Model
         'kode_lokasi', 'kode_barang', 'nup', 'kode_internal', 'unit_kerja',
         'nama', 'merk', 'tipe', 'serial_number', 'spesifikasi', 'kapasitas_ukur', 'kelengkapan',
         'cara_perolehan', 'tgl_perolehan', 'sumber_dana', 'no_bukti', 'no_kontrak',
+        'pemasok', 'garansi_berakhir',
         'kuantitas', 'satuan', 'nilai_perolehan', 'masa_manfaat', 'wajib_kalibrasi',
         'kondisi', 'status_penggunaan', 'no_psp', 'tgl_psp', 'kib',
         'room_id', 'laboratory_id', 'penanggung_jawab_id', 'keterangan',
@@ -47,6 +48,7 @@ class Asset extends Model
         return [
             'tgl_perolehan' => 'immutable_date',
             'tgl_psp' => 'immutable_date',
+            'garansi_berakhir' => 'immutable_date',
             'nup' => 'integer',
             'kuantitas' => 'integer',
             'nilai_perolehan' => 'integer',
@@ -192,6 +194,19 @@ class Asset extends Model
     public function scopeKondisi(Builder $query, string $kondisi): Builder
     {
         return $query->where('kondisi', $kondisi);
+    }
+
+    /**
+     * `status_penggunaan` sengaja tetap teks bebas (lihat migrasi
+     * pembuatnya) — penatausahaan BMN mengenal kalimat deskriptif panjang,
+     * bukan kode tertutup. Tapisannya karena itu kecocokan persis, dipakai
+     * layar Asset Register untuk nilai-nilai yang sudah baku dalam aplikasi
+     * ini sendiri ('Dihapuskan' dari `AssetService::hapus()`, dan sejenisnya
+     * yang dipilih dari sarat pada formulir).
+     */
+    public function scopeStatusPenggunaan(Builder $query, string $status): Builder
+    {
+        return $query->where('status_penggunaan', $status);
     }
 
     /**

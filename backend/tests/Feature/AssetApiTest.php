@@ -250,4 +250,70 @@ class AssetApiTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data');
     }
+
+    public function test_pemasok_dan_garansi_tersimpan(): void
+    {
+        $this->kodeBarang();
+
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->postJson('/api/assets', $this->isian([
+                'pemasok' => 'PT Sumber Alat Laboratorium',
+                'garansi_berakhir' => '2027-07-14',
+            ]))
+            ->assertCreated()
+            ->json('data');
+
+        $this->assertSame('PT Sumber Alat Laboratorium', $data['pemasok']);
+        $this->assertSame('2027-07-14', $data['garansi_berakhir']);
+    }
+
+    public function test_pemasok_dan_garansi_boleh_dikosongkan(): void
+    {
+        $this->kodeBarang();
+
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->postJson('/api/assets', $this->isian())
+            ->assertCreated()
+            ->json('data');
+
+        $this->assertNull($data['pemasok']);
+        $this->assertNull($data['garansi_berakhir']);
+    }
+
+    public function test_daftar_aset_dapat_ditapis_status_penggunaan(): void
+    {
+        $this->kodeBarang();
+
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'nama' => 'Sudah Dihapuskan', 'status_penggunaan' => 'Dihapuskan',
+        ]);
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'nama' => 'Masih Dipakai', 'status_penggunaan' => 'Digunakan untuk Operasional Satker',
+        ]);
+
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets?status_penggunaan=Dihapuskan')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.nama', 'Sudah Dihapuskan');
+    }
+
+    public function test_ringkasan_menghitung_garansi_akan_berakhir(): void
+    {
+        $this->kodeBarang();
+
+        // Akan berakhir dalam 30 hari — dihitung.
+        Asset::factory()->kodeBarang('3.08.01.03.001')->garansiAkanBerakhir(30)->create();
+        // Sudah lewat — TIDAK dihitung sebagai "akan berakhir".
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['garansi_berakhir' => now()->subDays(5)->toDateString()]);
+        // 200 hari lagi — di luar jendela 90 hari, tidak dihitung.
+        Asset::factory()->kodeBarang('3.08.01.03.001')->garansiAkanBerakhir(200)->create();
+        // Tanpa garansi sama sekali.
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['garansi_berakhir' => null]);
+
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets/ringkasan')
+            ->assertOk()
+            ->assertJsonPath('data.garansi_akan_berakhir', 1);
+    }
 }

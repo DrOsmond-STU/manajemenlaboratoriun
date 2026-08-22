@@ -38,6 +38,7 @@ class AssetFactory extends Factory
             'cara_perolehan' => 'Pembelian',
             'tgl_perolehan' => $this->faker->dateTimeBetween("{$tahun}-01-01", "{$tahun}-12-31")->format('Y-m-d'),
             'sumber_dana' => 'APBN — Rupiah Murni',
+            'pemasok' => $this->faker->company(),
             'kuantitas' => 1,
             'satuan' => 'Unit',
             'nilai_perolehan' => $this->faker->numberBetween(5_000_000, 2_000_000_000),
@@ -61,5 +62,11 @@ class AssetFactory extends Factory
     public function rusakBerat(): static
     {
         return $this->state(fn () => ['kondisi' => 'RB']);
+    }
+
+    /** Garansi berakhir dalam beberapa hari — untuk menguji peringatan garansi. */
+    public function garansiAkanBerakhir(int $hariLagi = 30): static
+    {
+        return $this->state(fn () => ['garansi_berakhir' => now()->addDays($hariLagi)->toDateString()]);
     }
 }

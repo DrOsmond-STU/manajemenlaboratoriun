@@ -98,7 +98,7 @@ window.UI = (function () {
     "Perlu Perawatan": "amber", "Lulus Bersyarat": "amber", "Cuti": "amber",
     "Broken": "red", "Rusak": "red", "Overdue": "red", "Terlambat": "red", "Cancelled": "red",
     "Batal": "red", "Tidak Lulus": "red", "Kadaluarsa": "red", "Lost": "red", "Hilang": "red",
-    "Perlu Perbaikan": "red", "Rusak Ringan": "amber",
+    "Perlu Perbaikan": "red", "Rusak Ringan": "amber", "Rusak Berat": "red",
     "Retired": "slate", "Disposal": "slate", "Draft": "slate", "Tidak Digunakan": "slate"
   };
   const tone = (s) => TONE[s] || "slate";

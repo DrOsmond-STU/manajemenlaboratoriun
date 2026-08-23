@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\SimpanDashboardRequest;
 use App\Http\Resources\DashboardResource;
 use App\Models\Dashboard;
+use App\Models\DashboardWidget;
+use App\Services\DataWidget;
 use App\Services\SusunanDashboard;
 use App\Support\RegistriWidget;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +18,40 @@ use Illuminate\Support\Facades\Gate;
 class DashboardController extends Controller
 {
     public function __construct(private readonly SusunanDashboard $susunan) {}
+
+    /**
+     * Angka SATU widget lepas dari tata letak dashboard mana pun.
+     *
+     * Dipakai layar Laporan yang butuh angka yang SAMA PERSIS dengan yang
+     * dashboard tampilkan (utilisasi ruangan, sebaran status booking, dan
+     * seterusnya) tanpa memaksa layar itu ikut memasang widget di dashboard
+     * pengguna. `DashboardWidget`-nya sengaja TIDAK disimpan — sekadar
+     * bungkus in-memory supaya bisa memanggil DataWidget::untuk() apa
+     * adanya, tanpa menduplikasi perhitungannya di tempat lain.
+     *
+     * Otorisasi per widget SUDAH ditegakkan di dalam DataWidget::untuk()
+     * sendiri (Gate per `izin` yang terdaftar di RegistriWidget) — kunci
+     * yang izinnya tidak dipunyai pemanggil kembali sebagai penanda
+     * "tidak berwenang", bukan angka. Middleware rute hanya menuntut
+     * `dashboard.lihat` sebagai syarat masuk paling luar, sama seperti
+     * widgetTersedia().
+     */
+    public function widgetData(Request $request, DataWidget $dataWidget): JsonResponse
+    {
+        $kunci = $request->string('kunci')->toString();
+
+        abort_unless(RegistriWidget::ada($kunci), 404, 'Widget tidak dikenal.');
+
+        $widget = new DashboardWidget([
+            'widget' => $kunci,
+            'opsi' => array_filter([
+                'hari' => $request->integer('hari') ?: null,
+                'batas' => $request->integer('batas') ?: null,
+            ], fn ($v) => $v !== null),
+        ]);
+
+        return response()->json(['data' => $dataWidget->untuk($widget, $request->user())]);
+    }
 
     /** Daftar dashboard: milik sendiri ditambah yang bersama. */
     public function index(Request $request): AnonymousResourceCollection

@@ -47,6 +47,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:dashboard.lihat')->name('dashboard.utama');
     Route::get('dashboard/widget-tersedia', [DashboardController::class, 'widgetTersedia'])
         ->middleware('can:dashboard.lihat')->name('dashboard.widget-tersedia');
+    Route::get('dashboard/widget', [DashboardController::class, 'widgetData'])
+        ->middleware('can:dashboard.lihat')->name('dashboard.widget-data');
 
     Route::get('dashboard', [DashboardController::class, 'index'])
         ->middleware('can:dashboard.lihat');

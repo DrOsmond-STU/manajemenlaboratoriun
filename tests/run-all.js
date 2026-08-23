@@ -23,7 +23,8 @@ const SUITES = [
   ['kalender', 'Kalender Terpadu tersambung: rentang tanggal per bulan, tiga sumber digabung'],
   ['aset', 'Asset Register & Asset Movement tersambung: pemasok/garansi, mutasi ruangan, feed lintas aset'],
   ['laporanaset', 'Laporan Aset tersambung: ringkasan agregat server, komposisi per kode barang BMN'],
-  ['labelstudio', 'Studio Label & Barcode tersambung: mencetak label aset sungguhan, bukan contoh purwarupa']
+  ['labelstudio', 'Studio Label & Barcode tersambung: mencetak label aset sungguhan, bukan contoh purwarupa'],
+  ['laporanruangan', 'Laporan Ruangan tersambung: angka DataWidget yang sama dengan Dashboard, rekap per ruangan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

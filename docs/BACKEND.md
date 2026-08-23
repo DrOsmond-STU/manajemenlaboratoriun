@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-523 uji lulus, 1.556 asersi, 0 gagal — dijalankan di PostgreSQL 16
+528 uji lulus, 1.566 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -511,6 +511,16 @@ sama dengan Register BMN:
 | Bawaan tetap 25 per halaman tanpa parameter | layar lain tidak ikut terbebani permintaan yang lebih berat |
 | `per_halaman` dapat diperbesar | dipakai Studio Label & Barcode untuk memuat barang yang dapat dipilih |
 | **`per_halaman` diminta 500, dibatasi 200** | permintaan berlebihan dituruti sebagian dengan batas jelas, bukan ditolak atau dituruti mentah-mentah |
+
+Widget lepas dari dashboard (`GET /api/dashboard/widget`) — dipakai layar Laporan:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401`, sama seperti seluruh endpoint lain |
+| Kunci tidak dikenal ditolak `404` | bukan diteruskan diam-diam ke `DataWidget` lalu gagal di tempat lain |
+| **Mengembalikan bentuk yang sama dengan yang dashboard tampilkan** | `DashboardWidget` di sini SENGAJA tidak disimpan — sekadar bungkus in-memory memanggil `DataWidget::untuk()` apa adanya, tidak menduplikasi perhitungannya |
+| Sebaran status booking dihitung benar | `booking.status` — dipakai KPI Total Booking & Cancellation Rate pada Laporan Ruangan |
+| **Widget tanpa izin mengembalikan penanda, bukan angka** | otorisasi per widget SUDAH ditegakkan di dalam `DataWidget::untuk()` sendiri — rute ini hanya menuntut `dashboard.lihat` sebagai syarat masuk paling luar, persis seperti `widgetTersedia()` |
 
 Master data laboratorium:
 
@@ -1228,6 +1238,42 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   200, pengguna diberi tahu apa adanya ("Menampilkan 200 dari N aset")
   alih-alih diam-diam terlihat seolah itu seluruh inventaris — pencarian
   lewat Register BMN tetap tersedia untuk aset di luar 200 itu.
+
+- **`GET /api/dashboard/widget` ditambahkan sebagai endpoint umum untuk
+  mengambil angka SATU widget lepas dari tata letak dashboard mana pun** —
+  bukan endpoint khusus Laporan Ruangan. Dipicu oleh pertanyaan sederhana:
+  Dashboard sudah menghitung utilisasi ruangan dan sebaran status booking
+  lewat `DataWidget`; menulis ulang perhitungan yang sama di
+  `RingkasanAset`-gaya khusus untuk layar Laporan berarti dua rumus yang
+  bisa menyimpang. `DashboardWidget` pada endpoint ini SENGAJA tidak
+  disimpan — sekadar bungkus in-memory (`new DashboardWidget([...])` tanpa
+  `save()`) supaya bisa memanggil `DataWidget::untuk()` apa adanya.
+  Otorisasi per widget sudah tegak di dalam `DataWidget::untuk()` sendiri
+  (Gate per `izin` terdaftar di `RegistriWidget`); rute hanya menuntut
+  `dashboard.lihat` sebagai syarat masuk paling luar, persis seperti
+  `widgetTersedia()` yang sudah ada. Endpoint ini dapat dipakai layar
+  Laporan LAIN di masa depan (Alat, Penyewaan, Maintenance) tanpa
+  perubahan backend lagi — itulah sebabnya dibuat umum, bukan sekali pakai.
+- **Laporan Ruangan mengganti "Rata-rata Okupansi" (peserta/kapasitas)
+  purwarupa dengan "Utilisasi Ruangan"** (`ruangan.utilisasi` — jam
+  terpakai/jam tersedia, ANGKA YANG SAMA PERSIS dengan yang Dashboard
+  tampilkan, dengan asumsi jam operasional yang dinyatakan tegas di
+  `DataWidget`) — occupancy peserta tidak dihitung di mana pun sebagai
+  metrik tersendiri, sementara utilisasi jam sudah ada dan teruji.
+- **"No-Show Rate" DIJATUHKAN, diganti "Menunggu Persetujuan"**
+  (`booking.menunggu`) — tidak ada pencatatan check-in booking ruangan di
+  mana pun; menampilkannya berarti mengarang angka, sementara "menunggu
+  persetujuan" adalah KPI operasional sungguhan yang sudah dihitung server.
+- **Kolom "Pendapatan" pada rekap per ruangan DIJATUHKAN** — booking
+  ruangan internal tidak melekat pada invoice/pembayaran; hanya penyewaan
+  fasilitas (modul terpisah, dengan alur tersendiri) yang punya pendapatan
+  tercatat.
+- **Rekap per ruangan dihitung dari booking TAHUN BERJALAN (maks 200
+  baris terbaru, mengikuti batas Kalender Terpadu), sementara KPI di
+  atasnya dihitung server atas SELURUH cakupan** — keduanya diberi label
+  yang membedakan cakupannya (bukan diam-diam disandingkan seolah
+  mengukur hal yang sama), karena sebulan/setahun booking bisa jauh
+  melebihi batas 200 baris yang wajar untuk satu permintaan.
 
 ---
 

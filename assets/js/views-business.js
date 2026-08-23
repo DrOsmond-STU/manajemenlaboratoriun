@@ -1565,22 +1565,97 @@
         <div class="tiny faint mt-4">${r.util}%</div>` }
     ], D.rooms), { bodyCls: "flush" })}`);
 
-  V["reportroom"] = reportPage("Laporan Ruangan", "Rekap booking, okupansi, dan pembatalan per ruangan.", () => `
-    <div class="grid g4 mb-16">
-      ${U.kpi({ label: "Total Booking", value: U.num(931), icon: "calendar", tint: "brand", delta: 14, note: "YTD 2026" })}
-      ${U.kpi({ label: "Rata-rata Okupansi", value: "78", suffix: "%", icon: "users", tint: "green", note: "Peserta / kapasitas" })}
-      ${U.kpi({ label: "Cancellation Rate", value: "4,2", suffix: "%", icon: "x", tint: "red", delta: -1, note: "31 pembatalan" })}
-      ${U.kpi({ label: "No-Show Rate", value: "2,1", suffix: "%", icon: "alert", tint: "amber", delta: -2, note: "Tanpa check-in" })}
-    </div>
-    ${U.card("Rekap per Ruangan", U.table([
-      { t: "Ruangan", render: (r) => `<b>${U.esc(r.name)}</b><div class="tiny faint">${r.code}</div>` },
-      { t: "Jumlah Booking", cls: "center", render: (r) => Math.round(r.util * 1.4) },
-      { t: "Jam Terpakai", cls: "right", render: (r) => U.num(Math.round(2640 * r.util / 100)) },
-      { t: "Rata-rata Peserta", cls: "center", render: (r) => Math.round(r.cap * 0.78) },
-      { t: "Okupansi", cls: "center", render: () => "78%" },
-      { t: "Pembatalan", cls: "center", render: (r) => Math.round(r.util / 22) },
-      { t: "Pendapatan", cls: "right", render: (r) => r.pricing === "PAID" ? U.rp(r.rate * Math.round(r.util / 8)) : `<span class="faint">—</span>` }
-    ], D.rooms), { bodyCls: "flush" })}`);
+  /* Laporan Ruangan — ringkasan dari DataWidget + rekap tahun berjalan.
+   *
+   * PENYEDERHANAAN & PENGGANTIAN YANG DISENGAJA:
+   * - "Rata-rata Okupansi" (peserta/kapasitas) purwarupa DIGANTI
+   *   "Utilisasi Ruangan" (jam terpakai/jam tersedia, widget
+   *   `ruangan.utilisasi` yang SAMA PERSIS dipakai Dashboard) — occupancy
+   *   peserta tidak dihitung di mana pun sebagai metrik tersendiri,
+   *   sementara utilisasi jam sudah dihitung server dengan asumsi jam
+   *   operasional yang DINYATAKAN TEGAS (lihat DataWidget). Angka yang
+   *   sama dengan yang dashboard tampilkan, bukan dihitung ulang di sini.
+   * - "No-Show Rate" DIJATUHKAN — tidak ada pencatatan check-in booking
+   *   ruangan di mana pun; menampilkannya berarti mengarang angka.
+   *   Diganti "Menunggu Persetujuan" (`booking.menunggu`), KPI operasional
+   *   yang sungguh dihitung server.
+   * - Kolom "Pendapatan" pada rekap per ruangan DIJATUHKAN — booking
+   *   ruangan internal tidak melekat pada invoice/pembayaran; hanya
+   *   penyewaan fasilitas (modul terpisah) yang punya pendapatan tercatat.
+   * - Rekap per ruangan dihitung dari booking TAHUN BERJALAN (maks 200
+   *   baris terbaru, mengikuti batas Kalender Terpadu) — bukan seluruh
+   *   riwayat. KPI di atasnya tetap dihitung server atas SELURUH cakupan
+   *   (tidak dibatasi tahun), sehingga sengaja dapat berbeda dari jumlah
+   *   baris rekap; keduanya diberi label yang membedakan cakupannya.
+   */
+  const RRM = { ringkasan: null, baris: [], memuat: true, galat: null };
+
+  async function muatLaporanRuangan() {
+    RRM.memuat = true; RRM.galat = null; isiLaporanRuangan();
+    try {
+      const awalTahun = new Date(); awalTahun.setMonth(0, 1);
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const [status, utilisasi, tren, menunggu, ruangan, booking] = await Promise.all([
+        Repo.dashboard.widget("booking.status"),
+        Repo.dashboard.widget("ruangan.utilisasi"),
+        Repo.dashboard.widget("ruangan.tren-utilisasi"),
+        Repo.dashboard.widget("booking.menunggu"),
+        Repo.ruangan.daftar().then((j) => j.data),
+        Repo.booking.daftar({ sejak: iso(awalTahun), sampai: iso(new Date()) }).then((j) => j.data)
+      ]);
+      RRM.ringkasan = { status: status, utilisasi: utilisasi, tren: tren, menunggu: menunggu };
+      RRM.baris = ruangan.map((r) => {
+        const punya = booking.filter((b) => b.ruangan && b.ruangan.id === r.id);
+        const aktif = punya.filter((b) => b.status.memblokir);
+        const jam = aktif.reduce((a, b) => a + (new Date(b.selesai) - new Date(b.mulai)) / 3600000, 0);
+        const dgnPeserta = aktif.filter((b) => b.jumlah_peserta != null);
+        const rataPeserta = dgnPeserta.length ? dgnPeserta.reduce((a, b) => a + b.jumlah_peserta, 0) / dgnPeserta.length : null;
+        return {
+          ruangan: r, jumlah: punya.length, jam: jam,
+          rataPeserta: rataPeserta, okupansi: rataPeserta != null && r.kapasitas ? (rataPeserta / r.kapasitas) * 100 : null,
+          batal: punya.filter((b) => b.status.kode === "dibatalkan").length
+        };
+      });
+    } catch (e) { RRM.ringkasan = null; RRM.baris = []; RRM.galat = e.message; }
+    finally { RRM.memuat = false; isiLaporanRuangan(); }
+  }
+
+  function isiLaporanRuangan() {
+    const w = document.getElementById("rrmIsi");
+    if (!w) return;
+    if (RRM.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RRM.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RRM.galat)}</span></div></div>`; return; }
+    const r = RRM.ringkasan;
+    const totalBooking = r.status.nilai || 0;
+    const batal = (r.status.bagian || []).find((b) => b.kode === "dibatalkan");
+    const cancelRate = totalBooking ? ((batal ? batal.jumlah : 0) / totalBooking) * 100 : 0;
+    w.innerHTML = `
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Total Booking", value: U.num(totalBooking), icon: "calendar", tint: "brand", note: "Seluruh status, seluruh cakupan" })}
+        ${U.kpi({ label: "Utilisasi Ruangan", value: r.utilisasi.nilai != null ? r.utilisasi.nilai : "—", suffix: r.utilisasi.nilai != null ? "%" : "", icon: "building", tint: "green", note: "Bulan berjalan" })}
+        ${U.kpi({ label: "Cancellation Rate", value: cancelRate.toFixed(1).replace(".", ","), suffix: "%", icon: "x", tint: "red", note: (batal ? batal.jumlah : 0) + " dibatalkan" })}
+        ${U.kpi({ label: "Menunggu Persetujuan", value: U.num(r.menunggu.nilai || 0), icon: "clock", tint: "amber", note: "Butuh tindak lanjut" })}
+      </div>
+      ${U.card("Tren Utilisasi 6 Bulan", (r.tren.titik || []).length
+        ? U.barChart(r.tren.titik.map((t) => ({ m: t.label, val: t.nilai || 0 })), { color: "var(--brand-500)", fmt: (v) => v + "%" })
+        : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada data.</span></div>`, { sub: "Persen jam terpakai terhadap jam operasional" })}
+      ${U.card("Rekap per Ruangan — Tahun Berjalan", RRM.baris.length ? U.table([
+        { t: "Ruangan", render: (x) => `<b>${U.esc(x.ruangan.nama)}</b><div class="tiny faint">${U.esc(x.ruangan.kode)}</div>` },
+        { t: "Jumlah Booking", cls: "center", render: (x) => x.jumlah },
+        { t: "Jam Terpakai", cls: "right", render: (x) => U.num(Math.round(x.jam)) },
+        { t: "Rata-rata Peserta", cls: "center", render: (x) => x.rataPeserta != null ? Math.round(x.rataPeserta) : "—" },
+        { t: "Okupansi", cls: "center", render: (x) => x.okupansi != null ? Math.round(x.okupansi) + "%" : "—" },
+        { t: "Pembatalan", cls: "center", render: (x) => x.batal }
+      ], RRM.baris) : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada ruangan terdaftar.</span></div>`, { bodyCls: "flush" })}`;
+  }
+
+  V["reportroom"] = {
+    title: "Laporan Ruangan",
+    sub: "Utilisasi, sebaran status booking, dan rekap per ruangan.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="rrmIsi"></div>`; },
+    mount() { muatLaporanRuangan(); }
+  };
 
   V["reportequip"] = reportPage("Laporan Alat", "Frekuensi penggunaan, availability, dan status kalibrasi alat.", () => `
     <div class="grid g4 mb-16">

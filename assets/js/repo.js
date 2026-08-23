@@ -1045,8 +1045,66 @@
     hapus(id) {
       if (!langsungKeApi()) return tolakDiModeContoh("Menghapus dashboard");
       return API.hapus("/api/dashboard/" + encodeURIComponent(id));
+    },
+
+    /**
+     * Angka SATU widget lepas dari tata letak dashboard mana pun — dipakai
+     * layar Laporan yang butuh angka yang sama persis dengan yang
+     * dashboard tampilkan (lihat DashboardController::widgetData()).
+     *
+     * BEDA dengan fungsi Repo.dashboard lain: fungsi ini PUNYA jalur mode
+     * contoh (bukan tolakDiModeContoh()), sengaja tidak mengikuti pola
+     * "Dashboard & BSC bercabang di tingkat halaman" pada catatan di atas
+     * — pola itu ada karena purwarupa dashboard punya susun-tata-letak
+     * seret-lepas yang tidak berpadanan dengan apa pun di server. Layar
+     * Laporan yang memanggil fungsi ini tidak punya fitur semacam itu;
+     * hanya perlu satu angka, dan mode contoh yang jujur mengembalikan
+     * hasil kosong untuk kunci yang belum dipetakan lebih baik daripada
+     * melempar.
+     */
+    async widget(kunci, opsi) {
+      if (!langsungKeApi()) return widgetDariPurwarupa(kunci);
+      return (await API.get("/api/dashboard/widget" + qs(Object.assign({ kunci: kunci }, opsi || {})))).data;
     }
   };
+
+  /**
+   * Padanan purwarupa untuk kunci widget yang DIPAKAI layar Laporan —
+   * bukan seluruh katalog RegistriWidget (puluhan kunci), yang purwarupa
+   * memang tidak punya cukup data untuk memadaninya semua. Kunci lain
+   * mengembalikan penanda kosong yang sama seperti server saat tidak
+   * berwenang — jujur bahwa mode contoh tidak memodelkannya, bukan
+   * angka karangan.
+   */
+  function widgetDariPurwarupa(kunci) {
+    const D = window.DB;
+    if (!D) return { nilai: null, pesan: "Data purwarupa tidak tersedia." };
+
+    if (kunci === "ruangan.utilisasi") {
+      const rerata = D.rooms.length ? D.rooms.reduce((a, r) => a + (r.util || 0), 0) / D.rooms.length : null;
+      return { nilai: rerata != null ? Math.round(rerata * 10) / 10 : null };
+    }
+    if (kunci === "ruangan.tren-utilisasi") {
+      return { titik: D.analytics.utilTrend.slice(-6).map((t) => ({ label: t.m, nilai: t.room })), satuan: "%" };
+    }
+    if (kunci === "booking.menunggu") {
+      return { nilai: D.bookings.filter((b) => b.status === "Waiting Approval").length };
+    }
+    if (kunci === "booking.status") {
+      const bagian = Object.values(STATUS_BOOKING_PURWARUPA).reduce((acc, [kode, nama]) => {
+        acc[kode] = { kode: kode, nama: nama, jumlah: 0 };
+        return acc;
+      }, {});
+      D.bookings.forEach((b) => {
+        const st = STATUS_BOOKING_PURWARUPA[b.status];
+        if (st && bagian[st[0]]) bagian[st[0]].jumlah++;
+      });
+      const daftar = Object.values(bagian);
+      return { bagian: daftar, nilai: daftar.reduce((a, x) => a + x.jumlah, 0) };
+    }
+
+    return { nilai: null, pesan: "Belum dipetakan di mode contoh." };
+  }
 
   /* ------------------------------------------------------------------ bsc */
   const bsc = {

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-528 uji lulus, 1.566 asersi, 0 gagal — dijalankan di PostgreSQL 16
+529 uji lulus, 1.568 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -521,6 +521,7 @@ Widget lepas dari dashboard (`GET /api/dashboard/widget`) — dipakai layar Lapo
 | **Mengembalikan bentuk yang sama dengan yang dashboard tampilkan** | `DashboardWidget` di sini SENGAJA tidak disimpan — sekadar bungkus in-memory memanggil `DataWidget::untuk()` apa adanya, tidak menduplikasi perhitungannya |
 | Sebaran status booking dihitung benar | `booking.status` — dipakai KPI Total Booking & Cancellation Rate pada Laporan Ruangan |
 | **Widget tanpa izin mengembalikan penanda, bukan angka** | otorisasi per widget SUDAH ditegakkan di dalam `DataWidget::untuk()` sendiri — rute ini hanya menuntut `dashboard.lihat` sebagai syarat masuk paling luar, persis seperti `widgetTersedia()` |
+| **`aset.kepatuhan-kalibrasi` dihitung dari sisi aset, bukan dari sisi baris kalibrasi** | alat yang BELUM PERNAH dikalibrasi sama sekali tidak punya baris kalibrasi — bertolak dari tabel kalibrasi akan melewatkannya diam-diam sebagai "patuh" |
 
 Master data laboratorium:
 
@@ -1274,6 +1275,33 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   yang membedakan cakupannya (bukan diam-diam disandingkan seolah
   mengukur hal yang sama), karena sebulan/setahun booking bisa jauh
   melebihi batas 200 baris yang wajar untuk satu permintaan.
+
+- **Laporan Alat menjatuhkan "Equipment Availability" dan "Downtime"
+  purwarupa — keduanya tidak punya definisi tunggal di server.**
+  "Availability" mengandaikan pembeda "ini alat lab" vs "ini aset umum",
+  padahal keduanya berbagi satu tabel `assets` yang sama tanpa penanda
+  semacam itu. "Downtime" mengandaikan rentang jam tidak tersedia, padahal
+  `AssetMaintenance` hanya mencatat TANGGAL (`jadwal`/`dikerjakan_pada`),
+  bukan durasi. Memaksakan angka untuk keduanya berarti mengarang
+  pembilang atau penyebutnya — diganti dua KPI yang sungguh dihitung
+  server: "Sedang Dipinjam" (`peminjaman.aktif`) dan "Kalibrasi
+  Kedaluwarsa" (`kalibrasi.kedaluwarsa`, angka yang sama dengan Dashboard).
+- **Widget baru `aset.kepatuhan-kalibrasi` ditambahkan ke
+  `DataWidget`/`RegistriWidget`** — dihitung dari QUERY YANG SAMA PERSIS
+  dengan `kalibrasi.kedaluwarsa` (dari sisi aset, dibalik: total wajib
+  kalibrasi dikurangi yang kedaluwarsa), supaya daftar yang kedaluwarsa
+  dan persentase yang patuh tidak pernah berselisih karena dihitung
+  dengan dua definisi berbeda yang bisa menyimpang seiring waktu.
+- **"Rincian per Alat" (baris per-alat: reservasi, jam, kondisi, status,
+  kalibrasi) DIJATUHKAN** — pola yang sama dengan Laporan Aset: modul
+  Peminjaman Alat (`V["eqbooking"]`) dan Asset Register sudah menyediakan
+  daftar per-item yang identik dengan cari dan tapis; Laporan Alat murni
+  agregat, bukan pengulangan listing yang sudah ada.
+- **"Alat Paling Sering Dipinjam" dan "Status Kalibrasi" TETAP ADA** —
+  keduanya genuinely agregat (bukan baris mentah yang menduplikasi layar
+  lain): yang pertama dihitung dari peminjaman tahun berjalan yang
+  dikelompokkan per alat (pola sama dengan rekap per ruangan), yang kedua
+  langsung dari `baris` widget `kalibrasi.kedaluwarsa` tanpa agregasi baru.
 
 ---
 

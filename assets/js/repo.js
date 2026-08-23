@@ -1102,6 +1102,40 @@
       const daftar = Object.values(bagian);
       return { bagian: daftar, nilai: daftar.reduce((a, x) => a + x.jumlah, 0) };
     }
+    if (kunci === "peminjaman.aktif") {
+      return { nilai: D.eqBookings.filter((p) => p.status === "In Use").length };
+    }
+    if (kunci === "peminjaman.status") {
+      const bagian = Object.values(STATUS_PINJAM_PURWARUPA).reduce((acc, [kode, nama]) => {
+        acc[kode] = { kode: kode, nama: nama, jumlah: 0 };
+        return acc;
+      }, {});
+      D.eqBookings.forEach((p) => {
+        const st = STATUS_PINJAM_PURWARUPA[p.status];
+        if (st && bagian[st[0]]) bagian[st[0]].jumlah++;
+      });
+      const daftar = Object.values(bagian);
+      return { bagian: daftar, nilai: daftar.reduce((a, x) => a + x.jumlah, 0) };
+    }
+    // calDue hanya ada pada D.equipment (alat lab) — D.assets (aset
+    // fasilitas) purwarupa tidak punya kolom kalibrasi sama sekali, sama
+    // seperti tidak semua aset sungguhan wajib_kalibrasi di server.
+    if (kunci === "kalibrasi.kedaluwarsa") {
+      const lewat = D.equipment.filter((e) => e.calDue < D.shift(0));
+      return {
+        nilai: lewat.length,
+        baris: lewat.slice(0, 8).map((e) => ({
+          id: e.id, judul: e.name,
+          keterangan: "kedaluwarsa " + e.calDue, status: "kedaluwarsa"
+        })),
+        terpotong: lewat.length > 8
+      };
+    }
+    if (kunci === "aset.kepatuhan-kalibrasi") {
+      if (!D.equipment.length) return { nilai: null };
+      const patuh = D.equipment.filter((e) => e.calDue >= D.shift(0)).length;
+      return { nilai: Math.round((patuh / D.equipment.length) * 1000) / 10 };
+    }
 
     return { nilai: null, pesan: "Belum dipetakan di mode contoh." };
   }

@@ -80,6 +80,10 @@ class RegistriWidget
             'judul' => 'Nilai buku BMN', 'izin' => 'aset.lihat',
             'bentuk' => 'angka', 'satuan' => 'rupiah',
         ],
+        'aset.kepatuhan-kalibrasi' => [
+            'judul' => 'Kepatuhan kalibrasi', 'izin' => 'kalibrasi.lihat',
+            'bentuk' => 'angka', 'satuan' => '%',
+        ],
 
         // --- Ruangan ------------------------------------------------------------
         'ruangan.jumlah' => [

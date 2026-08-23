@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Asset;
+use App\Models\AssetMaintenance;
+use App\Models\BmnKodeBarang;
 use App\Models\Booking;
 use App\Models\Room;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -74,5 +77,30 @@ class WidgetDataApiTest extends TestCase
 
         $this->assertNull($data['nilai']);
         $this->assertArrayHasKey('pesan', $data);
+    }
+
+    public function test_kepatuhan_kalibrasi_dihitung_dari_sisi_aset(): void
+    {
+        $user = $this->penggunaBerperan('asset-manager');
+        BmnKodeBarang::factory()->kode('3.08.01.03.001')->create();
+
+        // Kalibrasi masih berlaku — patuh.
+        $patuh = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => true]);
+        AssetMaintenance::factory()->for($patuh)->kalibrasi()
+            ->selesai(now()->addMonths(3)->toDateString())->create();
+
+        // Belum pernah dikalibrasi sama sekali — kedaluwarsa, bukan patuh.
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => true]);
+
+        // Tidak wajib kalibrasi — tidak ikut dihitung sama sekali.
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => false]);
+
+        $data = $this->actingAs($user)
+            ->getJson('/api/dashboard/widget?kunci=aset.kepatuhan-kalibrasi')
+            ->assertOk()
+            ->json('data');
+
+        // 1 dari 2 aset wajib kalibrasi patuh = 50%.
+        $this->assertEquals(50.0, $data['nilai']);
     }
 }

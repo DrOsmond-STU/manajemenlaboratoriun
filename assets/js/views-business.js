@@ -1657,29 +1657,94 @@
     mount() { muatLaporanRuangan(); }
   };
 
-  V["reportequip"] = reportPage("Laporan Alat", "Frekuensi penggunaan, availability, dan status kalibrasi alat.", () => `
-    <div class="grid g4 mb-16">
-      ${U.kpi({ label: "Equipment Availability", value: "88,9", suffix: "%", icon: "check", tint: "green", delta: -2, note: "16 dari 18 alat" })}
-      ${U.kpi({ label: "Total Reservasi", value: U.num(699), icon: "grid", tint: "brand", delta: 17, note: "YTD 2026" })}
-      ${U.kpi({ label: "Downtime", value: "412", suffix: "jam", icon: "clock", tint: "amber", note: "Maintenance & kalibrasi" })}
-      ${U.kpi({ label: "Kepatuhan Kalibrasi", value: "70", suffix: "%", icon: "shield", tint: "red", delta: -8, note: "3 alat overdue" })}
-    </div>
-    <div class="grid g2 mb-16">
-      ${U.card("Alat Paling Sering Digunakan", U.hbars(D.analytics.topEquip, { suffix: "×", color: "var(--violet-500)" }))}
-      ${U.card("Status Kalibrasi", U.table([
-        { t: "Alat", render: (c) => `<b class="small">${U.esc(c.eqName)}</b>` },
-        { t: "Jatuh Tempo", render: (c) => U.fdate(c.due, "short") },
-        { t: "Status", render: (c) => U.badge(c.status) }
-      ], D.calibration), { bodyCls: "flush" })}
-    </div>
-    ${U.card("Rincian per Alat", U.table([
-      { t: "Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${e.code} • ${U.esc(D.resName(e.lab))}</div>` },
-      { t: "Reservasi", cls: "center", render: (e, i) => [168, 131, 74, 42, 21, 33, 142, 96, 142, 88, 57, 39, 24, 18, 12, 61, 74, 45][i] || 20 },
-      { t: "Jam Terpakai", cls: "right", render: (e, i) => U.num(([168, 131, 74, 42, 21, 33, 142, 96, 142, 88, 57, 39, 24, 18, 12, 61, 74, 45][i] || 20) * 4) },
-      { t: "Kondisi", render: (e) => U.badge(e.cond) },
-      { t: "Status", render: (e) => U.badge(e.status) },
-      { t: "Kalibrasi", cls: "right", render: (e) => `<span class="badge ${e.calDue < D.shift(0) ? "red" : "green"}">${U.fdate(e.calDue, "short")}</span>` }
-    ], D.equipment), { bodyCls: "flush" })}`);
+  /* Laporan Alat — ringkasan dari DataWidget, tanpa duplikasi listing.
+   *
+   * PENYEDERHANAAN & PENGGANTIAN YANG DISENGAJA:
+   * - "Equipment Availability" purwarupa DIJATUHKAN — tidak ada definisi
+   *   "tersedia" yang tunggal di server (aset umum dan alat lab berbagi
+   *   satu tabel yang sama, tanpa penanda "ini alat lab"); memaksakan
+   *   angka berarti mengarang pembilang/penyebutnya.
+   * - "Downtime" (jam) purwarupa DIJATUHKAN — `AssetMaintenance` mencatat
+   *   TANGGAL (`jadwal`/`dikerjakan_pada`), bukan rentang jam tidak
+   *   tersedia; tidak ada satu pun tempat menyimpan durasi tidak aktif.
+   * - Keduanya diganti dua KPI yang SUNGGUH dihitung server: "Sedang
+   *   Dipinjam" (`peminjaman.aktif`) dan "Kalibrasi Kedaluwarsa"
+   *   (`kalibrasi.kedaluwarsa`, angka yang sama dengan Dashboard).
+   * - **Widget baru `aset.kepatuhan-kalibrasi`** ditambahkan ke
+   *   `DataWidget`/`RegistriWidget` — dihitung dari query YANG SAMA PERSIS
+   *   dengan `kalibrasi.kedaluwarsa` (dari sisi aset, dibalik), supaya
+   *   daftar yang kedaluwarsa dan persentase yang patuh tidak pernah
+   *   berselisih karena dua definisi berbeda.
+   * - "Rincian per Alat" (baris per-alat: reservasi, jam, kondisi, status,
+   *   kalibrasi) DIJATUHKAN — Peminjaman Alat (`V["eqbooking"]`) dan Asset
+   *   Register sudah menyediakan daftar per-item yang identik; layar
+   *   Laporan ini murni agregat, pola yang sama dengan Laporan Aset.
+   * - "Status Kalibrasi" dan "Alat Paling Sering Digunakan" TETAP ADA —
+   *   keduanya genuinely agregat (bukan baris mentah), dan sudah tersedia
+   *   langsung dari widget/Repo yang ada tanpa aggregasi baru di server.
+   */
+  const RLT = { ringkasan: null, teratas: [], memuat: true, galat: null };
+
+  async function muatLaporanAlat() {
+    RLT.memuat = true; RLT.galat = null; isiLaporanAlat();
+    try {
+      const awalTahun = new Date(); awalTahun.setMonth(0, 1);
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const [status, aktif, kepatuhan, kedaluwarsa, peminjaman] = await Promise.all([
+        Repo.dashboard.widget("peminjaman.status"),
+        Repo.dashboard.widget("peminjaman.aktif"),
+        Repo.dashboard.widget("aset.kepatuhan-kalibrasi"),
+        Repo.dashboard.widget("kalibrasi.kedaluwarsa"),
+        Repo.peminjaman.daftar({ sejak: iso(awalTahun), sampai: iso(new Date()) }).then((j) => j.data)
+      ]);
+      RLT.ringkasan = { status: status, aktif: aktif, kepatuhan: kepatuhan, kedaluwarsa: kedaluwarsa };
+
+      const perAlat = {};
+      peminjaman
+        .filter((p) => p.status.kode !== "ditolak" && p.status.kode !== "dibatalkan")
+        .forEach((p) => {
+          if (!p.alat) return;
+          perAlat[p.alat.id] = perAlat[p.alat.id] || { nama: p.alat.nama, jumlah: 0 };
+          perAlat[p.alat.id].jumlah++;
+        });
+      RLT.teratas = Object.values(perAlat).sort((a, b) => b.jumlah - a.jumlah).slice(0, 8);
+    } catch (e) { RLT.ringkasan = null; RLT.teratas = []; RLT.galat = e.message; }
+    finally { RLT.memuat = false; isiLaporanAlat(); }
+  }
+
+  function isiLaporanAlat() {
+    const w = document.getElementById("rltIsi");
+    if (!w) return;
+    if (RLT.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RLT.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RLT.galat)}</span></div></div>`; return; }
+    const r = RLT.ringkasan;
+    w.innerHTML = `
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Total Reservasi", value: U.num(r.status.nilai || 0), icon: "grid", tint: "brand", note: "Seluruh status, seluruh cakupan" })}
+        ${U.kpi({ label: "Sedang Dipinjam", value: U.num(r.aktif.nilai || 0), icon: "box", tint: "teal", note: "Saat ini" })}
+        ${U.kpi({ label: "Kepatuhan Kalibrasi", value: r.kepatuhan.nilai != null ? r.kepatuhan.nilai : "—", suffix: r.kepatuhan.nilai != null ? "%" : "", icon: "shield", tint: "green", note: "Alat wajib kalibrasi" })}
+        ${U.kpi({ label: "Kalibrasi Kedaluwarsa", value: U.num(r.kedaluwarsa.nilai || 0), icon: "alert", tint: "red", note: "Perlu tindak lanjut" })}
+      </div>
+      <div class="grid g2 mb-16">
+        ${U.card("Alat Paling Sering Dipinjam", RLT.teratas.length
+          ? U.hbars(RLT.teratas.map((t) => ({ n: t.nama, v: t.jumlah })), { suffix: "×", color: "var(--violet-500)" })
+          : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada peminjaman tahun ini.</span></div>`, { sub: "Tahun berjalan" })}
+        ${U.card("Status Kalibrasi", (r.kedaluwarsa.baris || []).length ? U.table([
+          { t: "Alat", render: (c) => `<b class="small">${U.esc(c.judul)}</b>` },
+          { t: "Keterangan", render: (c) => `<span class="small">${U.esc(c.keterangan)}</span>` },
+          { t: "Status", render: () => U.badge("Kedaluwarsa") }
+        ], r.kedaluwarsa.baris) : `<div class="empty" style="padding:20px"><span class="small muted">Tidak ada kalibrasi kedaluwarsa.</span></div>`, { bodyCls: "flush",
+          sub: r.kedaluwarsa.terpotong ? `Menampilkan 8 dari ${U.num(r.kedaluwarsa.nilai)}` : undefined })}
+      </div>`;
+  }
+
+  V["reportequip"] = {
+    title: "Laporan Alat",
+    sub: "Frekuensi penggunaan dan kepatuhan kalibrasi alat.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="rltIsi"></div>`; },
+    mount() { muatLaporanAlat(); }
+  };
 
   /* Laporan Aset — ringkasan agregat, bukan daftar per-baris.
    *

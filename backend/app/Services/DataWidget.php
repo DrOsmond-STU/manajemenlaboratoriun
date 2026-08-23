@@ -124,6 +124,7 @@ class DataWidget
             'aset.nilai-buku' => $this->nilaiMentah(
                 app(RingkasanAset::class)->untuk($pengguna)['nilai_buku'] ?? 0
             ),
+            'aset.kepatuhan-kalibrasi' => $this->kepatuhanKalibrasi($pengguna),
 
             'ruangan.jumlah' => $this->angka(Room::query()->dalamCakupan($pengguna)->count()),
             'ruangan.status' => $this->sebaranDari(
@@ -490,6 +491,37 @@ class DataWidget
             });
 
         return $this->daftar($baris, $kueri()->count());
+    }
+
+    /**
+     * Persentase aset wajib kalibrasi yang kalibrasinya MASIH BERLAKU.
+     *
+     * Ditelusuri dengan query yang sama persis dengan kalibrasiKedaluwarsa()
+     * (dari sisi aset, bukan dari sisi baris kalibrasi) supaya kedua angka
+     * — daftar yang kedaluwarsa dan persentase yang patuh — tidak pernah
+     * berselisih karena dihitung dengan definisi yang berbeda.
+     *
+     * @return array<string,mixed>
+     */
+    private function kepatuhanKalibrasi(User $pengguna): array
+    {
+        $totalWajib = Asset::query()->dalamCakupan($pengguna)
+            ->where('wajib_kalibrasi', true)->count();
+
+        if ($totalWajib === 0) {
+            return $this->nilaiMentah(null);
+        }
+
+        $kedaluwarsa = Asset::query()->dalamCakupan($pengguna)
+            ->where('wajib_kalibrasi', true)
+            ->whereDoesntHave('maintenances', fn ($q) => $q
+                ->kalibrasi()
+                ->where('status', 'selesai')
+                ->whereNotNull('berlaku_sampai')
+                ->whereDate('berlaku_sampai', '>=', today()))
+            ->count();
+
+        return $this->nilaiMentah(round((($totalWajib - $kedaluwarsa) / $totalWajib) * 100, 1));
     }
 
     /** @return array<string,mixed> */

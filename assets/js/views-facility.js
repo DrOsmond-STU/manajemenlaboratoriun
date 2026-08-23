@@ -1753,28 +1753,150 @@
     mount() { muatLayout(); }
   };
 
+  /* =======================================================================
+     FASILITAS & ADD-ON — tersambung ke basis data
+
+     TANPA SATU PUN perubahan backend — memakai Tariff (`Repo.tarif`)
+     dengan `jenis=addon`, tabel yang SAMA dengan "Tarif Add-on" pada
+     layar Daftar Tarif ("satu tabel, tiga tampilan": tarif fasilitas,
+     add-on, paket layanan — lihat docblock TarifController). Layar ini
+     adalah presentasi KEDUA atas data yang sama — katalog untuk staf
+     lapangan, dipisah dari Daftar Tarif yang berorientasi pengelolaan
+     harga per segmen — pola yang sama dengan Kalibrasi Alat & Maintenance
+     berbagi satu tabel `asset_maintenances` dibedakan tapisan.
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - "Kode" (AO-01, dst.) purwarupa DIJATUHKAN — `Tariff` tidak
+       menyimpan kode katalog terpisah, hanya `nama`.
+     - "Satuan" purwarupa bebas teks ("unit/hari", "pax", "orang/hari")
+       DISEDERHANAKAN jadi tiga pilihan baku `Tariff::SATUAN` (jam/hari/
+       paket) — kolom yang sama dipakai `PenagihanService` untuk
+       menghitung kuantitas tagihan (durasi jam/hari, atau kuantitas
+       tunggal untuk paket). Menambah nilai bebas baru berisiko pada
+       jalur penagihan yang sudah berjalan, sehingga TIDAK dilakukan di
+       sini — pola yang sama persis dengan yang sudah diterima layar
+       Daftar Tarif saat menambah add-on.
+     - "Ketersediaan" purwarupa (selalu "Tersedia" untuk semua baris,
+       tidak pernah "Habis") DIGANTI status aktif/nonaktif sungguhan
+       (`Tariff.aktif`) — dapat dinonaktifkan lewat formulir edit.
+     - KPI "Add-on Terlaris"/"Pendapatan Add-on"/"Vendor Terhubung"
+       purwarupa DIJATUHKAN — tidak ada tabel yang menautkan add-on ke
+       booking tertentu (belum ada `booking_addons`), sehingga "terlaris"
+       dan "pendapatan" tidak dapat dihitung dari data yang ada; dan
+       "Vendor Terhubung" mencampur domain Vendor (mitra pemeliharaan
+       aset) dengan add-on acara — dua konsep berbeda yang kebetulan
+       sama-sama disebut "vendor".
+     ======================================================================= */
+
+  const FAC = { baris: [], memuat: true, galat: null };
+
+  async function muatFacility() {
+    FAC.memuat = true; FAC.galat = null; isiFacility();
+    try { FAC.baris = (await Repo.tarif.daftar({ jenis: "addon", sertakan_nonaktif: 1 })).data; }
+    catch (e) { FAC.baris = []; FAC.galat = e.message; }
+    finally { FAC.memuat = false; isiFacility(); isiRingkasanFacility(); }
+  }
+
+  function isiRingkasanFacility() {
+    const w = document.getElementById("facKpi");
+    if (!w) return;
+    const b = FAC.baris;
+    w.innerHTML = `
+      ${U.kpi({ label: "Katalog Add-on", value: b.length, icon: "box", tint: "brand", note: "Seluruh add-on terdaftar" })}
+      ${U.kpi({ label: "Aktif Dijual", value: b.filter((a) => a.aktif).length, icon: "check", tint: "green", note: "Dapat dipilih saat booking" })}
+      ${U.kpi({ label: "Nonaktif", value: b.filter((a) => !a.aktif).length, icon: "x", tint: "slate", note: "Disembunyikan dari pemesan" })}`;
+  }
+
+  function isiFacility() {
+    const w = document.getElementById("facTabel");
+    if (!w) return;
+    if (FAC.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (FAC.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(FAC.galat)}</span></div></div>`; return; }
+    if (!FAC.baris.length) { w.innerHTML = U.emptyState("Belum ada add-on terdaftar", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk menambah add-on."); return; }
+    w.innerHTML = U.table([
+      { t: "Nama Add-on", render: (a) => `<b>${U.esc(a.nama)}</b>` },
+      { t: "Satuan", render: (a) => `<span class="badge outline">${U.esc(a.satuan_waktu.nama)}</span>` },
+      { t: "Segmen", render: (a) => `<span class="badge outline">${U.esc(a.segmen.nama)}</span>` },
+      { t: "Tarif", cls: "right", render: (a) => a.harga ? `<b>${U.rp(a.harga)}</b>` : `<span class="badge teal">Gratis</span>` },
+      { t: "Status", cls: "center", render: (a) => a.aktif ? U.badge("Aktif") : U.badge("Nonaktif") },
+      { t: "", cls: "actions", render: (a) => Repo.dapatMenulis() ? `<button class="icon-btn" onclick="facForm(${JSON.stringify(a.id)})">${U.icon("edit", 15)}</button>` : "" }
+    ], FAC.baris);
+  }
+
   V["facility"] = {
     title: "Fasilitas & Add-on",
     sub: "Katalog fasilitas pendukung beserta tarif yang otomatis masuk perhitungan booking.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form tambah add-on')">${U.icon("plus")} Tambah Add-on</button>`,
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="facForm()">${U.icon("plus")} Tambah Add-on</button>` : "";
+    },
     render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Katalog Add-on", value: D.addons.length, icon: "box", tint: "brand", note: "Aktif dijual" })}
-          ${U.kpi({ label: "Add-on Terlaris", value: "Coffee Break", icon: "star", tint: "amber", note: "148× dipesan YTD" })}
-          ${U.kpi({ label: "Pendapatan Add-on", value: U.rpShort(78500000), icon: "money", tint: "green", delta: 18, note: "16% dari total sewa" })}
-          ${U.kpi({ label: "Vendor Terhubung", value: D.vendors.length, icon: "users", tint: "teal", note: "Kontrak aktif" })}
+      return `<div class="grid g3 mb-16" id="facKpi"></div>
+        ${U.card("Katalog Fasilitas Tambahan", `<div id="facTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatFacility(); }
+  };
+
+  window.facForm = function (id) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola add-on hanya bisa setelah masuk dengan akun."); return; }
+    const existing = id ? FAC.baris.find((a) => a.id === id) : null;
+
+    U.drawer({
+      title: existing ? "Ubah Add-on" : "Tambah Add-on",
+      sub: existing ? existing.nama : "Fasilitas tambahan baru",
+      body: `
+        <div id="facFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama Add-on *</span><input class="input" id="facNama" value="${existing ? U.esc(existing.nama) : ""}"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Satuan *</span>
+            <select class="select" id="facSatuan">
+              <option value="paket" ${!existing || existing.satuan_waktu.kode === "paket" ? "selected" : ""}>Per paket</option>
+              <option value="jam" ${existing && existing.satuan_waktu.kode === "jam" ? "selected" : ""}>Per jam</option>
+              <option value="hari" ${existing && existing.satuan_waktu.kode === "hari" ? "selected" : ""}>Per hari</option>
+            </select></label>
+          <label class="fld"><span>Tarif (Rp) *</span><input type="number" class="input" id="facHarga" value="${existing ? existing.harga : 0}"></label>
         </div>
-        ${U.card("Katalog Fasilitas Tambahan", U.toolbar({ ph: "Cari add-on…", right: `<button class="btn btn-sm" onclick="UI.demo('Ekspor katalog')">${U.icon("download")} Ekspor</button>` }) +
-          U.table([
-            { t: "Kode", w: "90px", render: (a) => `<span class="mono small">${a.id}</span>` },
-            { t: "Nama Add-on", render: (a) => `<b>${U.esc(a.name)}</b>` },
-            { t: "Satuan", render: (a) => `<span class="badge outline">${U.esc(a.unit)}</span>` },
-            { t: "Tarif", cls: "right", render: (a) => `<b>${U.rp(a.price)}</b>` },
-            { t: "Ketersediaan", cls: "center", render: () => U.badge("Tersedia") },
-            { t: "", cls: "actions", render: () => `<button class="icon-btn" onclick="UI.demo('Edit add-on')">${U.icon("edit", 15)}</button>` }
-          ], D.addons), { bodyCls: "flush" })}`;
+        <label class="fld mt-8"><span>Segmen *</span>
+          <select class="select" id="facSegmen">
+            <option value="umum" ${!existing || existing.segmen.kode === "umum" ? "selected" : ""}>Umum</option>
+            <option value="internal" ${existing && existing.segmen.kode === "internal" ? "selected" : ""}>Internal</option>
+            <option value="pemerintah" ${existing && existing.segmen.kode === "pemerintah" ? "selected" : ""}>Pemerintah</option>
+          </select></label>
+        ${existing ? `<label class="row mt-12"><span class="small" style="flex:1">Add-on aktif (dapat dipesan)</span>
+          <label class="switch"><input type="checkbox" id="facAktif" ${existing.aktif ? "checked" : ""}><span></span></label></label>` : ""}`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="facFormSimpan" onclick="facFormSimpan(${id || "null"})">Simpan</button>`
+    });
+  };
+
+  window.facFormSimpan = async function (id) {
+    const kotak = document.getElementById("facFormGalat");
+    const tombol = document.getElementById("facFormSimpan");
+    kotak.hidden = true;
+
+    const isi = {
+      nama: document.getElementById("facNama").value,
+      jenis: "addon",
+      satuan_waktu: document.getElementById("facSatuan").value,
+      harga: Number(document.getElementById("facHarga").value) || 0,
+      segmen: document.getElementById("facSegmen").value
+    };
+    if (id) {
+      const aktifKotak = document.getElementById("facAktif");
+      if (aktifKotak) isi.aktif = aktifKotak.checked;
     }
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.tarif.simpan(isi, id);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Add-on berhasil disimpan.");
+      muatFacility();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
   };
 
   V["facilityschedule"] = {

@@ -1602,6 +1602,37 @@ Audit Aset — stock opname, modul baru:
   diatur ulang jadi tata letak custom), jadi menampilkannya seolah-olah
   data sungguhan hanya akan menyesatkan.
 
+- **Fasilitas & Add-on disambungkan TANPA SATU PUN perubahan backend**
+  — memakai `Tariff` (`Repo.tarif`) dengan `jenis=addon`, TABEL YANG
+  SAMA dengan "Tarif Add-on" pada layar Daftar Tarif ("satu tabel, tiga
+  tampilan" — lihat docblock `TarifController`). Layar ini adalah
+  presentasi KEDUA atas data yang sama: katalog untuk staf lapangan,
+  dipisah dari Daftar Tarif yang berorientasi pengelolaan harga per
+  segmen — pola yang sama dengan Kalibrasi Alat & Maintenance berbagi
+  satu tabel `asset_maintenances` dibedakan tapisan, bukan duplikasi
+  listing yang sama persis dengan chrome berbeda.
+- **"Satuan" bebas teks purwarupa ("unit/hari", "pax", "orang/hari")
+  DISEDERHANAKAN jadi tiga pilihan baku `Tariff::SATUAN`** (jam/hari/
+  paket) — kolom yang sama dipakai `PenagihanService::barisDariTarif()`
+  untuk menghitung kuantitas tagihan dari durasi jam/hari, atau
+  kuantitas tunggal untuk apa pun selain itu. Menambah nilai bebas baru
+  di sini berisiko pada jalur penagihan yang sudah berjalan dan
+  sungguhan menghasilkan tagihan uang — TIDAK dilakukan hanya untuk
+  memoles satu layar katalog. Ini pola yang sama persis dengan batasan
+  yang sudah diterima layar Daftar Tarif sendiri saat menambah add-on
+  (satuan defaultnya juga "paket", bukan bebas teks).
+- **"Ketersediaan" purwarupa (selalu "Tersedia" untuk semua baris, tidak
+  pernah "Habis") DIGANTI status aktif/nonaktif sungguhan**
+  (`Tariff.aktif`), dapat diubah lewat formulir edit — kolom yang sudah
+  ada, bukan medan baru.
+- **KPI "Add-on Terlaris"/"Pendapatan Add-on"/"Vendor Terhubung"
+  purwarupa DIJATUHKAN** — tidak ada tabel yang menautkan add-on ke
+  booking tertentu (`booking_addons` belum ada), sehingga "terlaris" dan
+  "pendapatan" tidak dapat dihitung dari data yang ada; "Vendor
+  Terhubung" mencampur domain Vendor (mitra pemeliharaan aset, modul
+  terpisah) dengan add-on acara — dua konsep berbeda yang kebetulan
+  sama-sama disebut "vendor" dalam bahasa sehari-hari.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

@@ -1136,6 +1136,30 @@
       const patuh = D.equipment.filter((e) => e.calDue >= D.shift(0)).length;
       return { nilai: Math.round((patuh / D.equipment.length) * 1000) / 10 };
     }
+    if (kunci === "penyewaan.jumlah-aktif") {
+      return { nilai: D.bookings.filter((b) => b.billing === "PAID").length };
+    }
+    if (kunci === "penyewaan.pendapatan-ytd") {
+      return { nilai: D.invoices.reduce((a, i) => a + (i.paid || 0), 0) };
+    }
+    if (kunci === "penyewaan.tren-pendapatan") {
+      return { titik: D.analytics.revenue.slice(-6).map((r) => ({ label: r.m, nilai: r.val * 1000000 })), satuan: "rupiah" };
+    }
+    if (kunci === "tagihan.piutang") {
+      return { nilai: D.invoices.filter((i) => i.status !== "Paid").reduce((a, i) => a + (i.total - i.paid), 0) };
+    }
+    if (kunci === "tagihan.jatuh-tempo") {
+      const lewat = D.invoices.filter((i) => i.status === "Overdue");
+      return {
+        nilai: lewat.length,
+        baris: lewat.slice(0, 8).map((i) => ({
+          id: i.id, judul: i.id,
+          keterangan: "sisa " + (window.UI ? UI.rp(i.total - i.paid) : i.total - i.paid) + " · tempo " + i.due,
+          status: "terbit"
+        })),
+        terpotong: lewat.length > 8
+      };
+    }
 
     return { nilai: null, pesan: "Belum dipetakan di mode contoh." };
   }

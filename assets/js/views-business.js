@@ -1812,29 +1812,79 @@
     mount() { muatLaporanAset(); }
   };
 
-  V["reportrental"] = reportPage("Laporan Penyewaan", "Pendapatan sewa fasilitas, konversi, dan piutang.", () => `
-    <div class="grid g4 mb-16">
-      ${U.kpi({ label: "Pendapatan YTD", value: U.rpShort(490000000), icon: "money", tint: "green", delta: 24, note: "Target Rp 600 Jt" })}
-      ${U.kpi({ label: "Transaksi Sewa", value: 62, icon: "doc", tint: "brand", delta: 18, note: "Klien internal & eksternal" })}
-      ${U.kpi({ label: "Nilai Rata-rata", value: U.rpShort(7900000), icon: "chart", tint: "violet", delta: 5, note: "Per transaksi" })}
-      ${U.kpi({ label: "Piutang", value: U.rpShort(13750000), icon: "clock", tint: "amber", note: "2 invoice outstanding" })}
-    </div>
-    <div class="grid g2 mb-16">
-      ${U.card("Pendapatan Bulanan", U.barChart(D.analytics.revenue, { color: "var(--green-500)", fmt: (v) => v + " Jt" }), { sub: "Dalam juta rupiah" })}
-      ${U.card("Kontribusi per Fasilitas", U.hbars([
-        { n: "Auditorium Wijaya Kusuma", v: 54 }, { n: "Ruang Serbaguna Merapi", v: 23 },
-        { n: "Training Room Nusantara", v: 12 }, { n: "Conference Room Garuda", v: 7 },
-        { n: "Jasa Uji Laboratorium", v: 4 }], { color: "var(--green-500)" }), { sub: "Persentase pendapatan" })}
-    </div>
-    ${U.card("Rekap Invoice", U.table([
-      { t: "Invoice", render: (i) => `<span class="mono small">${i.id}</span>` },
-      { t: "Klien", render: (i) => `<b>${U.esc(i.client)}</b>` },
-      { t: "Tanggal", render: (i) => U.fdate(i.date, "short") },
-      { t: "Total", cls: "right", render: (i) => U.rp(i.total) },
-      { t: "Dibayar", cls: "right", render: (i) => U.rp(i.paid) },
-      { t: "Sisa", cls: "right", render: (i) => i.total - i.paid ? `<b style="color:var(--red-500)">${U.rp(i.total - i.paid)}</b>` : `<span class="faint">—</span>` },
-      { t: "Status", render: (i) => U.badge(i.status) }
-    ], D.invoices), { bodyCls: "flush" })}`);
+  /* Laporan Penyewaan — ringkasan dari widget yang sudah ada, tanpa
+   * pengulangan listing yang sudah ada.
+   *
+   * PENYEDERHANAAN & PENGGANTIAN YANG DISENGAJA:
+   * - "Transaksi Sewa" (jumlah SELURUH transaksi sepanjang masa) purwarupa
+   *   DIGANTI "Penyewaan Aktif" (`penyewaan.jumlah-aktif` — dikonfirmasi/
+   *   berjalan saat ini) — tidak ada widget yang menghitung total
+   *   transaksi sepanjang masa, dan "aktif saat ini" adalah pertanyaan
+   *   operasional yang lebih berguna sehari-hari.
+   * - "Nilai Rata-rata per Transaksi" DIJATUHKAN — akan berarti membagi
+   *   pendapatan tahun berjalan (uang yang MASUK) dengan jumlah penyewaan
+   *   aktif (yang SEDANG berjalan, bukan seluruh transaksi tahun ini) —
+   *   dua hal yang tidak sepadan untuk dibagi, hasilnya angka yang
+   *   tampak masuk akal tetapi sebenarnya tidak berarti apa-apa.
+   * - "Kontribusi per Fasilitas" (5 fasilitas dengan persentase karangan)
+   *   DIJATUHKAN — pendapatan tidak dipecah per fasilitas di mana pun;
+   *   Payment melekat pada Invoice, bukan pada ruangan/laboratorium
+   *   tertentu secara langsung.
+   * - "Rekap Invoice" (baris per-invoice) DIJATUHKAN — layar Invoice &
+   *   Tagihan (`V["invoice"]`) sudah menyediakan daftar lengkap yang
+   *   sama persis dengan cari dan tapis; pola yang sama dengan Laporan
+   *   Aset & Laporan Alat. Sebagai gantinya, tabel di sini KHUSUS
+   *   menyoroti tagihan yang SUDAH lewat jatuh tempo — irisan yang
+   *   berbeda, bukan pengulangan.
+   */
+  const RPY = { ringkasan: null, memuat: true, galat: null };
+
+  async function muatLaporanPenyewaan() {
+    RPY.memuat = true; RPY.galat = null; isiLaporanPenyewaan();
+    try {
+      const [aktif, pendapatan, tren, piutang, jatuhTempo] = await Promise.all([
+        Repo.dashboard.widget("penyewaan.jumlah-aktif"),
+        Repo.dashboard.widget("penyewaan.pendapatan-ytd"),
+        Repo.dashboard.widget("penyewaan.tren-pendapatan"),
+        Repo.dashboard.widget("tagihan.piutang"),
+        Repo.dashboard.widget("tagihan.jatuh-tempo")
+      ]);
+      RPY.ringkasan = { aktif: aktif, pendapatan: pendapatan, tren: tren, piutang: piutang, jatuhTempo: jatuhTempo };
+    } catch (e) { RPY.ringkasan = null; RPY.galat = e.message; }
+    finally { RPY.memuat = false; isiLaporanPenyewaan(); }
+  }
+
+  function isiLaporanPenyewaan() {
+    const w = document.getElementById("rpyIsi");
+    if (!w) return;
+    if (RPY.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RPY.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RPY.galat)}</span></div></div>`; return; }
+    const r = RPY.ringkasan;
+    w.innerHTML = `
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Pendapatan Tahun Berjalan", value: U.rpShort(r.pendapatan.nilai || 0), icon: "money", tint: "green", note: "Pembayaran terverifikasi" })}
+        ${U.kpi({ label: "Penyewaan Aktif", value: U.num(r.aktif.nilai || 0), icon: "doc", tint: "brand", note: "Dikonfirmasi / berjalan" })}
+        ${U.kpi({ label: "Piutang Belum Tertagih", value: U.rpShort(r.piutang.nilai || 0), icon: "clock", tint: "amber", note: "Seluruh invoice belum lunas" })}
+        ${U.kpi({ label: "Lewat Jatuh Tempo", value: U.num(r.jatuhTempo.nilai || 0), icon: "alert", tint: "red", note: "invoice" })}
+      </div>
+      ${U.card("Tren Pendapatan 6 Bulan", (r.tren.titik || []).length
+        ? U.barChart(r.tren.titik.map((t) => ({ m: t.label, val: t.nilai || 0 })), { color: "var(--green-500)", fmt: (v) => U.rpShort(v) })
+        : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada data.</span></div>`, { sub: "Dari pembayaran yang tercatat" })}
+      ${U.card("Tagihan Lewat Jatuh Tempo", (r.jatuhTempo.baris || []).length ? U.table([
+        { t: "Invoice", render: (c) => `<span class="mono small">${U.esc(c.judul)}</span>` },
+        { t: "Keterangan", render: (c) => `<span class="small">${U.esc(c.keterangan)}</span>` },
+        { t: "Status", render: () => U.badge("Lewat Jatuh Tempo") }
+      ], r.jatuhTempo.baris) : `<div class="empty" style="padding:20px"><span class="small muted">Tidak ada tagihan yang lewat jatuh tempo.</span></div>`, { bodyCls: "flush",
+        sub: r.jatuhTempo.terpotong ? `Menampilkan 8 dari ${U.num(r.jatuhTempo.nilai)}` : undefined })}`;
+  }
+
+  V["reportrental"] = {
+    title: "Laporan Penyewaan",
+    sub: "Pendapatan, penyewaan aktif, dan piutang.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="rpyIsi"></div>`; },
+    mount() { muatLaporanPenyewaan(); }
+  };
 
   V["reportmaint"] = reportPage("Laporan Maintenance", "Biaya, frekuensi, downtime, dan performa vendor.", () => `
     <div class="grid g4 mb-16">

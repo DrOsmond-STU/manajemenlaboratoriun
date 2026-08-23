@@ -1303,6 +1303,35 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   dikelompokkan per alat (pola sama dengan rekap per ruangan), yang kedua
   langsung dari `baris` widget `kalibrasi.kedaluwarsa` tanpa agregasi baru.
 
+- **Laporan Penyewaan disambungkan TANPA SATU PUN perubahan backend** —
+  seluruh angkanya (`penyewaan.jumlah-aktif`, `penyewaan.pendapatan-ytd`,
+  `penyewaan.tren-pendapatan`, `tagihan.piutang`, `tagihan.jatuh-tempo`)
+  sudah ada sebagai widget Dashboard sejak sebelumnya; endpoint
+  `GET /api/dashboard/widget` (dibuat untuk Laporan Ruangan) langsung
+  memenuhi seluruh kebutuhan layar ini. Bukti bahwa endpoint umum itu
+  benar-benar umum, bukan sekali pakai.
+- **"Transaksi Sewa" (jumlah seluruh transaksi sepanjang masa) purwarupa
+  DIGANTI "Penyewaan Aktif"** (`penyewaan.jumlah-aktif`) — tidak ada
+  widget yang menghitung total transaksi sepanjang masa, dan "aktif saat
+  ini" adalah pertanyaan operasional yang lebih berguna sehari-hari.
+- **"Nilai Rata-rata per Transaksi" DIJATUHKAN** — menghitungnya akan
+  berarti membagi pendapatan tahun berjalan (uang yang MASUK, sebuah
+  arus) dengan jumlah penyewaan aktif (yang SEDANG berjalan saat ini,
+  sebuah cacah titik-waktu) — dua besaran yang tidak sepadan untuk
+  dibagi. Hasilnya angka yang tampak masuk akal tetapi tidak berarti
+  apa-apa; lebih baik tidak ditampilkan sama sekali daripada menyesatkan.
+- **"Kontribusi per Fasilitas" (5 fasilitas dengan persentase karangan)
+  DIJATUHKAN** — pendapatan tidak dipecah per fasilitas di mana pun;
+  `Payment` melekat pada `Invoice`, bukan pada ruangan/laboratorium
+  tertentu secara langsung, dan atribusi semacam itu butuh model baru.
+- **"Rekap Invoice" (baris per-invoice) DIJATUHKAN, diganti tabel yang
+  KHUSUS menyoroti tagihan lewat jatuh tempo** — layar Invoice & Tagihan
+  (`V["invoice"]`) sudah menyediakan daftar lengkap yang sama persis
+  dengan cari dan tapis (pola sama dengan Laporan Aset & Laporan Alat).
+  Tabel di Laporan Penyewaan mengambil irisan yang BERBEDA — hanya yang
+  sudah lewat tempo, langsung dari `baris` widget `tagihan.jatuh-tempo`
+  tanpa agregasi baru — bukan pengulangan listing yang sama.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

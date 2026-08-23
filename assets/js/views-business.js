@@ -1886,31 +1886,85 @@
     mount() { muatLaporanPenyewaan(); }
   };
 
-  V["reportmaint"] = reportPage("Laporan Maintenance", "Biaya, frekuensi, downtime, dan performa vendor.", () => `
-    <div class="grid g4 mb-16">
-      ${U.kpi({ label: "Total Biaya YTD", value: U.rpShort(237000000), icon: "money", tint: "amber", delta: 11, note: "Anggaran Rp 300 Jt" })}
-      ${U.kpi({ label: "Work Order", value: 84, icon: "wrench", tint: "brand", delta: 6, note: "52 preventive" })}
-      ${U.kpi({ label: "Total Downtime", value: "412", suffix: "jam", icon: "clock", tint: "red", note: "Resource tidak tersedia" })}
-      ${U.kpi({ label: "MTTR", value: "18,4", suffix: "jam", icon: "refresh", tint: "teal", delta: -9, note: "Mean time to repair" })}
-    </div>
-    <div class="grid g2 mb-16">
-      ${U.card("Biaya Maintenance Bulanan", U.barChart(D.analytics.maintCost, { color: "var(--amber-500)", fmt: (v) => v + " Jt" }))}
-      ${U.card("Performa Vendor", U.table([
-        { t: "Vendor", render: (v) => `<b class="small">${U.esc(v.name)}</b><div class="tiny faint">${U.esc(v.cat)}</div>` },
-        { t: "Rating", render: (v) => `<span class="badge ${v.rating >= 4.5 ? "green" : "amber"}">★ ${v.rating}</span>` },
-        { t: "Work Order", cls: "center", render: (v, i) => [12, 4, 18, 9, 3, 6][i] },
-        { t: "Biaya", cls: "right", render: (v, i) => U.rpShort([42, 18, 64, 51, 12, 28][i] * 1000000) }
-      ], D.vendors), { bodyCls: "flush" })}
-    </div>
-    ${U.card("Rincian Work Order", U.table([
-      { t: "ID", render: (m) => `<span class="mono small">${m.id}</span>` },
-      { t: "Target", render: (m) => `<b>${U.esc(m.targetName)}</b>` },
-      { t: "Jenis", render: (m) => `<span class="badge ${m.kind === "Emergency" ? "red" : m.kind === "Corrective" ? "brand" : "green"}">${m.kind}</span>` },
-      { t: "Tanggal", render: (m) => U.fdate(m.sched, "short") },
-      { t: "Vendor", render: (m) => `<span class="small">${U.esc(m.vendor)}</span>` },
-      { t: "Biaya", cls: "right", render: (m) => U.rp(m.cost) },
-      { t: "Status", render: (m) => U.badge(m.status) }
-    ], D.maintenance), { bodyCls: "flush" })}`);
+  /* Laporan Maintenance — ringkasan dari widget yang sudah ada.
+   *
+   * PENYEDERHANAAN & PENGGANTIAN YANG DISENGAJA:
+   * - "Total Downtime" dan "MTTR" purwarupa DIJATUHKAN — alasan yang
+   *   SAMA PERSIS dengan Laporan Alat: `AssetMaintenance` mencatat
+   *   TANGGAL (`jadwal`/`dikerjakan_pada`), bukan rentang jam tidak
+   *   tersedia atau waktu perbaikan. Tidak ada satu pun tempat
+   *   menyimpan durasi.
+   * - "Performa Vendor" DIJATUHKAN SEPENUHNYA — tidak ada entitas Vendor
+   *   di server; `pelaksana` pada `AssetMaintenance` adalah teks bebas
+   *   (nama orang/pihak yang mengerjakan), bukan referensi ke tabel
+   *   vendor dengan riwayat rating/biaya yang dapat direkap.
+   * - "Rincian Work Order" (baris per-pekerjaan) DIJATUHKAN — modul
+   *   Pemeliharaan & Kalibrasi yang sudah tersambung penuh menyediakan
+   *   daftar yang sama persis dengan cari dan tapis; pola yang sama
+   *   dengan Laporan Aset & Laporan Alat.
+   * - "Work Order" (84, purwarupa) DIGANTI "Total Pekerjaan" dari
+   *   `pemeliharaan.jenis` — SELURUH cakupan sepanjang waktu (tidak ada
+   *   widget yang membatasi hitungan pekerjaan per tahun), diberi label
+   *   yang jujur menyebut cakupannya, bukan disamakan dengan "tahun ini".
+   * - "Pemeliharaan Terjadwal" (30 hari ke depan) ditambahkan sebagai
+   *   tabel — bukan pengulangan, melainkan irisan "apa yang akan datang"
+   *   yang berbeda dari daftar lengkap di modul Pemeliharaan & Kalibrasi.
+   */
+  const RMT = { ringkasan: null, memuat: true, galat: null };
+
+  async function muatLaporanMaintenance() {
+    RMT.memuat = true; RMT.galat = null; isiLaporanMaintenance();
+    try {
+      const [biaya, aktif, jenis, tren, terjadwal] = await Promise.all([
+        Repo.dashboard.widget("pemeliharaan.biaya-ytd"),
+        Repo.dashboard.widget("pemeliharaan.aktif"),
+        Repo.dashboard.widget("pemeliharaan.jenis"),
+        Repo.dashboard.widget("pemeliharaan.tren-biaya"),
+        Repo.dashboard.widget("pemeliharaan.terjadwal")
+      ]);
+      RMT.ringkasan = { biaya: biaya, aktif: aktif, jenis: jenis, tren: tren, terjadwal: terjadwal };
+    } catch (e) { RMT.ringkasan = null; RMT.galat = e.message; }
+    finally { RMT.memuat = false; isiLaporanMaintenance(); }
+  }
+
+  function isiLaporanMaintenance() {
+    const w = document.getElementById("rmtIsi");
+    if (!w) return;
+    if (RMT.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (RMT.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(RMT.galat)}</span></div></div>`; return; }
+    const r = RMT.ringkasan;
+    const jml = (kode) => (r.jenis.bagian || []).find((x) => x.kode === kode) || { jumlah: 0 };
+    const warna = { preventif: "var(--green-500)", korektif: "var(--brand-500)", darurat: "var(--red-500)", kalibrasi: "var(--violet-500)" };
+    w.innerHTML = `
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Biaya Tahun Berjalan", value: U.rpShort(r.biaya.nilai || 0), icon: "money", tint: "amber", note: "Pekerjaan selesai" })}
+        ${U.kpi({ label: "Pekerjaan Aktif", value: U.num(r.aktif.nilai || 0), icon: "wrench", tint: "brand", note: "Dijadwalkan / berjalan" })}
+        ${U.kpi({ label: "Total Pekerjaan", value: U.num(r.jenis.nilai || 0), icon: "grid", tint: "teal", note: "Seluruh cakupan" })}
+        ${U.kpi({ label: "Terjadwal ≤30 Hari", value: U.num(r.terjadwal.nilai || 0), icon: "clock", tint: "red", note: "Perlu disiapkan" })}
+      </div>
+      <div class="grid g2 mb-16">
+        ${U.card("Biaya Pemeliharaan 6 Bulan", (r.tren.titik || []).length
+          ? U.barChart(r.tren.titik.map((t) => ({ m: t.label, val: t.nilai || 0 })), { color: "var(--amber-500)", fmt: (v) => U.rpShort(v) })
+          : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada data.</span></div>`, { sub: "Pekerjaan selesai per bulan" })}
+        ${U.card("Pemeliharaan per Jenis", `<div class="col gap-12">
+          ${Object.keys(warna).map((k) => U.meter(`<span class="small">${U.esc((r.jenis.bagian || []).find((x) => x.kode === k)?.nama || k)}</span>`,
+            r.jenis.nilai ? (jml(k).jumlah / r.jenis.nilai) * 100 : 0, warna[k], U.num(jml(k).jumlah))).join("")}</div>`)}
+      </div>
+      ${U.card("Pemeliharaan Terjadwal — 30 Hari ke Depan", (r.terjadwal.baris || []).length ? U.table([
+        { t: "Target", render: (c) => `<b class="small">${U.esc(c.judul)}</b>` },
+        { t: "Keterangan", render: (c) => `<span class="small">${U.esc(c.keterangan)}</span>` },
+        { t: "Status", render: (c) => U.badge(c.status === "berjalan" ? "In Progress" : "Scheduled") }
+      ], r.terjadwal.baris) : `<div class="empty" style="padding:20px"><span class="small muted">Tidak ada pekerjaan terjadwal dalam 30 hari ke depan.</span></div>`, { bodyCls: "flush",
+        sub: r.terjadwal.terpotong ? `Menampilkan 8 dari ${U.num(r.terjadwal.nilai)}` : undefined })}`;
+  }
+
+  V["reportmaint"] = {
+    title: "Laporan Maintenance",
+    sub: "Biaya, frekuensi, dan jadwal pemeliharaan & kalibrasi.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="rmtIsi"></div>`; },
+    mount() { muatLaporanMaintenance(); }
+  };
 
   V["reportfinance"] = reportPage("Laporan Keuangan Fasilitas", "Pendapatan, biaya, margin, dan proyeksi pemanfaatan fasilitas.", () => `
     <div class="grid g4 mb-16">

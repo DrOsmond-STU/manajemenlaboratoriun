@@ -1332,6 +1332,35 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   sudah lewat tempo, langsung dari `baris` widget `tagihan.jatuh-tempo`
   tanpa agregasi baru — bukan pengulangan listing yang sama.
 
+- **Laporan Maintenance juga disambungkan TANPA SATU PUN perubahan
+  backend** — `pemeliharaan.biaya-ytd`, `pemeliharaan.aktif`,
+  `pemeliharaan.jenis`, `pemeliharaan.tren-biaya`, `pemeliharaan.terjadwal`
+  sudah ada sebagai widget Dashboard; endpoint umum `GET /api/dashboard/
+  widget` sudah cukup untuk kali ketiga berturut-turut (setelah Laporan
+  Ruangan dan Laporan Penyewaan).
+- **"Total Downtime" dan "MTTR" purwarupa DIJATUHKAN — alasan yang SAMA
+  PERSIS dengan Laporan Alat**: `AssetMaintenance` mencatat TANGGAL
+  (`jadwal`/`dikerjakan_pada`), bukan rentang jam tidak tersedia atau
+  waktu perbaikan. Tidak ada satu pun tempat menyimpan durasi.
+- **"Performa Vendor" DIJATUHKAN SEPENUHNYA** — tidak ada entitas Vendor
+  di server; `pelaksana` pada `AssetMaintenance` adalah teks bebas (nama
+  orang/pihak yang mengerjakan), bukan referensi ke tabel vendor dengan
+  riwayat rating/biaya yang dapat direkap. Memaksakan tabel "Performa
+  Vendor" berarti mengarang rating dan riwayat yang tidak pernah tercatat.
+- **"Work Order" (84, purwarupa) DIGANTI "Total Pekerjaan" dari
+  `pemeliharaan.jenis`** — SELURUH cakupan sepanjang waktu (tidak ada
+  widget yang membatasi hitungan pekerjaan per tahun), diberi label yang
+  jujur menyebut cakupannya ("Seluruh cakupan"), bukan disamakan diam-diam
+  dengan "tahun ini".
+- **"Rincian Work Order" (baris per-pekerjaan) DIJATUHKAN** — modul
+  Pemeliharaan & Kalibrasi yang sudah tersambung penuh sejak awal sesi
+  menyediakan daftar yang sama persis dengan cari dan tapis; pola yang
+  sama dengan Laporan Aset & Laporan Alat.
+- **"Pemeliharaan Terjadwal — 30 Hari ke Depan" ditambahkan sebagai
+  pengganti** — bukan pengulangan, melainkan irisan "apa yang akan
+  datang" (`pemeliharaan.terjadwal`, jendela bawaan 30 hari) yang
+  berbeda dari daftar lengkap di modul Pemeliharaan & Kalibrasi.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

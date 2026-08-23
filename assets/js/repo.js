@@ -1160,6 +1160,39 @@
         terpotong: lewat.length > 8
       };
     }
+    if (kunci === "pemeliharaan.biaya-ytd" || kunci === "pemeliharaan.aktif"
+        || kunci === "pemeliharaan.jenis" || kunci === "pemeliharaan.terjadwal") {
+      const semua = pemeliharaanPurwarupaSemua();
+      const tahunIni = new Date(D.shift(0)).getFullYear();
+
+      if (kunci === "pemeliharaan.biaya-ytd") {
+        return { nilai: semua.filter((m) => m.status.kode === "selesai" && new Date(m.jadwal).getFullYear() === tahunIni)
+          .reduce((a, m) => a + (m.biaya || 0), 0) };
+      }
+      if (kunci === "pemeliharaan.aktif") {
+        return { nilai: semua.filter((m) => m.status.kode === "dijadwalkan" || m.status.kode === "berjalan").length };
+      }
+      if (kunci === "pemeliharaan.jenis") {
+        const bagian = Object.keys(NAMA_JENIS_PML).map((k) => ({ kode: k, nama: NAMA_JENIS_PML[k], jumlah: 0 }));
+        semua.forEach((m) => { const b = bagian.find((x) => x.kode === m.jenis.kode); if (b) b.jumlah++; });
+        return { bagian: bagian, nilai: bagian.reduce((a, x) => a + x.jumlah, 0) };
+      }
+      // pemeliharaan.terjadwal — 30 hari ke depan, status masih aktif.
+      const batas30 = D.shift(30);
+      const akan = semua.filter((m) => (m.status.kode === "dijadwalkan" || m.status.kode === "berjalan")
+        && m.jadwal >= D.shift(0) && m.jadwal <= batas30);
+      return {
+        nilai: akan.length,
+        baris: akan.slice(0, 8).map((m) => ({
+          id: m.id, judul: m.sumber_daya ? m.sumber_daya.nama : "—",
+          keterangan: m.jadwal + " · " + m.jenis.nama, status: m.status.kode
+        })),
+        terpotong: akan.length > 8
+      };
+    }
+    if (kunci === "pemeliharaan.tren-biaya") {
+      return { titik: D.analytics.maintCost.slice(-6).map((r) => ({ label: r.m, nilai: r.val * 1000000 })), satuan: "rupiah" };
+    }
 
     return { nilai: null, pesan: "Belum dipetakan di mode contoh." };
   }

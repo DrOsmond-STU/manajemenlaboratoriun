@@ -26,7 +26,8 @@ const SUITES = [
   ['labelstudio', 'Studio Label & Barcode tersambung: mencetak label aset sungguhan, bukan contoh purwarupa'],
   ['laporanruangan', 'Laporan Ruangan tersambung: angka DataWidget yang sama dengan Dashboard, rekap per ruangan'],
   ['laporanalat', 'Laporan Alat tersambung: kepatuhan kalibrasi (widget baru), alat paling sering dipinjam'],
-  ['laporanpenyewaan', 'Laporan Penyewaan tersambung: seluruhnya lewat widget yang sudah ada, tanpa perubahan backend']
+  ['laporanpenyewaan', 'Laporan Penyewaan tersambung: seluruhnya lewat widget yang sudah ada, tanpa perubahan backend'],
+  ['laporanmaintenance', 'Laporan Maintenance tersambung: biaya & jadwal dari widget, Performa Vendor dijatuhkan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

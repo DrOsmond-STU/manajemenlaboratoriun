@@ -1583,6 +1583,25 @@ Audit Aset — stock opname, modul baru:
   dapat menemukan barisnya persis seperti dipanggil dari layarnya
   sendiri.
 
+- **Room Layout Management disambungkan TANPA SATU PUN perubahan
+  backend** — Matriks Layout per Ruangan memakai `tata_letak`, kolom
+  bebas teks yang SUDAH ADA pada `rooms` sejak modul Ruangan pertama
+  disambungkan (staf mengetiknya sebagai daftar dipisah koma di formulir
+  ruangan). Layar ini hanya membaca `Repo.ruangan.daftar()` yang sama
+  dan mencocokkan isinya terhadap enam nama layout baku.
+- **Kartu jenis layout (Theater/Classroom/dst.) TETAP teks referensi
+  statis** — itu glosarium konsep ("kapan memakai layout apa"), bukan
+  data yang tersimpan sebagai baris di mana pun; tidak ada "jenis
+  layout" untuk didaftarkan/dihapus. Tombol "Edit" purwarupa per kartu
+  DIJATUHKAN karena itu berarti mengarang entitas yang tidak ada;
+  "Ruangan Terkait" DISAMBUNGKAN sungguhan — menyaring dari daftar
+  ruangan yang sama dengan matriks, tanpa permintaan tambahan.
+- **Kolom "Custom" purwarupa DIJATUHKAN** — pada purwarupa kolom itu
+  SELALU bertanda centang untuk setiap ruangan tanpa terkecuali; ia
+  tidak pernah membawa informasi (ruangan apa pun secara trivial dapat
+  diatur ulang jadi tata letak custom), jadi menampilkannya seolah-olah
+  data sungguhan hanya akan menyesatkan.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

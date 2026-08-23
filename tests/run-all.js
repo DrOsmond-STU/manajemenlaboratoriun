@@ -31,7 +31,8 @@ const SUITES = [
   ['vendor', 'Vendor & Mitra tersambung: CRUD sungguhan, nonaktifkan bukan hapus, Performa Vendor tersambung kembali di Laporan Maintenance'],
   ['assetaudit', 'Audit Aset tersambung: sesi & pemindaian sungguhan, "Belum Diaudit" berganti label "Tidak Ditemukan" saat sesi ditutup'],
   ['equipment', 'Manajemen Alat Laboratorium tersambung: memakai Aset & BMN yang sama, disaring wajib_kalibrasi, riwayat kalibrasi/maintenance/penggunaan sungguhan'],
-  ['availability', 'Room Availability tersambung: timeline & KPI dari Repo.ruangan + Repo.booking yang sudah ada, klik blok membuka detail booking sungguhan']
+  ['availability', 'Room Availability tersambung: timeline & KPI dari Repo.ruangan + Repo.booking yang sudah ada, klik blok membuka detail booking sungguhan'],
+  ['layout', 'Room Layout Management tersambung: matriks tata_letak dari Repo.ruangan yang sudah ada, kolom Custom dekoratif dijatuhkan, Ruangan Terkait sungguhan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

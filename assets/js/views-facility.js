@@ -1669,40 +1669,88 @@
   /* =======================================================================
      ROOM LAYOUT
      ======================================================================= */
+  /* =======================================================================
+     ROOM LAYOUT MANAGEMENT — tersambung ke basis data
+
+     Kartu jenis layout (Theater/Classroom/dst.) TETAP teks referensi statis
+     — itu glosarium konsep, bukan data yang tersimpan di mana pun; tidak
+     ada baris "jenis layout" untuk diedit atau dihapus, jadi tombol "Edit"
+     purwarupa DIJATUHKAN (mengarang entitas yang tidak ada). "Ruangan
+     Terkait" DISAMBUNGKAN sungguhan — memakai daftar ruangan yang sama
+     dengan matriks di bawahnya, tanpa permintaan tambahan.
+
+     Matriks Layout per Ruangan memakai `tata_letak` yang SUDAH ADA pada
+     `assets/rooms` (Repo.ruangan, kolom bebas teks yang sama dipakai
+     modul Ruangan) — tanpa satu pun perubahan backend. Kolom "Custom"
+     purwarupa (selalu bertanda centang untuk SEMUA ruangan) DIJATUHKAN —
+     bukan fakta yang tersimpan, hanya dekorasi yang secara literal selalu
+     benar untuk ruangan apa pun sehingga tidak membawa informasi.
+     ======================================================================= */
+
+  const LYT_TIPE = [
+    { n: "Theater", d: "Kursi berbaris menghadap panggung tanpa meja. Kapasitas maksimal.", cap: "100%", use: "Seminar, sosialisasi, wisuda" },
+    { n: "Classroom", d: "Meja panjang menghadap depan. Nyaman untuk mencatat.", cap: "55%", use: "Pelatihan, workshop teknis" },
+    { n: "U-Shape", d: "Meja membentuk huruf U, fasilitator di tengah.", cap: "35%", use: "Diskusi interaktif, FGD" },
+    { n: "Boardroom", d: "Satu meja besar, peserta saling berhadapan.", cap: "30%", use: "Rapat direksi, negosiasi" },
+    { n: "Banquet", d: "Meja bundar untuk 8–10 orang per meja.", cap: "50%", use: "Gathering, jamuan makan" },
+    { n: "Cluster", d: "Kelompok meja kecil untuk kerja tim.", cap: "45%", use: "Workshop kreatif, hackathon" }
+  ];
+
+  const LYT = { rooms: null, memuat: true, galat: null };
+
+  async function muatLayout() {
+    LYT.memuat = true; LYT.galat = null; isiMatriksLayout();
+    try { LYT.rooms = (await Repo.ruangan.daftar()).data || []; }
+    catch (e) { LYT.rooms = null; LYT.galat = e.message; }
+    finally { LYT.memuat = false; isiMatriksLayout(); }
+  }
+
+  function isiMatriksLayout() {
+    const host = document.getElementById("lytMatrix");
+    if (!host) return;
+    if (LYT.memuat) { host.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (LYT.galat) { host.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(LYT.galat)}</span></div></div>`; return; }
+    if (!LYT.rooms.length) { host.innerHTML = U.emptyState("Belum ada ruangan terdaftar", ""); return; }
+    host.innerHTML = U.table(
+      [{ t: "Ruangan", render: (r) => `<b>${U.esc(r.nama)}</b><div class="tiny faint">${U.esc(r.kode)} • ${r.kapasitas || 0} pax</div>` }]
+        .concat(LYT_TIPE.map((l) => ({
+          t: l.n, cls: "center",
+          render: (r) => (r.tata_letak || []).includes(l.n) ? `<span style="color:var(--green-500)">${U.icon("check", 15)}</span>` : `<span class="faint">—</span>`
+        }))),
+      LYT.rooms);
+  }
+
+  window.lytRuanganTerkait = function (nama) {
+    if (!LYT.rooms) { U.toast("Belum siap", "Daftar ruangan masih dimuat, coba lagi sesaat lagi."); return; }
+    const cocok = LYT.rooms.filter((r) => (r.tata_letak || []).includes(nama));
+    U.modal({
+      title: "Ruangan Pendukung Layout " + nama,
+      sub: cocok.length + " ruangan",
+      body: cocok.length ? `<div class="col gap-8">${cocok.map((r) => `<div class="row">
+        <div style="flex:1"><b class="small">${U.esc(r.nama)}</b><div class="tiny faint">${U.esc(r.kode)} • ${r.kapasitas || 0} pax</div></div>
+      </div>`).join("")}</div>` : `<span class="small muted">Belum ada ruangan yang mencantumkan tata letak ini.</span>`
+    });
+  };
+
   V["layout"] = {
     title: "Room Layout Management",
     sub: "Konfigurasi layout ruangan: Classroom, U-Shape, Theater, Boardroom, Banquet, Cluster, dan custom.",
     actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Editor layout custom')">${U.icon("plus")} Layout Custom</button>`,
     render() {
-      const layouts = [
-        { n: "Theater", d: "Kursi berbaris menghadap panggung tanpa meja. Kapasitas maksimal.", cap: "100%", use: "Seminar, sosialisasi, wisuda" },
-        { n: "Classroom", d: "Meja panjang menghadap depan. Nyaman untuk mencatat.", cap: "55%", use: "Pelatihan, workshop teknis" },
-        { n: "U-Shape", d: "Meja membentuk huruf U, fasilitator di tengah.", cap: "35%", use: "Diskusi interaktif, FGD" },
-        { n: "Boardroom", d: "Satu meja besar, peserta saling berhadapan.", cap: "30%", use: "Rapat direksi, negosiasi" },
-        { n: "Banquet", d: "Meja bundar untuk 8–10 orang per meja.", cap: "50%", use: "Gathering, jamuan makan" },
-        { n: "Cluster", d: "Kelompok meja kecil untuk kerja tim.", cap: "45%", use: "Workshop kreatif, hackathon" }
-      ];
       return `
         <div class="grid g3 mb-16">
-          ${layouts.map((l) => `<div class="card"><div class="card-body">
+          ${LYT_TIPE.map((l) => `<div class="card"><div class="card-body">
             ${U.layoutDiagram(l.n, 200, 118)}
             <div class="row mt-12"><b style="flex:1">${l.n}</b><span class="badge brand">${l.cap} kapasitas</span></div>
             <div class="small muted mt-4">${l.d}</div>
             <div class="tiny faint mt-8">${U.icon("check", 11)} Cocok untuk: ${l.use}</div>
             <div class="row mt-12 gap-6">
-              <button class="btn btn-sm" onclick="UI.demo('Editor layout ${l.n}')">${U.icon("edit", 12)} Edit</button>
-              <button class="btn btn-sm" onclick="UI.demo('Ruangan yang mendukung layout ${l.n}')">Ruangan Terkait</button></div>
+              <button class="btn btn-sm" onclick="lytRuanganTerkait('${l.n}')">Ruangan Terkait</button></div>
           </div></div>`).join("")}
         </div>
-        ${U.card("Matriks Layout per Ruangan", U.table(
-          [{ t: "Ruangan", render: (r) => `<b>${U.esc(r.name)}</b><div class="tiny faint">${r.code} • ${r.cap} pax</div>` }]
-            .concat(layouts.map((l) => ({
-              t: l.n, cls: "center",
-              render: (r) => r.layout.includes(l.n) ? `<span style="color:var(--green-500)">${U.icon("check", 15)}</span>` : `<span class="faint">—</span>`
-            })))
-            .concat([{ t: "Custom", cls: "center", render: () => `<span style="color:var(--green-500)">${U.icon("check", 15)}</span>` }]),
-          D.rooms), { bodyCls: "flush", sub: "Layout yang didukung setiap ruangan" })}`;
-    }
+        ${U.card("Matriks Layout per Ruangan", `<div id="lytMatrix"></div>`, { bodyCls: "flush", sub: "Layout yang dicantumkan setiap ruangan" })}`;
+    },
+    mount() { muatLayout(); }
   };
 
   V["facility"] = {

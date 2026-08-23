@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Asset;
+use App\Models\AssetMaintenance;
 use App\Models\BmnKodeBarang;
+use App\Models\Laboratory;
 use App\Models\Room;
 use App\Support\Satker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -296,6 +298,68 @@ class AssetApiTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.nama', 'Sudah Dihapuskan');
+    }
+
+    public function test_daftar_aset_dapat_ditapis_wajib_kalibrasi_dan_laboratorium(): void
+    {
+        $this->kodeBarang();
+        $lab = Laboratory::factory()->create();
+
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'nama' => 'HPLC', 'wajib_kalibrasi' => true, 'laboratory_id' => $lab->id,
+        ]);
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create([
+            'nama' => 'Meja Kerja', 'wajib_kalibrasi' => false,
+        ]);
+
+        $user = $this->penggunaBerperan('asset-manager');
+
+        $this->actingAs($user)->getJson('/api/assets?wajib_kalibrasi=1')
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.nama', 'HPLC');
+
+        $this->actingAs($user)->getJson('/api/assets?wajib_kalibrasi=0')
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.nama', 'Meja Kerja');
+
+        $this->actingAs($user)->getJson('/api/assets?laboratory_id='.$lab->id)
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.nama', 'HPLC');
+    }
+
+    public function test_kalibrasi_terakhir_tampil_hanya_untuk_alat_wajib_kalibrasi(): void
+    {
+        $this->kodeBarang();
+        $tanpaKalibrasi = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => false]);
+        $belumPernah = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => true]);
+        $sudahKalibrasi = Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => true]);
+
+        AssetMaintenance::factory()->for($sudahKalibrasi)->kalibrasi()
+            ->selesai(now()->addDays(60)->toDateString())->create();
+
+        $data = $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets?wajib_kalibrasi=1')
+            ->assertOk()->assertJsonCount(2, 'data')
+            ->json('data');
+
+        $byId = collect($data)->keyBy('id');
+        $this->assertArrayNotHasKey('kalibrasi', $byId[$tanpaKalibrasi->id] ?? []);
+        $this->assertTrue($byId[$belumPernah->id]['kalibrasi']['kedaluwarsa']);
+        $this->assertNull($byId[$belumPernah->id]['kalibrasi']['berlaku_sampai']);
+        $this->assertFalse($byId[$sudahKalibrasi->id]['kalibrasi']['kedaluwarsa']);
+        $this->assertNotNull($byId[$sudahKalibrasi->id]['kalibrasi']['berlaku_sampai']);
+    }
+
+    public function test_ringkasan_dapat_ditapis_wajib_kalibrasi(): void
+    {
+        $this->kodeBarang();
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => true]);
+        Asset::factory()->kodeBarang('3.08.01.03.001')->create(['wajib_kalibrasi' => false]);
+
+        $this->actingAs($this->penggunaBerperan('asset-manager'))
+            ->getJson('/api/assets/ringkasan?wajib_kalibrasi=1')
+            ->assertOk()
+            ->assertJsonPath('data.jumlah', 1);
     }
 
     public function test_ringkasan_menghitung_garansi_akan_berakhir(): void

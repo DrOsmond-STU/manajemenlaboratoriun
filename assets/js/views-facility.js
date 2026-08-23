@@ -452,114 +452,222 @@
   };
 
   /* =======================================================================
-     ALAT LABORATORIUM
+     ALAT LABORATORIUM — tersambung ke basis data
+
+     Memakai backend Aset & BMN yang SAMA dengan Asset Register/Register BMN
+     (Repo.aset, AssetController) — bukan domain terpisah. Bedanya murni
+     TAPISAN: layar ini hanya menampilkan aset dengan `wajib_kalibrasi=true`
+     (persis definisi "alat lab" yang sudah ada di skema — meja dan lemari
+     asam tidak wajib kalibrasi), sama seperti Kalibrasi Alat & Maintenance
+     berbagi satu tabel `asset_maintenances` dibedakan tapisan `jenis`.
+
+     PENYEDERHANAAN & PENGGANTIAN YANG DISENGAJA:
+     - KPI "Tersedia"/"Non-Operasional" dan kolom "Status" (Available/In
+       Use/Borrowed/Maintenance/Broken/Calibration) purwarupa DIJATUHKAN —
+       tidak ada kolom status operasional tersimpan pada `assets`; status
+       semacam itu HARUS diturunkan dari peminjaman/pemeliharaan yang
+       sedang aktif, bukan field tunggal yang bisa menyimpang dari
+       kenyataan. Diganti "Sedang Dipinjam" (widget `peminjaman.aktif`,
+       ANGKA YANG SAMA dengan Dashboard/Laporan Alat) dan "Kalibrasi
+       Kedaluwarsa" (widget `kalibrasi.kedaluwarsa`, sudah ada sejak
+       Laporan Alat) — dua metrik yang genuinely dihitung server, bukan
+       dikarang.
+     - Filter "Semua Kategori" (kategori bebas purwarupa) DIJATUHKAN —
+       kategori baku sudah ada lewat kode barang BMN, dan Asset Register
+       tidak menyediakan filter kategori juga (konsisten).
+     - "Butuh Operator" dan "Tahun" (badge purwarupa) DIJATUHKAN — tidak
+       ada kolom `needs_operator` atau tahun berdiri sendiri (yang ada
+       `tgl_perolehan`, tanggal lengkap, ditampilkan sebagai perolehan).
+     - Tombol "Ekspor ke Excel" TETAP `UI.demo()` — bukan disparitas data
+       sumber, murni belum ada endpoint ekspor di server mana pun.
      ======================================================================= */
+
+  const EQP = { baris: [], ringkasan: null, labs: [], widget: {}, memuat: true, galat: null, tapis: { cari: "", laboratory_id: "", kondisi: "" } };
+
+  async function muatEquipment() {
+    EQP.memuat = true; EQP.galat = null; isiEquipment(); isiRingkasanEquipment();
+    try {
+      const [daftar, ringkasan, labs] = await Promise.all([
+        Repo.aset.daftar({ ...EQP.tapis, wajib_kalibrasi: 1 }),
+        Repo.aset.ringkasan({ ...EQP.tapis, wajib_kalibrasi: 1 }),
+        EQP.labs.length ? Promise.resolve({ data: EQP.labs }) : Repo.laboratorium.daftar()
+      ]);
+      EQP.baris = daftar.data || [];
+      EQP.ringkasan = ringkasan;
+      EQP.labs = labs.data || [];
+    } catch (e) { EQP.baris = []; EQP.galat = e.message; }
+    finally { EQP.memuat = false; isiEquipment(); isiRingkasanEquipment(); isiFilterLabEquipment(); }
+
+    // Dimuat terpisah — peran yang berhak melihat Manajemen Alat belum
+    // tentu berhak melihat widget dashboard.lihat; kegagalannya tidak
+    // boleh merusak tabel yang sudah berhasil dimuat.
+    try {
+      const [pinjam, kal] = await Promise.all([
+        Repo.dashboard.widget("peminjaman.aktif"),
+        Repo.dashboard.widget("kalibrasi.kedaluwarsa")
+      ]);
+      EQP.widget = { pinjam, kal };
+    } catch (e) { EQP.widget = {}; }
+    isiRingkasanEquipment();
+  }
+
+  function isiFilterLabEquipment() {
+    const sel = document.getElementById("eqpFilterLab");
+    if (!sel || sel.options.length > 1) return;
+    EQP.labs.forEach((l) => { sel.innerHTML += `<option value="${l.id}">${U.esc(l.nama)}</option>`; });
+  }
+
+  function isiRingkasanEquipment() {
+    const w = document.getElementById("eqpKpi");
+    if (!w) return;
+    const r = EQP.ringkasan;
+    const bermasalah = r ? (r.kondisi.find((k) => k.kode === "RB") || { jumlah: 0 }).jumlah : 0;
+    w.innerHTML = `
+      ${U.kpi({ label: "Total Alat", value: r ? U.num(r.jumlah) : "—", icon: "grid", tint: "violet", note: "Wajib kalibrasi" })}
+      ${U.kpi({ label: "Nilai Investasi", value: r ? U.rpShort(r.nilai_perolehan) : "—", icon: "money", tint: "brand", note: "Harga perolehan" })}
+      ${U.kpi({ label: "Sedang Dipinjam", value: EQP.widget.pinjam ? U.num(EQP.widget.pinjam.nilai || 0) : "—", icon: "box", tint: "amber", note: "Seluruh alat" })}
+      ${U.kpi({ label: "Rusak Berat", value: r ? U.num(bermasalah) : "—", icon: "wrench", tint: "red", note: "Kondisi RB" })}
+      ${U.kpi({ label: "Kalibrasi Kedaluwarsa", value: EQP.widget.kal ? U.num(EQP.widget.kal.nilai || 0) : "—", icon: "alert", tint: "red", note: "Diblokir dari reservasi" })}`;
+  }
+
+  function isiEquipment() {
+    const w = document.getElementById("eqpTabel");
+    if (!w) return;
+    if (EQP.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (EQP.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(EQP.galat)}</span></div></div>`; return; }
+    if (!EQP.baris.length) { w.innerHTML = U.emptyState("Belum ada alat wajib kalibrasi terdaftar", "Daftarkan lewat Register BMN."); return; }
+    w.innerHTML = U.table([
+      { t: "Kode Internal", w: "150px", render: (a) => `<span class="lnk mono" onclick="showEq(${JSON.stringify(a.id)})">${U.esc(a.kode_internal || "—")}</span>` },
+      { t: "Nama Alat", render: (a) => `<b>${U.esc(a.nama)}</b><div class="tiny faint">${U.esc(a.merk || "—")}${a.serial_number ? " • SN " + U.esc(a.serial_number) : ""}</div>` },
+      { t: "Kategori", render: (a) => `<span class="badge outline">${U.esc(a.bmn.uraian_barang || a.bmn.kode_barang)}</span>` },
+      { t: "Laboratorium", render: (a) => a.laboratorium ? U.esc(a.laboratorium.nama) : `<span class="faint">—</span>` },
+      { t: "Penanggung Jawab", render: (a) => a.penanggung_jawab ? `<span class="small">${U.esc(a.penanggung_jawab.nama)}</span>` : `<span class="faint">—</span>` },
+      { t: "Kondisi", render: (a) => U.badge(a.kondisi.nama) },
+      { t: "Kalibrasi", cls: "right", render: (a) => {
+          const k = a.kalibrasi;
+          if (!k || !k.berlaku_sampai) return `<span class="badge red">Belum pernah</span>`;
+          const soon = !k.kedaluwarsa && k.berlaku_sampai < D.shift(30);
+          return `<span class="badge ${k.kedaluwarsa ? "red" : soon ? "amber" : "green"}">${U.fdate(k.berlaku_sampai, "short")}</span>`; } },
+      { t: "", cls: "actions", render: (a) => `<button class="icon-btn" onclick="showEq(${JSON.stringify(a.id)})">${U.icon("eye", 15)}</button>` }
+    ], EQP.baris);
+  }
+
+  window.eqpTapis = function (field, value) {
+    EQP.tapis[field] = value;
+    muatEquipment();
+  };
+
   V["equipment"] = {
     title: "Manajemen Alat Laboratorium",
-    sub: "Registrasi, status, kondisi, kalibrasi, dan riwayat penggunaan seluruh alat.",
+    sub: "Registrasi, kondisi, kalibrasi, dan riwayat penggunaan alat wajib kalibrasi.",
     actions: `<button class="btn btn-sm" onclick="location.hash='#/barcode'">${U.icon("qr")} Cetak Label</button>
               <button class="btn btn-sm" onclick="UI.demo('Ekspor ke Excel')">${U.icon("download")} Ekspor</button>
               <button class="btn btn-primary btn-sm" onclick="location.hash='#/equipment/new'">${U.icon("plus")} Registrasi Alat (BMN)</button>`,
     render() {
-      const totalVal = D.equipment.reduce((a, e) => a + e.price, 0);
       return `
-        <div class="grid g5 mb-16">
-          ${U.kpi({ label: "Total Alat", value: D.equipment.length, icon: "grid", tint: "violet", note: "6 laboratorium" })}
-          ${U.kpi({ label: "Nilai Investasi", value: U.rpShort(totalVal), icon: "money", tint: "brand", note: "Harga perolehan" })}
-          ${U.kpi({ label: "Tersedia", value: D.equipment.filter((e) => e.status === "Available").length, icon: "check", tint: "green", note: "Siap direservasi" })}
-          ${U.kpi({ label: "Non-Operasional", value: D.equipment.filter((e) => ["Maintenance", "Broken", "Calibration"].includes(e.status)).length, icon: "wrench", tint: "amber", note: "Maintenance / kalibrasi" })}
-          ${U.kpi({ label: "Kalibrasi Overdue", value: D.equipment.filter((e) => e.calDue < D.shift(0)).length, icon: "alert", tint: "red", note: "Diblokir otomatis" })}
-        </div>
-        ${U.card("", U.toolbar({
-          ph: "Cari nama, kode, merk, atau serial number…",
-          filters: [["Semua Lab"].concat(D.labs.map((l) => l.name)), ["Semua Kategori"].concat([...new Set(D.equipment.map((e) => e.cat))]), ["Semua Status", "Available", "In Use", "Borrowed", "Maintenance", "Calibration", "Broken"]],
-          right: `<div class="seg"><button class="active">${U.icon("list", 13)}</button><button onclick="UI.demo('Tampilan kartu')">${U.icon("grid", 13)}</button></div>`
-        }) + U.table([
-          { t: "Kode BMN / Internal", w: "215px", render: (e) => `<span class="lnk mono" style="font-size:11px" onclick="showBmnDetailPurwarupa('${e.id}')">${e.bmnId}</span>
-              <div class="tiny faint mono">${U.esc(e.kodeInternal)}</div>` },
-          { t: "Nama Alat", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${U.esc(e.brand)} ${U.esc(e.model)} • SN ${U.esc(e.sn)}</div>` },
-          { t: "Kategori", render: (e) => `<span class="badge outline">${U.esc(e.cat)}</span>` },
-          { t: "Laboratorium", render: (e) => `<span class="small">${U.esc(D.resName(e.lab))}</span>` },
-          { t: "PIC", render: (e) => `<span class="small">${U.esc(D.personName(e.pic))}</span>` },
-          { t: "Kondisi", render: (e) => U.badge(e.cond) },
-          { t: "Status", render: (e) => U.badge(e.status) },
-          { t: "Kalibrasi", cls: "right", render: (e) => {
-              const od = e.calDue < D.shift(0);
-              const soon = !od && e.calDue < D.shift(30);
-              return `<span class="badge ${od ? "red" : soon ? "amber" : "green"}">${U.fdate(e.calDue, "short")}</span>`; } },
-          { t: "", cls: "actions", render: (e) => `<button class="icon-btn" onclick="showEq('${e.id}')">${U.icon("eye", 15)}</button>` }
-        ], D.equipment) + U.pager(D.equipment.length, 1, 18), { bodyCls: "flush" })}`;
+        <div class="grid g5 mb-16" id="eqpKpi"></div>
+        ${U.card("", `<div class="tbl-toolbar">
+          <div class="tbl-search">${U.icon("search", 15, "faint")}
+            <input id="eqpCari" placeholder="Cari nama, kode internal, atau serial number…"></div>
+          <select class="select" id="eqpFilterLab" style="width:auto" onchange="eqpTapis('laboratory_id', this.value)">
+            <option value="">Semua Laboratorium</option></select>
+          <select class="select" style="width:auto" onchange="eqpTapis('kondisi', this.value)">
+            <option value="">Semua Kondisi</option>
+            <option value="B">Baik</option><option value="RR">Rusak Ringan</option><option value="RB">Rusak Berat</option></select>
+          <div class="spacer"></div>
+        </div><div id="eqpTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() {
+      const cari = document.getElementById("eqpCari");
+      if (cari) {
+        cari.value = EQP.tapis.cari || "";
+        let jeda;
+        cari.addEventListener("input", function () {
+          clearTimeout(jeda);
+          jeda = setTimeout(() => eqpTapis("cari", cari.value.trim()), 300);
+        });
+      }
+      muatEquipment();
     }
   };
 
-  window.showEq = function (id) {
-    const e = D.byId(D.equipment, id);
-    const cal = D.calibration.filter((c) => c.eq === id);
-    const mt = D.maintenance.filter((m) => m.target === id);
-    const use = D.eqBookings.filter((b) => b.eq === id);
-    const overdue = e.calDue < D.shift(0);
+  window.showEq = async function (id) {
+    U.drawer({ size: "wide", title: "Memuat…", body: `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`, foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>` });
+
+    let a, riwayatPemeliharaan, penggunaan;
+    try {
+      [a, riwayatPemeliharaan, penggunaan] = await Promise.all([
+        Repo.aset.ambil(id),
+        Repo.pemeliharaan.daftar({ asset_id: id }).then((j) => j.data).catch(() => []),
+        Repo.peminjaman.daftar({ asset_id: id }).then((j) => j.data).catch(() => [])
+      ]);
+    } catch (e) { Repo.tampilkanGalat(e, "Gagal memuat alat"); UI.closeDrawer(); return; }
+    if (!a) { UI.closeDrawer(); return; }
+
+    const cal = riwayatPemeliharaan.filter((m) => m.jenis.kode === "kalibrasi");
+    const mt = riwayatPemeliharaan.filter((m) => m.jenis.kode !== "kalibrasi");
+    const k = a.kalibrasi;
+    const overdue = !!(k && k.kedaluwarsa);
+
     U.drawer({
-      size: "wide", title: e.name, sub: e.code + " • " + e.brand + " " + e.model,
+      size: "wide", title: a.nama, sub: (a.kode_internal || a.bmn.id) + " • " + (a.bmn.uraian_barang || a.bmn.kode_barang),
       body: `
-        ${overdue ? `<div class="alert err mb-16">${U.icon("alert", 17)}<div><b>Kalibrasi melewati jatuh tempo</b>
-          Alat otomatis diblokir dari reservasi sampai kalibrasi ulang selesai dan sertifikat diunggah.</div></div>` : ""}
+        ${overdue ? `<div class="alert err mb-16">${U.icon("alert", 17)}<div><b>Kalibrasi melewati jatuh tempo (atau belum pernah)</b>
+          Alat sebaiknya tidak direservasi sampai kalibrasi ulang selesai dan sertifikat diunggah.</div></div>` : ""}
         <div class="row gap-16 mb-16">
           <div class="thumb" style="width:180px;flex:0 0 180px;aspect-ratio:4/3">
-            <div class="lbl">${U.esc(e.cat)}</div></div>
+            <div class="lbl">${U.esc(a.bmn.uraian_barang || "Alat")}</div></div>
           <div style="flex:1">
-            <div class="row wrap gap-6 mb-12">${U.badge(e.status)}${U.badge(e.cond)}
-              <span class="badge outline">Tahun ${e.year}</span>
-              ${e.needsOperator ? `<span class="badge violet">Butuh Operator</span>` : ""}</div>
-            <div class="dl small" style="grid-template-columns:120px 1fr">
-              <dt>Serial Number</dt><dd class="mono">${U.esc(e.sn)}</dd>
-              <dt>Laboratorium</dt><dd>${U.esc(D.resName(e.lab))}</dd>
-              <dt>PIC</dt><dd>${U.esc(D.personName(e.pic))}</dd>
-              <dt>Nilai Perolehan</dt><dd>${U.rp(e.price)}</dd>
-              <dt>Jatuh Tempo Kal.</dt><dd><span class="badge ${overdue ? "red" : "green"}">${U.fdate(e.calDue, "long")}</span></dd>
+            <div class="row wrap gap-6 mb-12">${U.badge(a.kondisi.nama)}
+              ${k ? `<span class="badge ${overdue ? "red" : "green"}">${k.berlaku_sampai ? "Kalibrasi s/d " + U.fdate(k.berlaku_sampai, "short") : "Belum pernah kalibrasi"}</span>` : ""}</div>
+            <div class="dl small" style="grid-template-columns:130px 1fr">
+              <dt>Serial Number</dt><dd class="mono">${U.esc(a.serial_number || "—")}</dd>
+              <dt>Laboratorium</dt><dd>${a.laboratorium ? U.esc(a.laboratorium.nama) : "—"}</dd>
+              <dt>Penanggung Jawab</dt><dd>${a.penanggung_jawab ? U.esc(a.penanggung_jawab.nama) : "—"}</dd>
+              <dt>Nilai Perolehan</dt><dd>${U.rp(a.penyusutan.nilai_perolehan)}</dd>
             </div>
           </div>
-          <div class="center">${Barcode.qr(e.kodeInternal, { size: 96 }) || ""}
+          <div class="center">${(Barcode && a.kode_internal ? Barcode.qr(a.kode_internal, { size: 96 }) : "") || ""}
             <div class="tiny faint mt-4">QR kode internal</div></div>
         </div>
 
         <div class="grid g2 mb-16" style="gap:10px">
           <div class="card" style="border-color:var(--brand-300)"><div class="card-body tight">
             <div class="tiny faint">PENOMORAN 1 — BMN (KUNCI UTAMA)</div>
-            <div class="mono bold" style="font-size:11.5px;word-break:break-all">${e.bmnId}</div></div></div>
+            <div class="mono bold" style="font-size:11.5px;word-break:break-all">${U.esc(a.bmn.id || "—")}</div></div></div>
           <div class="card"><div class="card-body tight">
             <div class="tiny faint">PENOMORAN 2 — INTERNAL</div>
-            <div class="mono bold" style="font-size:11.5px">${U.esc(e.kodeInternal)}</div></div></div>
+            <div class="mono bold" style="font-size:11.5px">${U.esc(a.kode_internal || "—")}</div></div></div>
         </div>
 
         <div class="grid g2 mb-16">
           ${U.card("Riwayat Kalibrasi", cal.length ? U.table(
-            [{ t: "Tanggal", render: (c) => U.fdate(c.last, "short") },
-             { t: "Lab Kalibrasi", render: (c) => `<span class="small">${U.esc(c.lab)}</span>` },
-             { t: "Hasil", render: (c) => U.badge(c.result) },
-             { t: "Sertifikat", cls: "right", render: (c) => `<span class="lnk small" onclick="UI.demo('Buka sertifikat PDF')">${U.esc(c.cert)}</span>` }], cal)
+            [{ t: "Tanggal", render: (c) => U.fdate(c.dikerjakan_pada || c.jadwal, "short") },
+             { t: "Lembaga", render: (c) => `<span class="small">${U.esc((c.kalibrasi && c.kalibrasi.lembaga) || "—")}</span>` },
+             { t: "Sertifikat", render: (c) => `<span class="small mono">${U.esc((c.kalibrasi && c.kalibrasi.no_sertifikat) || "—")}</span>` },
+             { t: "Status", cls: "right", render: (c) => U.badge(c.status.nama) }], cal)
             : U.emptyState("Belum ada riwayat", ""), { bodyCls: "flush" })}
           ${U.card("Riwayat Maintenance", mt.length ? U.table(
-            [{ t: "Tanggal", render: (m) => U.fdate(m.sched, "short") },
-             { t: "Jenis", render: (m) => `<span class="badge outline">${m.kind}</span>` },
-             { t: "Biaya", cls: "right", render: (m) => U.rp(m.cost) },
-             { t: "Status", render: (m) => U.badge(m.status) }], mt)
+            [{ t: "Tanggal", render: (m) => U.fdate(m.dikerjakan_pada || m.jadwal, "short") },
+             { t: "Jenis", render: (m) => `<span class="badge outline">${U.esc(m.jenis.nama)}</span>` },
+             { t: "Biaya", cls: "right", render: (m) => U.rp(m.biaya || 0) },
+             { t: "Status", render: (m) => U.badge(m.status.nama) }], mt)
             : U.emptyState("Belum ada riwayat", ""), { bodyCls: "flush" })}
         </div>
 
-        <div class="mb-16">${ckForResource(null, e.id)}</div>
+        <div class="mb-16">${ckForResource("aset", a.id)}</div>
 
-        ${U.card("Riwayat Penggunaan", use.length ? U.table(
-          [{ t: "ID", render: (b) => `<span class="mono small">${b.id}</span>` },
-           { t: "Pemohon", render: (b) => U.esc(D.personName(b.requester)) },
-           { t: "Tanggal", render: (b) => U.fdate(b.date, "short") + " " + b.start + "–" + b.end },
-           { t: "Tujuan", render: (b) => `<span class="small">${U.esc(b.purpose)}</span>` },
-           { t: "Status", render: (b) => U.badge(b.status) }], use)
+        ${U.card("Riwayat Penggunaan", penggunaan.length ? U.table(
+          [{ t: "Peminjam", render: (b) => U.esc(b.peminjam ? b.peminjam.nama : "—") },
+           { t: "Jadwal", render: (b) => U.fdate(b.jadwal.mulai, "short") + " – " + U.fdate(b.jadwal.selesai, "short") },
+           { t: "Keperluan", render: (b) => `<span class="small">${U.esc(b.keperluan || "—")}</span>` },
+           { t: "Status", render: (b) => U.badge(b.status.nama) }], penggunaan)
           : U.emptyState("Belum ada penggunaan tercatat", ""), { bodyCls: "flush" })}`,
       foot: `<button class="btn" onclick="UI.closeDrawer()">Tutup</button>
-             <button class="btn" onclick="UI.closeDrawer();showBmnDetailPurwarupa('${e.id}')">${U.icon("box")} Data BMN</button>
-             <button class="btn" onclick="UI.closeDrawer();lblOpenFor('${e.id}')">${U.icon("qr")} Cetak Label</button>
+             <button class="btn" onclick="UI.closeDrawer();showAsset(${JSON.stringify(a.id)})">${U.icon("box")} Data BMN</button>
+             <button class="btn" onclick="UI.closeDrawer();lblOpenFor(${JSON.stringify(a.id)})">${U.icon("qr")} Cetak Label</button>
              <div class="spacer"></div>
-             <button class="btn btn-primary" ${overdue ? "disabled" : ""} onclick="UI.closeDrawer();eqNew()">Reservasi Alat</button>`
+             <button class="btn btn-primary" onclick="UI.closeDrawer();location.hash='#/eqbooking'">Pinjamkan</button>`
     });
   };
 

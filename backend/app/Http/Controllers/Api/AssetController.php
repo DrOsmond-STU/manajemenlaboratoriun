@@ -41,6 +41,7 @@ class AssetController extends Controller
                 'kondisi' => $request->string('kondisi')->toString() ?: null,
                 'room_id' => $request->integer('room_id') ?: null,
                 'laboratory_id' => $request->integer('laboratory_id') ?: null,
+                'wajib_kalibrasi' => $request->has('wajib_kalibrasi') ? $request->boolean('wajib_kalibrasi') : null,
             ]),
         ]);
     }
@@ -52,6 +53,19 @@ class AssetController extends Controller
             ->with(['kodeBarang:kode,uraian', 'room:id,kode,nama', 'penanggungJawab:id,name', 'laboratory:id,kode,nama', 'fotoUtama'])
             ->withCount('photos')
             ->latest('id');
+
+        // Kalibrasi selesai TERAKHIR saja per aset, dimuat lewat SATU kueri
+        // batch (WHERE asset_id IN (...)) — HANYA saat diminta secara
+        // eksplisit lewat `wajib_kalibrasi` (dipakai layar Manajemen Alat).
+        // Tanpa penjagaan ini, Asset Register akan ikut memuat relasi yang
+        // tidak pernah ditampilkannya. AssetResource jatuh balik ke
+        // Asset::kalibrasiTerakhir() (satu kueri per baris) bila relasi ini
+        // tidak dimuat — aman untuk endpoint lain, hanya lebih mahal.
+        if ($request->has('wajib_kalibrasi')) {
+            $query->with(['maintenances' => fn ($q) => $q->kalibrasi()
+                ->where('status', 'selesai')->whereNotNull('berlaku_sampai')
+                ->orderByDesc('berlaku_sampai')]);
+        }
 
         if ($request->filled('cari')) {
             $query->cari($request->string('cari')->toString());
@@ -67,6 +81,18 @@ class AssetController extends Controller
 
         if ($request->filled('room_id')) {
             $query->where('room_id', $request->integer('room_id'));
+        }
+
+        if ($request->filled('laboratory_id')) {
+            $query->where('laboratory_id', $request->integer('laboratory_id'));
+        }
+
+        // Dipakai layar Manajemen Alat Laboratorium untuk menyaring hanya
+        // alat yang wajib kalibrasi — meja dan lemari tidak, dan menampilkan
+        // Register BMN lengkap di layar itu akan menenggelamkan alat lab
+        // sungguhan di antara furnitur dan aset umum lainnya.
+        if ($request->has('wajib_kalibrasi')) {
+            $query->where('wajib_kalibrasi', $request->boolean('wajib_kalibrasi'));
         }
 
         // Tapis per jenjang kode barang, misalnya '3.08' untuk seluruh alat

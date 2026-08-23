@@ -40,6 +40,10 @@ class RingkasanAset
             $query->where('laboratory_id', $tapis['laboratory_id']);
         }
 
+        if (array_key_exists('wajib_kalibrasi', $tapis) && $tapis['wajib_kalibrasi'] !== null) {
+            $query->where('wajib_kalibrasi', $tapis['wajib_kalibrasi']);
+        }
+
         // Kolom yang dibutuhkan saja. Penyusutan dihitung PHP lewat kelas
         // Penyusutan, bukan diulang sebagai rumus SQL: rumus yang ditulis dua
         // kali akan menyimpang, dan yang menyimpang di sini adalah angka

@@ -329,6 +329,7 @@
       status_penggunaan: b.statusPenggunaan || x.status || null,
       psp: { nomor: b.noPsp || null, tanggal: b.tglPsp || null },
       wajib_kalibrasi: !!x.calDue,
+      kalibrasi: x.calDue ? { berlaku_sampai: x.calDue, kedaluwarsa: x.calDue < DB.shift(0) } : undefined,
       unit_kerja: null,
       laboratorium: lab ? { id: lab.id, kode: lab.code, nama: lab.name } : null,
       ruangan: ruang ? { id: ruang.id, kode: ruang.code, nama: ruang.name } : null,
@@ -358,6 +359,13 @@
         if (tapis && tapis.kondisi) baris = baris.filter((a) => a.kondisi.kode === tapis.kondisi);
         if (tapis && tapis.kode_barang) {
           baris = baris.filter((a) => (a.bmn.kode_barang || "").indexOf(tapis.kode_barang) === 0);
+        }
+        if (tapis && tapis.wajib_kalibrasi !== undefined && tapis.wajib_kalibrasi !== "") {
+          const ingin = tapis.wajib_kalibrasi === "1" || tapis.wajib_kalibrasi === 1 || tapis.wajib_kalibrasi === true;
+          baris = baris.filter((a) => a.wajib_kalibrasi === ingin);
+        }
+        if (tapis && tapis.laboratory_id) {
+          baris = baris.filter((a) => a.laboratorium && String(a.laboratorium.id) === String(tapis.laboratory_id));
         }
 
         return { data: baris, total: baris.length, purwarupa: true };

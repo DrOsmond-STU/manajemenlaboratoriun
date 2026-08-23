@@ -80,6 +80,22 @@ class AssetResource extends JsonResource
             ],
 
             'wajib_kalibrasi' => (bool) $this->wajib_kalibrasi,
+            // Kalibrasi selesai TERAKHIR — hanya untuk alat yang wajib
+            // kalibrasi. `$terakhir` diambil SEKALI dan dipakai untuk kedua
+            // medan supaya "kedaluwarsa" tidak dihitung ulang dengan kueri
+            // terpisah dari `berlaku_sampai`-nya sendiri; rumusnya sengaja
+            // sama persis dengan Asset::kalibrasiKedaluwarsa() (alat tanpa
+            // kalibrasi sama sekali dianggap kedaluwarsa).
+            'kalibrasi' => $this->when($this->wajib_kalibrasi, function () {
+                $terakhir = $this->relationLoaded('maintenances')
+                    ? $this->maintenances->first()
+                    : $this->kalibrasiTerakhir();
+
+                return [
+                    'berlaku_sampai' => $terakhir?->berlaku_sampai?->toDateString(),
+                    'kedaluwarsa' => $terakhir === null || $terakhir->berlaku_sampai->isPast(),
+                ];
+            }),
             'unit_kerja' => $this->unit_kerja,
 
             'laboratorium' => $this->whenLoaded('laboratory', fn () => $this->laboratory ? [

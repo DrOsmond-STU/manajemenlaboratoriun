@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-556 uji lulus, 1.656 asersi, 0 gagal — dijalankan di PostgreSQL 16
+559 uji lulus, 1.674 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -511,6 +511,9 @@ sama dengan Register BMN:
 | Bawaan tetap 25 per halaman tanpa parameter | layar lain tidak ikut terbebani permintaan yang lebih berat |
 | `per_halaman` dapat diperbesar | dipakai Studio Label & Barcode untuk memuat barang yang dapat dipilih |
 | **`per_halaman` diminta 500, dibatasi 200** | permintaan berlebihan dituruti sebagian dengan batas jelas, bukan ditolak atau dituruti mentah-mentah |
+| **Daftar dapat ditapis `wajib_kalibrasi` dan `laboratory_id`** | dipakai layar Manajemen Alat Laboratorium — filter di atas tabel `assets` yang SAMA, bukan endpoint baru |
+| **Kalibrasi terakhir hanya tampil untuk alat wajib kalibrasi** | alat lain (`wajib_kalibrasi=false`) tidak membawa medan `kalibrasi` sama sekali |
+| Ringkasan dapat ditapis `wajib_kalibrasi` | KPI "Total Alat"/"Nilai Investasi" pada layar yang sama dihitung atas populasi yang sudah disaring, bukan seluruh Register BMN |
 
 Widget lepas dari dashboard (`GET /api/dashboard/widget`) — dipakai layar Laporan:
 
@@ -1507,6 +1510,48 @@ Audit Aset — stock opname, modul baru:
   aplikasi web ini; kode internal/BMN/nomor seri yang sudah tercetak di
   label (dari Studio Label & Barcode) dapat diketik langsung, dan
   itulah yang benar-benar dapat diimplementasikan.
+
+- **Manajemen Alat Laboratorium disambungkan — memakai backend Aset &
+  BMN yang SAMA dengan Asset Register/Register BMN, bukan domain baru.**
+  Bedanya murni tapisan `wajib_kalibrasi=true` pada `GET /api/assets` —
+  persis pola Kalibrasi Alat & Maintenance berbagi satu tabel
+  `asset_maintenances` dibedakan tapisan `jenis`. Sebelum ini, layar
+  purwarupanya masih sepenuhnya `D.equipment` statis meski infrastruktur
+  penuhnya sudah ada sejak Asset Register — kesenjangan yang baru
+  disadari lewat survei purwarupa-vs-tersambung, bukan sesuatu yang
+  sengaja ditunda.
+- **Dua filter BARU pada `GET /api/assets`**: `wajib_kalibrasi`
+  (boolean) dan `laboratory_id` (sebelumnya hanya `room_id` yang ada).
+  Bukan endpoint baru — kolom dan relasinya sudah ada di skema sejak
+  awal, hanya belum ada jalan untuk menyaringnya lewat query string.
+- **Medan `kalibrasi` (berlaku_sampai/kedaluwarsa) DITAMBAHKAN ke
+  `AssetResource`, HANYA untuk alat wajib kalibrasi** — dihitung dari
+  kalibrasi selesai TERAKHIR, rumus `kedaluwarsa` sengaja sama persis
+  dengan `Asset::kalibrasiKedaluwarsa()` (alat tanpa riwayat kalibrasi
+  sama sekali dianggap kedaluwarsa), tapi dihitung dari `$terakhir` yang
+  SAMA dipakai untuk kedua medan — bukan memanggil dua method model yang
+  masing-masing query sendiri.
+- **Eager load kalibrasi terakhir dijaga dari N+1, dan HANYA dimuat saat
+  `wajib_kalibrasi` diminta** — `AssetController::index()` memuat relasi
+  `maintenances` (disaring kalibrasi selesai, diurutkan terbaru) lewat
+  SATU kueri batch (`WHERE asset_id IN (...)`) hanya ketika parameter
+  `wajib_kalibrasi` ada di permintaan. Asset Register (yang tidak pernah
+  mengirim parameter ini) sama sekali tidak memuat relasi tambahan itu —
+  tidak ikut menanggung biaya query yang tidak pernah ditampilkannya.
+  `AssetResource` jatuh balik ke `Asset::kalibrasiTerakhir()` (satu
+  kueri per baris) bila relasi tidak dimuat, sehingga endpoint lain yang
+  memuat `AssetResource` satu-satu (mis. `show()`) tetap benar, hanya
+  tanpa optimisasi batch yang memang tidak relevan untuk satu baris.
+- **KPI "Tersedia"/"Non-Operasional" dan kolom "Status" purwarupa
+  (Available/In Use/Borrowed/Maintenance/Broken/Calibration)
+  DIJATUHKAN** — tidak ada kolom status operasional pada `assets`; nilai
+  semacam itu HARUS diturunkan dari peminjaman/pemeliharaan yang sedang
+  aktif, bukan field tunggal yang bisa menyimpang dari kenyataan (alat
+  bisa saja "Available" di kolom padahal sedang benar-benar dipinjam).
+  Diganti dua KPI yang genuinely dihitung server DAN SUDAH ADA sejak
+  Laporan Alat — `peminjaman.aktif` ("Sedang Dipinjam") dan
+  `kalibrasi.kedaluwarsa` ("Kalibrasi Kedaluwarsa") — reuse widget,
+  bukan endpoint baru.
 
 ---
 

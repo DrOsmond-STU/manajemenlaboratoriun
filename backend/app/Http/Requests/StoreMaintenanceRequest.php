@@ -22,6 +22,7 @@ class StoreMaintenanceRequest extends FormRequest
             'jenis' => ['required', Rule::in(array_keys(AssetMaintenance::JENIS))],
             'jadwal' => ['required', 'date'],
             'pelaksana' => ['nullable', 'string', 'max:150'],
+            'vendor_id' => ['nullable', 'integer', 'exists:vendors,id'],
             'petugas_id' => ['nullable', 'integer', 'exists:users,id'],
             'lembaga_kalibrasi' => ['nullable', 'string', 'max:150'],
             'biaya' => ['nullable', 'integer', 'min:0', 'max:999999999999'],
@@ -59,6 +60,7 @@ class StoreMaintenanceRequest extends FormRequest
             'room_id' => 'ruangan',
             'laboratory_id' => 'laboratorium',
             'lembaga_kalibrasi' => 'lembaga kalibrasi',
+            'vendor_id' => 'vendor',
         ];
     }
 }

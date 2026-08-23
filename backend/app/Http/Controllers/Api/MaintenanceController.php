@@ -27,7 +27,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class MaintenanceController extends Controller
 {
     /** Dimuat di mana pun resource ini dikembalikan — paling banyak satu yang benar-benar terisi. */
-    private const RELASI = ['asset:id,nama,kode_internal', 'room:id,kode,nama', 'laboratory:id,kode,nama', 'petugas:id,name'];
+    private const RELASI = ['asset:id,nama,kode_internal', 'room:id,kode,nama', 'laboratory:id,kode,nama', 'petugas:id,name', 'vendor:id,nama,kategori'];
 
     public function __construct(private readonly MaintenanceService $pemeliharaan) {}
 

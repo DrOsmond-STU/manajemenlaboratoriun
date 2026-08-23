@@ -1597,8 +1597,60 @@
     }
   };
 
+  /* ------------------------------------------------------------- vendor */
+  /*
+     Sebelumnya "Performa Vendor" pada Laporan Maintenance dijatuhkan
+     sepenuhnya karena tidak ada entitas Vendor di server. Modul ini
+     mengisinya: CRUD vendor + tautan opsional AssetMaintenance.vendor_id
+     (medan bebas `pelaksana` tetap ada untuk pekerjaan tanpa vendor
+     terdaftar — lihat docs/BACKEND.md).
+
+     hapus() TIDAK menghapus baris — server menonaktifkan (aktif=false)
+     supaya riwayat pekerjaan lama tetap tertaut ke vendor yang benar.
+  */
+
+  function vendorDariPurwarupa(v) {
+    const m = /Aktif s\/d (\d{4}-\d{2}-\d{2})/.exec(v.contract || "");
+    return {
+      id: v.id, kode: v.id, nama: v.name, kategori: v.cat,
+      pic: { nama: v.pic, telepon: v.phone, email: null },
+      rating: v.rating,
+      kontrak_berlaku_sampai: m ? m[1] : null,
+      aktif: true, catatan: null,
+      jumlah_pekerjaan: 0, total_biaya: 0
+    };
+  }
+
+  const vendor = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.vendors : []).map(vendorDariPurwarupa);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((v) => v.nama.toLowerCase().indexOf(k) !== -1 || v.kategori.toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.kategori) baris = baris.filter((v) => v.kategori === tapis.kategori);
+        return { data: baris };
+      }
+      return API.get("/api/vendors" + qs(tapis));
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh(id ? "Mengubah vendor" : "Menambah vendor");
+      return id
+        ? API.put("/api/vendors/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/vendors", isi).then((j) => j.data);
+    },
+
+    hapus(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menonaktifkan vendor");
+      return API.hapus("/api/vendors/" + encodeURIComponent(id));
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
+    vendor: vendor,
     checklist: checklist,
     dashboard: dashboard,
     bsc: bsc,

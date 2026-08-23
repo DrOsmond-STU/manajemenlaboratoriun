@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-529 uji lulus, 1.568 asersi, 0 gagal — dijalankan di PostgreSQL 16
+540 uji lulus, 1.600 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -555,6 +555,22 @@ seharusnya `1`, dan aset unit lain ikut terlihat.
 API: kolomnya dibentuk basis data, sehingga instance hasil `create()` belum
 memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
 `201` — cacat ini akan lolos sampai ada yang mencetak barcode kosong.
+
+Vendor & Mitra — modul baru, plus tautan opsional dari `AssetMaintenance`:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401` pada seluruh endpoint `vendors` |
+| Facility manager dapat mendaftarkan vendor | tingkat UBAH pada matriks, dicerminkan dari `master-data` |
+| Employee ditolak lihat maupun tulis | `403`, modul ini bukan `-` di matriks bagi employee, tapi employee memang `-` |
+| Kode kembar ditolak | `422`, indeks unik `vendors.kode` |
+| **Rating di luar 0–5 ditolak** | `422` dari validasi **dan** `CHECK` basis data — dua lapis, bukan cuma satu |
+| Tanpa kontrak tetap boleh dikosongkan | `kontrak_berlaku_sampai` nullable dipakai langsung sebagai penanda "per proyek" |
+| Daftar dapat dicari dan ditapis kategori | `cari` (ilike nama/kode/kategori) dan `kategori` persis |
+| **Nonaktifkan bukan menghapus baris** | `destroy()` men-set `aktif=false`; baris dan riwayat pekerjaannya tetap ada |
+| **`jumlah_pekerjaan`/`total_biaya` dihitung dari `AssetMaintenance.vendor_id`** | `withCount`/`withSum`, bukan N+1 per baris |
+| Vendor dapat ditautkan saat menjadwalkan pemeliharaan | `POST /api/pemeliharaan` menerima `vendor_id` opsional, `MaintenanceResource` memuatnya |
+| **Vendor dihapus tidak menghalangi riwayat pekerjaan lama** | `nullOnDelete` pada `asset_maintenances.vendor_id` — jaring pengaman seandainya baris vendor benar-benar hilang di masa depan, bukan jalur normal (jalur normal adalah nonaktifkan) |
 
 ### 4.2 Catatan rancangan
 
@@ -1342,11 +1358,17 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   PERSIS dengan Laporan Alat**: `AssetMaintenance` mencatat TANGGAL
   (`jadwal`/`dikerjakan_pada`), bukan rentang jam tidak tersedia atau
   waktu perbaikan. Tidak ada satu pun tempat menyimpan durasi.
-- **"Performa Vendor" DIJATUHKAN SEPENUHNYA** — tidak ada entitas Vendor
-  di server; `pelaksana` pada `AssetMaintenance` adalah teks bebas (nama
-  orang/pihak yang mengerjakan), bukan referensi ke tabel vendor dengan
-  riwayat rating/biaya yang dapat direkap. Memaksakan tabel "Performa
-  Vendor" berarti mengarang rating dan riwayat yang tidak pernah tercatat.
+- **"Performa Vendor" SEMPAT DIJATUHKAN SEPENUHNYA saat ditulis** — tidak
+  ada entitas Vendor di server; `pelaksana` pada `AssetMaintenance` adalah
+  teks bebas (nama orang/pihak yang mengerjakan), bukan referensi ke tabel
+  vendor dengan riwayat rating/biaya yang dapat direkap. Memaksakan tabel
+  "Performa Vendor" saat itu berarti mengarang rating dan riwayat yang
+  tidak pernah tercatat. **Kini DISAMBUNGKAN KEMBALI** setelah modul
+  Vendor & Mitra dibangun (lihat catatan di bawah) — panel ini memakai
+  `jumlah_pekerjaan`/`total_biaya` yang sudah dihitung server per vendor,
+  dimuat terpisah dari widget lain sehingga kegagalannya (mis. peran yang
+  berhak melihat Laporan Maintenance tapi tidak berhak melihat Vendor &
+  Mitra) hanya merusak panel itu sendiri, bukan seluruh laporan.
 - **"Work Order" (84, purwarupa) DIGANTI "Total Pekerjaan" dari
   `pemeliharaan.jenis`** — SELURUH cakupan sepanjang waktu (tidak ada
   widget yang membatasi hitungan pekerjaan per tahun), diberi label yang
@@ -1360,6 +1382,48 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   pengganti** — bukan pengulangan, melainkan irisan "apa yang akan
   datang" (`pemeliharaan.terjadwal`, jendela bawaan 30 hari) yang
   berbeda dari daftar lengkap di modul Pemeliharaan & Kalibrasi.
+
+- **Modul Vendor & Mitra dibangun** — mengisi kekosongan yang baru saja
+  didokumentasikan di atas ("Performa Vendor" yang sempat dijatuhkan).
+  Tabel `vendors` baru: `kode` (unik), `nama`, `kategori`, PIC
+  (`pic_nama`/`pic_telepon`/`pic_email`, seluruhnya nullable), `rating`,
+  `kontrak_berlaku_sampai`, `aktif`, `catatan`.
+- **Tanpa cakupan gedung** — sama seperti Penyewaan/Invoice/Payment
+  sebelumnya: vendor adalah mitra tingkat organisasi (kontrak dengan
+  satuan kerja), bukan sumber daya yang melekat pada satu gedung/ruangan
+  tertentu. Menambahkan kolom gedung di sini berarti mengarang batasan
+  yang tidak pernah diminta.
+- **`kontrak_berlaku_sampai` nullable dipakai LANGSUNG sebagai penanda
+  status kontrak** — `null` berarti "Per Proyek" (tanpa kontrak tetap),
+  pola yang sama dengan `AssetMaintenance.dikerjakan_pada` dipakai
+  langsung sebagai penanda "selesai". Kolom status terpisah (mis.
+  `status_kontrak` enum) akan bisa menyimpang dari tanggalnya sendiri —
+  dua sumber kebenaran untuk satu fakta.
+- **`rating` sengaja kolom manual, BUKAN metrik terhitung** — tidak ada
+  alur penilaian vendor per pekerjaan di mana pun dalam sistem ini
+  (tidak seperti, misalnya, skor checklist yang dihitung dari jawaban
+  tersimpan). Diberi nama dan tipe yang jujur (`decimal(2,1)`, diisi
+  staf), bukan dibuat tampak seperti hasil agregasi otomatis padahal
+  bukan.
+- **`AssetMaintenance` mendapat `vendor_id` nullable — BERDAMPINGAN
+  dengan `pelaksana` yang tetap teks bebas, bukan menggantikannya** —
+  pola yang sama dengan `kode_internal` (bebas) vs `bmn_id` (terstruktur)
+  pada Asset. Tidak semua pekerjaan pemeliharaan dikerjakan vendor
+  terdaftar (staf internal, teknisi lepas tanpa kontrak) — memaksa
+  setiap pekerjaan menunjuk baris `vendors` berarti sebagian pekerjaan
+  jujur tidak dapat dicatat sama sekali.
+- **`vendor_id` memakai `nullOnDelete`, BUKAN `restrictOnDelete`** —
+  konsisten dengan alasan `destroy()` menonaktifkan alih-alih menghapus
+  baris (lihat tabel uji di atas): jalur normalnya tidak pernah benar-
+  benar menghapus vendor, jadi `nullOnDelete` di sini murni jaring
+  pengaman, bukan perilaku yang diandalkan sehari-hari.
+- **Tingkat izin modul `vendor` DICERMINKAN persis dari `master-data`**
+  di seluruh 12 peran pada `MatriksAkses` — bukan diberi tingkat baru
+  yang dipikirkan dari nol. Vendor bukan data sesensitif akun/hak akses
+  (`pengguna`, yang sengaja dibuat maksimal konservatif — hanya
+  super-admin); ia data referensi/kontak sebagaimana master data
+  lain, jadi peran yang berhak mengelola master data berhak pula
+  mengelola vendor, dengan tingkat yang sama persis.
 
 ---
 

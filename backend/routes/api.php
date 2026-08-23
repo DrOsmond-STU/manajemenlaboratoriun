@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\PeranController;
 use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\TarifController;
+use App\Http\Controllers\Api\VendorController;
 use Illuminate\Support\Facades\Route;
 
 // --- Tanpa autentikasi ---------------------------------------------------
@@ -222,6 +223,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('pemeliharaan/{pemeliharaan}', [MaintenanceController::class, 'show']);
     Route::post('pemeliharaan/{pemeliharaan}/selesaikan', [MaintenanceController::class, 'selesaikan'])
         ->name('pemeliharaan.selesaikan');
+
+    // --- Vendor & mitra -----------------------------------------------------
+    // Referensi operasional (nama, kontak, kategori, kontrak) — tidak
+    // sesensitif Manajemen Pengguna, tingkatnya meniru kolom master-data.
+    // Lihat docblock MatriksAkses::MODUL untuk alasannya.
+    Route::get('vendors', [VendorController::class, 'index'])
+        ->middleware('can:vendor.lihat');
+    Route::post('vendors', [VendorController::class, 'store'])
+        ->middleware('can:vendor.buat');
+    Route::get('vendors/{vendor}', [VendorController::class, 'show'])
+        ->middleware('can:vendor.lihat');
+    Route::put('vendors/{vendor}', [VendorController::class, 'update'])
+        ->middleware('can:vendor.ubah');
+    // Hapus di sini berarti nonaktifkan (lihat docblock VendorController::destroy),
+    // sehingga izinnya UBAH, bukan HAPUS — sama seperti nonaktifkan pengguna.
+    Route::delete('vendors/{vendor}', [VendorController::class, 'destroy'])
+        ->middleware('can:vendor.ubah');
 
     // --- Peminjaman alat --------------------------------------------------
     // Sebelum peminjaman/{peminjaman}, kalau tidak "ketersediaan" tertangkap

@@ -5,6 +5,12 @@
  * perubahan backend baru — dan tabel "Pemeliharaan Terjadwal" bukan
  * pengulangan modul Pemeliharaan & Kalibrasi (irisan berbeda: hanya
  * 30 hari ke depan).
+ *
+ * Panel "Performa Vendor" dimuat TERPISAH lewat GET /api/vendors — pengguna
+ * pada uji ini sengaja TIDAK diberi izin vendor.lihat, supaya kegagalannya
+ * (403) terbukti tidak merusak seluruh laporan, hanya panel itu sendiri
+ * yang menampilkan pesan tidak berwenang. Kasus sebaliknya (izin lengkap,
+ * vendor sungguhan tampil) ada di tests/vendor.js.
  */
 const { launch } = require('./browser');
 const { BASE } = require('./config');
@@ -68,6 +74,10 @@ function apiTiruan() {
       return kirim(200, { data: { nilai: null, pesan: 'tidak dikenal dalam tiruan' } });
     }
 
+    if (u.pathname === '/api/vendors') {
+      return kirim(403, { message: 'Anda tidak memiliki izin vendor.lihat.' });
+    }
+
     kirim(404, { message: 'Tidak ditemukan' });
   });
 
@@ -102,7 +112,11 @@ function apiTiruan() {
   ok(/84/.test(isi), 'Total Pekerjaan dari widget pemeliharaan.jenis tampil');
   ok(/Pemeliharaan preventif/.test(isi) && /52/.test(isi), 'Sebaran per jenis pemeliharaan tampil');
   ok(/Autoklaf Vertikal 100L/.test(isi), 'Tabel terjadwal 30 hari menyebut target sungguhan dari server');
-  ok(!/MTTR/.test(isi) && !/Performa Vendor/.test(isi), 'MTTR dan Performa Vendor purwarupa dijatuhkan (tidak dimodelkan)');
+  ok(!/MTTR/.test(isi), 'MTTR purwarupa dijatuhkan (tidak dimodelkan)');
+  ok(/Performa Vendor/.test(isi), 'Panel Performa Vendor sudah disambungkan kembali');
+  ok(/Tidak berwenang melihat data Vendor/.test(isi),
+    'Kegagalan 403 pada panel Vendor tampil sebagai pesan tidak berwenang, bukan merusak seluruh laporan');
+  ok(/84/.test(isi), 'KPI lain (Total Pekerjaan) tetap tampil normal walau panel Vendor gagal dimuat');
 
   ok(errs.length === 0, 'Tanpa galat halaman pada laporan maintenance', errs.join(' | '));
 

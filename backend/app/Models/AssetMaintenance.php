@@ -40,7 +40,7 @@ class AssetMaintenance extends Model
 
     protected $fillable = [
         'asset_id', 'room_id', 'laboratory_id', 'jenis', 'jadwal', 'dikerjakan_pada',
-        'pelaksana', 'petugas_id', 'status', 'hasil', 'biaya', 'no_sertifikat',
+        'pelaksana', 'vendor_id', 'petugas_id', 'status', 'hasil', 'biaya', 'no_sertifikat',
         'lembaga_kalibrasi', 'berlaku_sampai', 'catatan',
     ];
 
@@ -57,6 +57,11 @@ class AssetMaintenance extends Model
     public function petugas(): BelongsTo
     {
         return $this->belongsTo(User::class, 'petugas_id');
+    }
+
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
     }
 
     /** Belum selesai dan sudah lewat jadwalnya. */

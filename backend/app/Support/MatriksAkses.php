@@ -64,6 +64,15 @@ final class MatriksAkses
         'master-data' => 'Master data',
         'audit' => 'Audit trail',
         'pengguna' => 'Pengguna & peran',
+
+        // Tidak ada di SECURITY.md §4.1 (dibangun belakangan, seperti
+        // `pengguna`) — tetapi TIDAK sesensitif itu, karena berisi data
+        // referensi operasional (nama vendor, kontak, kategori, kontrak),
+        // bukan akun/akses siapa pun. Tingkatnya karena itu MENIRU KOLOM
+        // `master-data` PERSIS di seluruh peran — vendor secara operasional
+        // setara dengan data referensi lain (ruangan, laboratorium), bukan
+        // butuh penguncian ekstra ala `pengguna`.
+        'vendor' => 'Vendor & mitra',
     ];
 
     /** @var array<string, string> */
@@ -100,42 +109,42 @@ final class MatriksAkses
             'laboratorium' => 'PENUH', 'aset' => 'PENUH', 'penyewaan' => 'PENUH',
             'pemeliharaan' => 'PENUH', 'kalibrasi' => 'PENUH', 'checklist' => 'PENUH',
             'notifikasi' => 'PENUH', 'master-data' => 'PENUH', 'audit' => 'PENUH',
-            'pengguna' => 'PENUH',
+            'pengguna' => 'PENUH', 'vendor' => 'PENUH',
         ],
         'facility-manager' => [
             'dashboard' => 'PENUH', 'booking-ruangan' => 'PENUH', 'booking-alat' => 'LIHAT',
             'laboratorium' => 'LIHAT', 'aset' => 'UBAH', 'penyewaan' => 'UBAH',
             'pemeliharaan' => 'PENUH', 'kalibrasi' => 'LIHAT', 'checklist' => 'PENUH',
             'notifikasi' => 'UBAH', 'master-data' => 'UBAH', 'audit' => 'LIHAT',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => 'UBAH',
         ],
         'lab-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'PENUH',
             'laboratorium' => 'PENUH', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'PENUH', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => 'UBAH',
         ],
         'asset-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => 'UBAH',
             'laboratorium' => 'LIHAT', 'aset' => 'PENUH', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'UBAH', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => 'UBAH',
         ],
         'finance' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => '-',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'PENUH',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => '-', 'checklist' => '-',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
         'employee' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'BUAT', 'booking-alat' => 'BUAT',
             'laboratorium' => 'LIHAT', 'aset' => '-', 'penyewaan' => '-',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => 'BUAT',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
 
         // ---- PERLU_DIKONFIRMASI: disimpulkan dari PRD §4 ----------------
@@ -144,42 +153,42 @@ final class MatriksAkses
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'UBAH', 'checklist' => 'UBAH',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
         'room-administrator' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'PENUH', 'booking-alat' => 'LIHAT',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'LIHAT',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => '-', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => 'UBAH',
         ],
         'event-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'BUAT',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'UBAH',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => 'BUAT',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
         'pic' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'UBAH',
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => 'LIHAT', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
         'external-user' => [
             'dashboard' => '-', 'booking-ruangan' => 'BUAT', 'booking-alat' => '-',
             'laboratorium' => '-', 'aset' => '-', 'penyewaan' => 'BUAT',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => '-',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => '-',
         ],
         'management' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => 'LIHAT',
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => 'LIHAT',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => 'LIHAT', 'checklist' => 'LIHAT',
             'notifikasi' => 'LIHAT', 'master-data' => 'LIHAT', 'audit' => 'LIHAT',
-            'pengguna' => '-',
+            'pengguna' => '-', 'vendor' => 'LIHAT',
         ],
     ];
 

@@ -25,6 +25,11 @@ class MaintenanceResource extends JsonResource
             'dikerjakan_pada' => $this->dikerjakan_pada?->toDateString(),
             'terlambat' => $this->terlambat(),
             'pelaksana' => $this->pelaksana,
+            'vendor' => $this->whenLoaded('vendor', fn () => $this->vendor ? [
+                'id' => $this->vendor->id,
+                'nama' => $this->vendor->nama,
+                'kategori' => $this->vendor->kategori,
+            ] : null),
             'hasil' => $this->hasil,
             'biaya' => $this->biaya,
             'kalibrasi' => $this->when($this->jenis === AssetMaintenance::JENIS_KALIBRASI, fn () => [

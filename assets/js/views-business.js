@@ -1182,22 +1182,158 @@
     }
   };
 
+  /* =======================================================================
+     VENDOR & MITRA — tersambung ke basis data
+
+     jumlah_pekerjaan & total_biaya dihitung server (withCount/withSum pada
+     VendorController::index) — bukan dihitung ulang di sini. hapus()
+     menonaktifkan vendor, bukan menghapus baris (riwayat pekerjaan lama
+     tetap tertaut).
+     ======================================================================= */
+
+  const VDR = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  async function muatVendor() {
+    VDR.memuat = true; VDR.galat = null; isiVendor();
+    try { VDR.baris = (await Repo.vendor.daftar(VDR.tapis)).data; }
+    catch (e) { VDR.baris = []; VDR.galat = e; }
+    finally { VDR.memuat = false; isiVendor(); isiRingkasanVendor(); }
+  }
+
+  function isiRingkasanVendor() {
+    const wadah = document.getElementById("vdrKpi");
+    if (!wadah) return;
+    if (VDR.galat) { wadah.innerHTML = ""; return; }
+    const b = VDR.baris;
+    const aktif = b.filter((v) => v.aktif);
+    const rataRating = aktif.length ? (aktif.reduce((s, v) => s + (Number(v.rating) || 0), 0) / aktif.length) : 0;
+    wadah.innerHTML = `
+      ${U.kpi({ label: "Vendor Aktif", value: aktif.length, icon: "users", tint: "brand", note: "Sesuai tapisan" })}
+      ${U.kpi({ label: "Rata-rata Rating", value: rataRating ? rataRating.toFixed(1) : "—", icon: "star", tint: "amber", note: "Vendor aktif" })}
+      ${U.kpi({ label: "Kontrak Tetap", value: aktif.filter((v) => v.kontrak_berlaku_sampai).length, icon: "check", tint: "green", note: "Punya tanggal berakhir" })}
+      ${U.kpi({ label: "Total Pekerjaan Tercatat", value: U.num(b.reduce((s, v) => s + (v.jumlah_pekerjaan || 0), 0)), icon: "wrench", tint: "violet", note: "Seluruh riwayat pemeliharaan" })}`;
+  }
+
+  function isiVendor() {
+    const wadah = document.getElementById("vdrDaftar");
+    if (!wadah) return;
+    if (VDR.memuat) { wadah.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (VDR.galat) {
+      wadah.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(VDR.galat.message || "Terjadi kesalahan.")}</span></div></div>`;
+      return;
+    }
+    if (!VDR.baris.length) { wadah.innerHTML = U.emptyState("Tidak ada vendor yang cocok dengan tapisan"); return; }
+
+    wadah.innerHTML = U.table([
+      { t: "Kode", w: "90px", render: (v) => `<span class="mono small">${U.esc(v.kode)}</span>` },
+      { t: "Nama Vendor", render: (v) => `<b>${U.esc(v.nama)}</b>${v.aktif ? "" : ` <span class="badge">Nonaktif</span>`}` },
+      { t: "Kategori", render: (v) => `<span class="badge outline">${U.esc(v.kategori)}</span>` },
+      { t: "PIC", render: (v) => `${U.esc(v.pic.nama || "—")}<div class="tiny faint">${U.esc(v.pic.telepon || "—")}</div>` },
+      { t: "Rating", render: (v) => v.rating == null ? `<span class="faint small">—</span>` : `<span class="badge ${v.rating >= 4.5 ? "green" : "amber"}">★ ${v.rating}</span>` },
+      { t: "Kontrak", render: (v) => v.kontrak_berlaku_sampai ? `<span class="small">Aktif s/d ${U.fdate(v.kontrak_berlaku_sampai, "short")}</span>` : `<span class="small muted">Per Proyek</span>` },
+      { t: "Pekerjaan", cls: "center", render: (v) => U.num(v.jumlah_pekerjaan || 0) },
+      { t: "", cls: "actions", render: (v) => `
+        <button class="icon-btn" onclick="vdrForm(${v.id})">${U.icon("edit", 15)}</button>
+        ${v.aktif ? `<button class="icon-btn" onclick="vdrNonaktifkan(${v.id})">${U.icon("x", 15)}</button>` : ""}` }
+    ], VDR.baris);
+  }
+
   V["vendor"] = {
     title: "Vendor & Mitra",
     sub: "Daftar vendor pendukung fasilitas, event, maintenance, dan kalibrasi.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form vendor baru')">${U.icon("plus")} Tambah Vendor</button>`,
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="vdrForm()">${U.icon("plus")} Tambah Vendor</button>` : "";
+    },
     render() {
-      return U.card("Daftar Vendor", U.toolbar({ ph: "Cari vendor…", filters: [["Semua Kategori"].concat([...new Set(D.vendors.map((v) => v.cat))])] }) +
-        U.table([
-          { t: "Kode", w: "90px", render: (v) => `<span class="mono small">${v.id}</span>` },
-          { t: "Nama Vendor", render: (v) => `<b>${U.esc(v.name)}</b>` },
-          { t: "Kategori", render: (v) => `<span class="badge outline">${U.esc(v.cat)}</span>` },
-          { t: "PIC", render: (v) => `${U.esc(v.pic)}<div class="tiny faint">${U.esc(v.phone)}</div>` },
-          { t: "Rating", render: (v) => `<span class="badge ${v.rating >= 4.5 ? "green" : "amber"}">★ ${v.rating}</span>` },
-          { t: "Kontrak", render: (v) => `<span class="small">${U.esc(v.contract)}</span>` },
-          { t: "", cls: "actions", render: () => `<button class="icon-btn" onclick="UI.demo('Detail vendor')">${U.icon("eye", 15)}</button>` }
-        ], D.vendors), { bodyCls: "flush" });
-    }
+      return `<div class="grid g4 mb-16" id="vdrKpi"></div>
+        <div id="vdrToolbar" class="row wrap gap-8" style="padding:12px 16px;border:1px solid var(--border);border-bottom:none;border-radius:12px 12px 0 0;background:var(--surface)">
+          <input class="input" id="vdrCari" placeholder="Cari nama atau kategori…" style="max-width:260px" onkeydown="if(event.key==='Enter')vdrTerapkanTapis()">
+          <input class="input" id="vdrFilterKategori" placeholder="Kategori (mis. Kalibrasi)" style="max-width:200px" onkeydown="if(event.key==='Enter')vdrTerapkanTapis()">
+          <button class="btn btn-sm" onclick="vdrTerapkanTapis()">Terapkan</button>
+        </div>
+        ${U.card("", `<div id="vdrDaftar"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { VDR.tapis = {}; muatVendor(); }
+  };
+
+  window.vdrTerapkanTapis = function () {
+    VDR.tapis = {
+      cari: document.getElementById("vdrCari").value || undefined,
+      kategori: document.getElementById("vdrFilterKategori").value || undefined
+    };
+    muatVendor();
+  };
+
+  window.vdrForm = function (id) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola vendor hanya bisa setelah masuk dengan akun."); return; }
+    const existing = id ? VDR.baris.find((v) => v.id === id) : null;
+
+    U.drawer({
+      title: existing ? "Ubah Vendor" : "Tambah Vendor",
+      sub: existing ? existing.kode : "Vendor / mitra baru",
+      body: `
+        <div id="vdrFormGalat" class="alert err mb-16" hidden></div>
+        <div class="grid g2 gap-12">
+          <label class="fld"><span>Kode *</span><input class="input" id="vdrKode" value="${existing ? U.esc(existing.kode) : ""}"></label>
+          <label class="fld"><span>Kategori *</span><input class="input" id="vdrKategori" value="${existing ? U.esc(existing.kategori) : ""}" placeholder="mis. Audio Visual"></label>
+        </div>
+        <label class="fld mt-8"><span>Nama Vendor *</span><input class="input" id="vdrNama" value="${existing ? U.esc(existing.nama) : ""}"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Nama PIC</span><input class="input" id="vdrPicNama" value="${existing ? U.esc(existing.pic.nama || "") : ""}"></label>
+          <label class="fld"><span>Telepon PIC</span><input class="input" id="vdrPicTelepon" value="${existing ? U.esc(existing.pic.telepon || "") : ""}"></label>
+        </div>
+        <label class="fld mt-8"><span>Email PIC</span><input type="email" class="input" id="vdrPicEmail" value="${existing ? U.esc(existing.pic.email || "") : ""}"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Rating (0–5)</span><input type="number" min="0" max="5" step="0.1" class="input" id="vdrRating" value="${existing && existing.rating != null ? existing.rating : ""}"></label>
+          <label class="fld"><span>Kontrak Berlaku Sampai</span><input type="date" class="input" id="vdrKontrak" value="${existing ? (existing.kontrak_berlaku_sampai || "") : ""}">
+            <span class="tiny faint">Kosongkan bila per proyek (tanpa kontrak tetap).</span></label>
+        </div>
+        <label class="fld mt-8"><span>Catatan</span><textarea class="input" id="vdrCatatan" rows="3">${existing ? U.esc(existing.catatan || "") : ""}</textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="vdrFormSimpan" onclick="vdrFormSimpan(${id || "null"})">Simpan</button>`
+    });
+  };
+
+  window.vdrFormSimpan = async function (id) {
+    const kotak = document.getElementById("vdrFormGalat");
+    const tombol = document.getElementById("vdrFormSimpan");
+    kotak.hidden = true;
+
+    const rating = document.getElementById("vdrRating").value;
+    const isi = {
+      kode: document.getElementById("vdrKode").value,
+      nama: document.getElementById("vdrNama").value,
+      kategori: document.getElementById("vdrKategori").value,
+      pic_nama: document.getElementById("vdrPicNama").value || null,
+      pic_telepon: document.getElementById("vdrPicTelepon").value || null,
+      pic_email: document.getElementById("vdrPicEmail").value || null,
+      rating: rating === "" ? null : Number(rating),
+      kontrak_berlaku_sampai: document.getElementById("vdrKontrak").value || null,
+      catatan: document.getElementById("vdrCatatan").value || null
+    };
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.vendor.simpan(isi, id);
+      U.closeDrawer();
+      U.toast("Tersimpan", "Vendor berhasil disimpan.");
+      muatVendor();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
+  };
+
+  window.vdrNonaktifkan = async function (id) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola vendor hanya bisa setelah masuk dengan akun."); return; }
+    if (!confirm("Nonaktifkan vendor ini? Riwayat pekerjaan tetap tersimpan.")) return;
+    try {
+      await Repo.vendor.hapus(id);
+      U.toast("Dinonaktifkan", "Vendor dinonaktifkan.");
+      muatVendor();
+    } catch (e) { U.toast("Gagal", e.message || "Tidak dapat menonaktifkan vendor.", "err"); }
   };
 
   V["eventreport"] = {
@@ -1894,10 +2030,17 @@
    *   TANGGAL (`jadwal`/`dikerjakan_pada`), bukan rentang jam tidak
    *   tersedia atau waktu perbaikan. Tidak ada satu pun tempat
    *   menyimpan durasi.
-   * - "Performa Vendor" DIJATUHKAN SEPENUHNYA — tidak ada entitas Vendor
-   *   di server; `pelaksana` pada `AssetMaintenance` adalah teks bebas
-   *   (nama orang/pihak yang mengerjakan), bukan referensi ke tabel
-   *   vendor dengan riwayat rating/biaya yang dapat direkap.
+   * - "Performa Vendor" SEMPAT DIJATUHKAN SEPENUHNYA (tidak ada entitas
+   *   Vendor di server saat itu) — kini DISAMBUNGKAN KEMBALI setelah modul
+   *   Vendor & Mitra ada, memakai jumlah_pekerjaan/total_biaya yang sudah
+   *   dihitung server per vendor (VendorController::index). `pelaksana`
+   *   pada AssetMaintenance tetap teks bebas untuk pekerjaan tanpa vendor
+   *   terdaftar — panel ini murni dari vendor yang PUNYA riwayat pekerjaan
+   *   (vendor_id terisi). Dimuat terpisah dari widget lain: peran yang
+   *   berhak melihat Laporan Maintenance belum tentu berhak melihat
+   *   Vendor & Mitra (mis. lab-technician), jadi kegagalannya tidak boleh
+   *   merusak seluruh laporan — cukup panelnya sendiri yang menampilkan
+   *   pesan tidak berwenang.
    * - "Rincian Work Order" (baris per-pekerjaan) DIJATUHKAN — modul
    *   Pemeliharaan & Kalibrasi yang sudah tersambung penuh menyediakan
    *   daftar yang sama persis dengan cari dan tapis; pola yang sama
@@ -1910,7 +2053,7 @@
    *   tabel — bukan pengulangan, melainkan irisan "apa yang akan datang"
    *   yang berbeda dari daftar lengkap di modul Pemeliharaan & Kalibrasi.
    */
-  const RMT = { ringkasan: null, memuat: true, galat: null };
+  const RMT = { ringkasan: null, memuat: true, galat: null, vendorBaris: null, vendorGalat: null };
 
   async function muatLaporanMaintenance() {
     RMT.memuat = true; RMT.galat = null; isiLaporanMaintenance();
@@ -1925,6 +2068,19 @@
       RMT.ringkasan = { biaya: biaya, aktif: aktif, jenis: jenis, tren: tren, terjadwal: terjadwal };
     } catch (e) { RMT.ringkasan = null; RMT.galat = e.message; }
     finally { RMT.memuat = false; isiLaporanMaintenance(); }
+
+    // Dimuat terpisah — lihat catatan desain di atas fungsi ini.
+    try {
+      RMT.vendorBaris = (await Repo.vendor.daftar({ aktif: true })).data
+        .filter((v) => v.jumlah_pekerjaan > 0)
+        .sort((a, b) => b.jumlah_pekerjaan - a.jumlah_pekerjaan)
+        .slice(0, 8);
+      RMT.vendorGalat = null;
+    } catch (e) {
+      RMT.vendorBaris = null;
+      RMT.vendorGalat = e.status === 403 ? "Tidak berwenang melihat data Vendor & Mitra." : (e.message || "Gagal memuat.");
+    }
+    isiLaporanMaintenance();
   }
 
   function isiLaporanMaintenance() {
@@ -1955,7 +2111,16 @@
         { t: "Keterangan", render: (c) => `<span class="small">${U.esc(c.keterangan)}</span>` },
         { t: "Status", render: (c) => U.badge(c.status === "berjalan" ? "In Progress" : "Scheduled") }
       ], r.terjadwal.baris) : `<div class="empty" style="padding:20px"><span class="small muted">Tidak ada pekerjaan terjadwal dalam 30 hari ke depan.</span></div>`, { bodyCls: "flush",
-        sub: r.terjadwal.terpotong ? `Menampilkan 8 dari ${U.num(r.terjadwal.nilai)}` : undefined })}`;
+        sub: r.terjadwal.terpotong ? `Menampilkan 8 dari ${U.num(r.terjadwal.nilai)}` : undefined })}
+      ${U.card("Performa Vendor", RMT.vendorGalat
+        ? `<div class="alert err" style="margin:16px">${U.icon("alert", 15)}<div><span class="small">${U.esc(RMT.vendorGalat)}</span></div></div>`
+        : (RMT.vendorBaris && RMT.vendorBaris.length ? U.table([
+            { t: "Vendor", render: (v) => `<b class="small">${U.esc(v.nama)}</b><div class="tiny faint">${U.esc(v.kategori)}</div>` },
+            { t: "Rating", render: (v) => v.rating == null ? `<span class="faint small">—</span>` : `<span class="badge ${v.rating >= 4.5 ? "green" : "amber"}">★ ${v.rating}</span>` },
+            { t: "Jumlah Pekerjaan", cls: "center", render: (v) => U.num(v.jumlah_pekerjaan) },
+            { t: "Total Biaya", cls: "right", render: (v) => U.rp(v.total_biaya || 0) }
+          ], RMT.vendorBaris) : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada vendor dengan riwayat pekerjaan.</span></div>`),
+        { bodyCls: "flush", sub: "Vendor dengan riwayat pekerjaan (vendor_id terisi), diurutkan dari yang paling sering dikerjakan" })}`;
   }
 
   V["reportmaint"] = {

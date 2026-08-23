@@ -27,7 +27,8 @@ const SUITES = [
   ['laporanruangan', 'Laporan Ruangan tersambung: angka DataWidget yang sama dengan Dashboard, rekap per ruangan'],
   ['laporanalat', 'Laporan Alat tersambung: kepatuhan kalibrasi (widget baru), alat paling sering dipinjam'],
   ['laporanpenyewaan', 'Laporan Penyewaan tersambung: seluruhnya lewat widget yang sudah ada, tanpa perubahan backend'],
-  ['laporanmaintenance', 'Laporan Maintenance tersambung: biaya & jadwal dari widget, Performa Vendor dijatuhkan']
+  ['laporanmaintenance', 'Laporan Maintenance tersambung: biaya & jadwal dari widget, panel Vendor gagal anggun tanpa izin'],
+  ['vendor', 'Vendor & Mitra tersambung: CRUD sungguhan, nonaktifkan bukan hapus, Performa Vendor tersambung kembali di Laporan Maintenance']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

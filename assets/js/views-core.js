@@ -235,30 +235,173 @@ window.VIEWS = window.VIEWS || {};
     return `<div class="tl"><div class="tl-inner">${head}${body}</div></div>`;
   }
 
+  /* =======================================================================
+     ROOM AVAILABILITY — tersambung ke basis data
+
+     Memakai DUA endpoint yang sudah ada, bukan endpoint baru: Repo.ruangan
+     (daftar ruangan + status_ruangan-nya) dan Repo.booking (daftar
+     pemesanan hari terpilih, `sejak`/`sampai`/`hanya_aktif` — pola yang
+     sama dengan Kalender Terpadu). KPI dan timeline dihitung di sini dari
+     kedua sumber itu, bukan dari endpoint ketersediaan-rentang (yang
+     dirancang untuk wizard, bukan papan ketersediaan harian).
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - KPI "Booked"/"Pending"/"Reserved" (status ruangan bertumpuk purwarupa)
+       DIJATUHKAN — server hanya mengenal status ruangan `tersedia`/
+       `pemeliharaan`/`tidak_aktif` (properti ruangannya sendiri, terpisah
+       dari sedang dipakai/tidaknya saat ini). Diganti "Sedang Digunakan"
+       (dihitung dari booking yang mulai≤sekarang<selesai) dan "Menunggu
+       Persetujuan" — dua hal yang genuinely dapat dihitung dan berbeda
+       maknanya, bukan sinonim status ruangan yang dipecah jadi lima label.
+     - "Timeline Laboratorium" purwarupa DIJATUHKAN — laboratorium tidak
+       punya mekanisme pemesanan sendiri di server (catatan yang sama
+       dengan Kalender Terpadu dan Dashboard).
+     - Legenda diubah dari jenis resource (Ruangan/Lab/Event) menjadi
+       status booking sungguhan (Menunggu/Disetujui/Berlangsung/
+       Pemeliharaan) — itulah yang benar-benar membedakan warna blok.
+     ======================================================================= */
+
+  const AVL = { tanggal: D.shift(0), rooms: null, bookings: null, memuat: false, galat: null };
+
+  const STATUS_BOOK_TONE = {
+    menunggu: "ev-amber", disetujui: "ev-blue", berlangsung: "ev-teal",
+    selesai: "ev-green", ditolak: "ev-red", dibatalkan: "ev-red"
+  };
+
+  window.avlSetTanggal = function (v) {
+    AVL.tanggal = v || D.shift(0);
+    muatAvailability();
+  };
+
+  async function muatAvailability() {
+    if (!window.Repo || !Repo.dapatMenulis()) { AVL.rooms = null; AVL.bookings = null; isiAvailability(); return; }
+
+    AVL.memuat = true; AVL.galat = null; isiAvailability();
+    try {
+      const [rooms, bookings] = await Promise.all([
+        Repo.ruangan.daftar(),
+        Repo.booking.daftar({ sejak: AVL.tanggal, sampai: AVL.tanggal, hanya_aktif: 1 })
+      ]);
+      AVL.rooms = rooms.data || [];
+      AVL.bookings = bookings.data || [];
+      // Supaya showBooking(id) yang dipanggil dari blok timeline di sini
+      // dapat menemukan barisnya — drawer detail booking sudah ada dan
+      // teruji, bukan disalin ulang di sini.
+      BOOK.baris = AVL.bookings;
+    } catch (e) { AVL.rooms = null; AVL.bookings = null; AVL.galat = e.message; }
+    finally { AVL.memuat = false; isiAvailability(); }
+  }
+
+  function isiRingkasanAvailability() {
+    const w = document.getElementById("avlKpi");
+    if (!w) return;
+    if (!AVL.rooms) { w.innerHTML = ""; return; }
+
+    const sekarang = new Date();
+    const hariIni = AVL.tanggal === D.shift(0);
+    const sedangDipakai = new Set();
+    let menunggu = 0;
+    AVL.bookings.forEach((b) => {
+      if (b.status.kode === "menunggu") menunggu++;
+      if (hariIni && b.status.kode !== "menunggu" && b.ruangan) {
+        const m = new Date(b.mulai), s = new Date(b.selesai);
+        if (m <= sekarang && s > sekarang) sedangDipakai.add(b.ruangan.id);
+      }
+    });
+    const pemeliharaan = AVL.rooms.filter((r) => r.status.kode === "pemeliharaan").length;
+    const tersedia = AVL.rooms.filter((r) => r.status.kode === "tersedia" && !sedangDipakai.has(r.id)).length;
+
+    w.innerHTML = `
+      ${U.kpi({ label: "Tersedia Sekarang", value: tersedia, icon: "check", tint: "green", note: "dari " + AVL.rooms.length + " ruangan" })}
+      ${U.kpi({ label: "Sedang Digunakan", value: sedangDipakai.size, icon: "calendar", tint: "brand", note: hariIni ? "saat ini" : "hanya untuk hari ini" })}
+      ${U.kpi({ label: "Menunggu Persetujuan", value: menunggu, icon: "clock", tint: "amber", note: "pada tanggal terpilih" })}
+      ${U.kpi({ label: "Pemeliharaan", value: pemeliharaan, icon: "wrench", tint: "violet", note: "tidak dapat dipesan" })}
+      ${U.kpi({ label: "Total Booking", value: AVL.bookings.length, icon: "grid", tint: "slate", note: U.fdate(AVL.tanggal, "short") })}`;
+  }
+
+  function timelineServerHTML(rooms, bookings) {
+    const H0 = HOURS[0], H1 = HOURS[HOURS.length - 1] + 1, span = H1 - H0;
+    const pos = (iso) => { const d = new Date(iso); return ((d.getHours() + d.getMinutes() / 60 - H0) / span) * 100; };
+    const byRoom = {};
+    bookings.forEach((b) => { if (b.ruangan) (byRoom[b.ruangan.id] = byRoom[b.ruangan.id] || []).push(b); });
+
+    const head = `<div class="tl-row tl-head">
+      <div class="tl-label"><b class="small">Ruangan</b></div>
+      <div class="tl-slots" style="grid-template-columns:repeat(${span},1fr)">
+        ${HOURS.map((h) => `<div class="tl-hour">${String(h).padStart(2, "0")}:00</div>`).join("")}
+      </div></div>`;
+
+    const body = rooms.map((r) => {
+      const evs = byRoom[r.id] || [];
+      const pemeliharaan = r.status.kode === "pemeliharaan";
+      const blocks = evs.map((b) => {
+        // Dijepit ke rentang tampilan (HOURS) — booking di luar jam kerja
+        // yang ditampilkan (mis. sebelum 07:00) tetap tampil sebagai blok
+        // di tepi timeline, bukan lolos ke posisi negatif yang keluar dari
+        // kartunya sendiri dan tertimpa elemen lain di halaman.
+        const l = Math.max(0, Math.min(100, pos(b.mulai)));
+        const w = Math.max(2, Math.min(100, pos(b.selesai)) - l);
+        return `<div class="tl-block ${STATUS_BOOK_TONE[b.status.kode] || "ev-slate"}" style="left:${l}%;width:${w}%" onclick="showBooking('${U.esc(String(b.id))}')"
+          title="${U.esc(b.keperluan)} (${jamDari(b.mulai)}–${jamDari(b.selesai)}) — ${U.esc(b.status.nama)}">${jamDari(b.mulai)}–${jamDari(b.selesai)} · ${U.esc(b.keperluan)}</div>`;
+      }).join("") + (pemeliharaan ? `<div class="tl-block ev-violet" style="left:0;width:100%">${U.icon("wrench", 12)} Pemeliharaan</div>` : "");
+      return `<div class="tl-row">
+        <div class="tl-label">
+          <div class="kpi-ico tint-${r.jenis === "Auditorium" ? "violet" : "brand"}" style="width:26px;height:26px;flex:0 0 26px">${U.icon(r.jenis === "Auditorium" ? "star" : "building", 13)}</div>
+          <div style="min-width:0"><div class="rname trunc">${U.esc(r.nama)}</div><div class="rmeta">${U.esc(r.kode)} • ${r.kapasitas || 0} pax</div></div>
+        </div>
+        <div class="tl-slots" style="grid-template-columns:repeat(${span},1fr)">
+          <div class="tl-track" style="grid-column:1/-1;position:relative">
+            ${HOURS.map((h, i) => `<div class="gridline" style="left:${((i + 1) / span) * 100}%"></div>`).join("")}
+            ${blocks}
+          </div>
+        </div></div>`;
+    }).join("");
+
+    return `<div class="tl"><div class="tl-inner">${head}${body}</div></div>`;
+  }
+
+  const LEGENDA_AVAILABILITY = `<div class="legend">
+    <span><i style="background:var(--amber-100)"></i>Menunggu</span>
+    <span><i style="background:var(--brand-50)"></i>Disetujui</span>
+    <span><i style="background:var(--teal-100)"></i>Berlangsung</span>
+    <span><i style="background:var(--violet-100)"></i>Pemeliharaan</span></div>`;
+
+  function isiAvailability() {
+    const host = document.getElementById("avlHost");
+    if (!host) return;
+    isiRingkasanAvailability();
+
+    // Mode purwarupa: timelineHTML() sudah membaca D.bookings sendiri,
+    // termasuk memfilter berdasarkan tanggal yang dipilih — jadi pemilih
+    // tanggal di atas TETAP berfungsi walau belum masuk dengan akun.
+    if (!window.Repo || !Repo.dapatMenulis()) {
+      host.innerHTML = U.card("Timeline Ketersediaan — " + U.fdate(AVL.tanggal, "long"), timelineHTML(D.rooms, AVL.tanggal), {
+        sub: "Klik blok untuk melihat detail booking",
+        tools: `<div class="legend">
+          <span><i style="background:var(--brand-400)"></i>Ruangan</span>
+          <span><i style="background:var(--violet-500)"></i>Event</span>
+          <span><i style="background:var(--amber-500)"></i>Maintenance</span></div>`
+      });
+      return;
+    }
+
+    if (AVL.memuat) { host.innerHTML = `<div class="card"><div class="card-body" style="padding:48px;text-align:center"><span class="muted">Memuat ketersediaan…</span></div></div>`; return; }
+    if (AVL.galat) { host.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(AVL.galat)}</span></div></div>`; return; }
+    if (!AVL.rooms.length) { host.innerHTML = U.emptyState("Belum ada ruangan terdaftar", "Daftarkan lewat Master Data Ruangan."); return; }
+
+    host.innerHTML = U.card("Timeline Ketersediaan — " + U.fdate(AVL.tanggal, "long"), timelineServerHTML(AVL.rooms, AVL.bookings), {
+      sub: "Klik blok untuk melihat detail booking",
+      tools: LEGENDA_AVAILABILITY
+    });
+  }
+
   V["availability"] = {
     title: "Room Availability",
     sub: "Papan ketersediaan real-time seluruh ruangan dengan deteksi benturan jadwal.",
-    actions: `<input type="date" class="input" style="width:auto" value="${D.shift(0)}" onchange="UI.demo('Tanggal diubah ke '+this.value)">
+    actions: `<input type="date" class="input" style="width:auto" id="avlTanggal" value="${D.shift(0)}" onchange="avlSetTanggal(this.value)">
               <button class="btn btn-primary btn-sm" onclick="location.hash='#/booking/new'">${U.icon("plus")} Booking</button>`,
-    render() {
-      const stat = ["Available", "Booked", "Pending", "Maintenance", "Reserved"];
-      const counts = {}; stat.forEach((s) => counts[s] = D.rooms.filter((r) => r.status === s).length);
-      return `
-        <div class="grid g5 mb-16">
-          ${stat.map((s, i) => U.kpi({ label: s, value: counts[s], icon: ["check", "calendar", "clock", "wrench", "shield"][i], tint: ["green", "brand", "amber", "violet", "slate"][i], note: "dari " + D.rooms.length + " ruangan" })).join("")}
-        </div>
-        ${U.card("Timeline Ketersediaan — " + U.fdate(D.shift(0), "long"), timelineHTML(D.rooms, D.shift(0)), {
-          sub: "Klik blok untuk melihat detail booking",
-          tools: `<div class="legend">
-            <span><i style="background:var(--brand-400)"></i>Ruangan</span>
-            <span><i style="background:var(--teal-500)"></i>Lab</span>
-            <span><i style="background:var(--violet-500)"></i>Event</span>
-            <span><i style="background:var(--amber-500)"></i>Maintenance</span></div>`
-        })}
-        <div class="mt-16">
-        ${U.card("Timeline Laboratorium", timelineHTML(D.labs, D.shift(0)), { sub: "Jadwal penggunaan laboratorium hari ini" })}
-        </div>`;
-    }
+    render() { return `<div class="grid g5 mb-16" id="avlKpi"></div><div id="avlHost"></div>`; },
+    mount() { AVL.tanggal = D.shift(0); muatAvailability(); }
   };
 
   /* =======================================================================

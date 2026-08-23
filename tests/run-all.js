@@ -30,7 +30,8 @@ const SUITES = [
   ['laporanmaintenance', 'Laporan Maintenance tersambung: biaya & jadwal dari widget, panel Vendor gagal anggun tanpa izin'],
   ['vendor', 'Vendor & Mitra tersambung: CRUD sungguhan, nonaktifkan bukan hapus, Performa Vendor tersambung kembali di Laporan Maintenance'],
   ['assetaudit', 'Audit Aset tersambung: sesi & pemindaian sungguhan, "Belum Diaudit" berganti label "Tidak Ditemukan" saat sesi ditutup'],
-  ['equipment', 'Manajemen Alat Laboratorium tersambung: memakai Aset & BMN yang sama, disaring wajib_kalibrasi, riwayat kalibrasi/maintenance/penggunaan sungguhan']
+  ['equipment', 'Manajemen Alat Laboratorium tersambung: memakai Aset & BMN yang sama, disaring wajib_kalibrasi, riwayat kalibrasi/maintenance/penggunaan sungguhan'],
+  ['availability', 'Room Availability tersambung: timeline & KPI dari Repo.ruangan + Repo.booking yang sudah ada, klik blok membuka detail booking sungguhan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

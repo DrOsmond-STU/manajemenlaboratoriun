@@ -1553,6 +1553,36 @@ Audit Aset — stock opname, modul baru:
   `kalibrasi.kedaluwarsa` ("Kalibrasi Kedaluwarsa") — reuse widget,
   bukan endpoint baru.
 
+- **Room Availability disambungkan TANPA SATU PUN perubahan backend** —
+  memakai `Repo.ruangan.daftar()` (daftar ruangan + `status_ruangan`)
+  dan `Repo.booking.daftar({sejak, sampai, hanya_aktif})` (pola query
+  yang sama dengan Kalender Terpadu) berdampingan, dihitung ulang di
+  frontend menjadi timeline + KPI. Komentar lama di `views-core.js` yang
+  bilang layar ini "sudah tidak dapat difungsikan" kini tidak berlaku
+  lagi.
+- **KPI "Booked"/"Pending"/"Reserved" purwarupa (status ruangan yang
+  dipecah jadi lima label) DIJATUHKAN** — server hanya mengenal status
+  ruangan `tersedia`/`pemeliharaan`/`tidak_aktif` (properti ruangan itu
+  sendiri), terpisah sepenuhnya dari sedang-dipakai-atau-tidaknya saat
+  ini. Diganti "Sedang Digunakan" (dihitung dari booking aktif yang
+  mulai≤sekarang<selesai) dan "Menunggu Persetujuan" — dua hal yang
+  genuinely berbeda maknanya dan dapat dihitung dari data yang ada,
+  bukan sinonim satu status ruangan yang dipecah jadi lima label warna.
+- **"Timeline Laboratorium" purwarupa DIJATUHKAN** — alasan yang SAMA
+  PERSIS dengan Kalender Terpadu dan Dashboard: laboratorium tidak
+  punya mekanisme pemesanan sendiri di server.
+- **Blok timeline dijepit ke rentang tampilan (07:00–19:00)** — booking
+  di luar jam itu (jarang, tapi mungkin) tetap tampil di tepi timeline,
+  bukan lolos ke posisi negatif yang keluar dari kartunya sendiri dan
+  menimpa elemen lain di halaman (ditemukan lewat pengujian otomatis,
+  bukan laporan pengguna).
+- **Klik blok timeline membuka drawer detail booking yang SUDAH ADA**
+  (`showBooking()`, dipakai juga oleh layar Booking Ruangan) — bukan
+  drawer baru yang menyalin ulang markupnya. Booking hari terpilih
+  disimpan ke state modul Booking sebelum dirender, supaya `showBooking`
+  dapat menemukan barisnya persis seperti dipanggil dari layarnya
+  sendiri.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

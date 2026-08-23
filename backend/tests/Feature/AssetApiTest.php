@@ -334,6 +334,28 @@ class AssetApiTest extends TestCase
             ->assertJsonPath('data.disposal.jumlah', 1);
     }
 
+    public function test_daftar_aset_per_halaman_dapat_diperbesar_dan_dibatasi(): void
+    {
+        $this->kodeBarang();
+        Asset::factory()->kodeBarang('3.08.01.03.001')->count(30)->create();
+
+        $user = $this->penggunaBerperan('asset-manager');
+
+        // Bawaan tetap 25 tanpa parameter — dipakai layar lain yang tidak
+        // ingin membebani permintaannya.
+        $this->actingAs($user)->getJson('/api/assets')
+            ->assertOk()->assertJsonCount(25, 'data');
+
+        $this->actingAs($user)->getJson('/api/assets?per_halaman=30')
+            ->assertOk()->assertJsonCount(30, 'data');
+
+        // Diminta 500, dibatasi 200 — bukan ditolak, bukan diam-diam
+        // dituruti mentah-mentah.
+        $this->actingAs($user)->getJson('/api/assets?per_halaman=500')
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 200);
+    }
+
     public function test_ringkasan_menyusun_komposisi_per_kode_barang(): void
     {
         $this->kodeBarang('3.08.01.03.001');

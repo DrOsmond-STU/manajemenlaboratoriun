@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-522 uji lulus, 1.550 asersi, 0 gagal — dijalankan di PostgreSQL 16
+523 uji lulus, 1.556 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -508,6 +508,9 @@ sama dengan Register BMN:
 | Feed mutasi tamu ditolak | `401`, konsisten dengan seluruh endpoint aset lainnya |
 | **Ringkasan menghitung jumlah & nilai buku aset "Dihapuskan"** | dipakai KPI "Aset Dihapuskan" pada Laporan Aset |
 | **Komposisi per kode barang diurutkan terbanyak dahulu** | itulah yang pertama ingin dilihat pengelola aset, bukan urutan abjad |
+| Bawaan tetap 25 per halaman tanpa parameter | layar lain tidak ikut terbebani permintaan yang lebih berat |
+| `per_halaman` dapat diperbesar | dipakai Studio Label & Barcode untuk memuat barang yang dapat dipilih |
+| **`per_halaman` diminta 500, dibatasi 200** | permintaan berlebihan dituruti sebagian dengan batas jelas, bukan ditolak atau dituruti mentah-mentah |
 
 Master data laboratorium:
 
@@ -1200,6 +1203,31 @@ memuatnya. Tanpa uji yang memeriksa nilai identitasnya — bukan sekadar status
   `AssetService::hapus()`). Kolom ini bebas teks di luar itu, sehingga
   hanya nilai baku inilah yang dapat dihitung dengan pasti sebagai "sudah
   dihapuskan" tanpa menebak-nebak kalimat bebas lain yang mungkin dipakai.
+
+- **Studio Label & Barcode kini mencetak label untuk ASET SUNGGUHAN, bukan
+  lagi delapan barang contoh purwarupa yang tetap sama.** Bug yang
+  ditemukan saat menyambungkan modul lain: `allItems()` di layar ini
+  selalu membaca `D.equipment.concat(D.assets)` tanpa syarat — bahkan di
+  mode sungguhan setelah ratusan aset didaftarkan lewat Register BMN,
+  Studio Label tetap hanya menampilkan delapan barang contoh yang tertanam
+  di kode, karena tidak pernah sekalipun membaca `Repo.aset`. Sebuah
+  satuan kerja yang sudah mendaftarkan seluruh inventarisnya tidak akan
+  pernah bisa mencetak labelnya lewat layar ini.
+- **Diperbaiki dengan memetakan hasil `Repo.aset.daftar()` ke bentuk item
+  label lama (`asetAsliKeItemLabel()`), bukan menulis ulang fungsi cetak
+  label.** `fieldVal()`, `payloadFor()`, `labelInternalHTML()`,
+  `labelBmnHTML()` — seluruh kode cetak label yang sudah teruji dan
+  dipakai bersama mode purwarupa tidak disentuh sama sekali. `lab`/`room`/
+  `pic` sengaja diisi NAMA yang sudah diselesaikan (bukan id) karena
+  `D.resName()`/`D.personName()` sudah punya jalur mundur "kembalikan
+  apa adanya bila tidak ditemukan di purwarupa" — nama aset sungguhan
+  lolos utuh tanpa perlu mengubah kedua fungsi pembantu itu.
+- **`AssetController::index` menerima `per_halaman` (dibatasi 200) untuk
+  kebutuhan ini** — Studio Label perlu daftar barang yang dapat dipilih
+  lewat centang, bukan satu halaman 25 baris. Bila daftar aset melebihi
+  200, pengguna diberi tahu apa adanya ("Menampilkan 200 dari N aset")
+  alih-alih diam-diam terlihat seolah itu seluruh inventaris — pencarian
+  lewat Register BMN tetap tersedia untuk aset di luar 200 itu.
 
 ---
 

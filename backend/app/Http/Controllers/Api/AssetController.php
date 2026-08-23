@@ -75,7 +75,16 @@ class AssetController extends Controller
             $query->where('kode_barang', 'like', $request->string('kode_barang')->toString().'%');
         }
 
-        return AssetResource::collection($query->paginate(25));
+        // Halaman lebih besar dari 25 dilayani bila diminta eksplisit —
+        // dipakai Studio Label & Barcode yang perlu daftar barang untuk
+        // dipilih, bukan hanya satu halaman. Dibatasi 200: cukup untuk
+        // hampir seluruh satuan kerja laboratorium, dan bukan tarikan tak
+        // terbatas ke satu permintaan.
+        $ukuranHalaman = $request->filled('per_halaman')
+            ? max(1, min(200, $request->integer('per_halaman')))
+            : 25;
+
+        return AssetResource::collection($query->paginate($ukuranHalaman));
     }
 
     public function store(StoreAssetRequest $request): JsonResponse

@@ -11,8 +11,17 @@
   const KOND = { B: "Baik", RR: "Rusak Ringan", RB: "Rusak Berat" };
   const kondTone = { B: "green", RR: "amber", RB: "red" };
 
-  /** Seluruh objek ber-BMN: alat laboratorium + aset penunjang. */
-  const allItems = () => D.equipment.concat(D.assets);
+  /**
+   * Seluruh objek ber-BMN: alat laboratorium + aset penunjang.
+   *
+   * Tersambung ke server (lihat muatAsetUntukLabel()): begitu aset
+   * sungguhan sudah dimuat, Studio Label mencetak label untuk barang yang
+   * BENAR-BENAR terdaftar — bukan lagi delapan barang contoh purwarupa
+   * yang tetap sama walau ratusan aset sudah didaftarkan lewat Register
+   * BMN. Sebelum termuat (atau di mode contoh), tetap memakai purwarupa
+   * supaya layarnya tidak pernah kosong.
+   */
+  const allItems = () => (window.Repo && Repo.dapatMenulis() && LBL.aset) ? LBL.aset : D.equipment.concat(D.assets);
   const findItem = (id) => allItems().find((x) => x.id === id);
 
   /* =======================================================================
@@ -1082,7 +1091,10 @@
     tplIndex: 0,
     tpl: JSON.parse(JSON.stringify(D.labelTemplates[0])),
     sel: {},                       // id item terpilih
-    bmn: { w: 60, h: 30, showQr: true }
+    bmn: { w: 60, h: 30, showQr: true },
+    aset: null,                    // aset sungguhan, dipetakan ke bentuk item label — null = belum termuat
+    asetTotal: 0,
+    asetMemuat: false
   };
   D.equipment.slice(0, 8).forEach((e) => { LBL.sel[e.id] = true; });
 
@@ -1090,14 +1102,94 @@
     [33, 15], [38, 21], [50, 25], [60, 30], [70, 35], [100, 50]
   ];
 
+  /**
+   * Satu aset sungguhan (bentuk AssetResource) → bentuk item label lama.
+   *
+   * Studio Label ditulis lebih dulu untuk purwarupa, dengan medan seperti
+   * `it.bmn.kodeLokasi`/`it.lab`/`it.pic` — dipetakan di sini alih-alih
+   * menulis ulang seluruh fieldVal()/payloadFor()/labelBmnHTML() memakai
+   * nama medan server, supaya kode cetak label yang sudah teruji (dan
+   * berbagi dengan mode purwarupa) tidak perlu disentuh sama sekali.
+   *
+   * `lab`/`room`/`pic` sengaja diisi NAMA yang sudah diselesaikan, bukan id
+   * — D.resName()/D.personName() punya jalur mundur "kembalikan apa
+   * adanya bila tidak ditemukan di purwarupa", sehingga nama aset
+   * sungguhan lolos utuh tanpa perlu mengubah kedua fungsi itu.
+   */
+  function asetAsliKeItemLabel(a) {
+    return {
+      id: a.id,
+      kodeInternal: a.kode_internal,
+      name: a.nama,
+      brand: a.merk,
+      model: a.tipe,
+      sn: a.serial_number,
+      lab: a.laboratorium ? a.laboratorium.nama : null,
+      room: a.ruangan ? a.ruangan.nama : null,
+      pic: a.penanggung_jawab ? a.penanggung_jawab.nama : null,
+      bmnId: a.bmn.id,
+      bmn: {
+        kodeLokasi: a.bmn.kode_lokasi,
+        kodeBarang: a.bmn.kode_barang,
+        uraianBarang: a.bmn.uraian_barang,
+        nup: a.bmn.nup,
+        nupFmt: a.bmn.nup_fmt,
+        kib: a.bmn.kib,
+        thnPerolehan: (a.perolehan.tanggal || "").slice(0, 4),
+        kondisi: a.kondisi.kode,
+        nilaiPerolehan: a.penyusutan.nilai_perolehan
+      }
+    };
+  }
+
+  /**
+   * Dimuat sekali saat Studio Label dibuka di mode sungguhan.
+   *
+   * Dibatasi 200 aset (lihat AssetController::index, param `per_halaman`)
+   * — cukup untuk hampir seluruh satuan kerja laboratorium, dan bukan
+   * tarikan tak terbatas ke satu layar pemilihan checkbox. Bila terpotong,
+   * pengguna diberi tahu apa adanya (lihat isiCatatanAset()) — bukan diam
+   * seolah itu sudah seluruh aset.
+   */
+  async function muatAsetUntukLabel() {
+    if (!window.Repo || !Repo.dapatMenulis() || LBL.aset || LBL.asetMemuat) return;
+    LBL.asetMemuat = true;
+    try {
+      const j = await Repo.aset.daftar({ per_halaman: 200 });
+      LBL.aset = (j.data || []).map(asetAsliKeItemLabel);
+      LBL.asetTotal = j.total || LBL.aset.length;
+    } catch (e) {
+      LBL.aset = [];
+      LBL.asetTotal = 0;
+    } finally {
+      LBL.asetMemuat = false;
+      if (document.getElementById("viewBody")) lblRerender();
+    }
+  }
+
   V["barcode"] = {
     title: "Studio Label & Barcode",
     sub: "Cetak label BMN sesuai format baku, dan label internal yang isi serta ukurannya diatur sendiri.",
     actions: `<button class="btn btn-sm" onclick="lblLoadTpl()">${U.icon("box")} Template</button>
               <button class="btn btn-sm" onclick="lblSaveTpl()">${U.icon("check")} Simpan Template</button>
               <button class="btn btn-primary btn-sm" onclick="lblPrint()">${U.icon("print")} Cetak</button>`,
-    render() { return lblHTML(); }
+    render() { return lblHTML(); },
+    mount() { muatAsetUntukLabel(); }
   };
+
+  /** Catatan status sumber data di atas panel "Pilih Barang". */
+  function lblCatatanSumber() {
+    if (!window.Repo || !Repo.dapatMenulis()) return "";
+    if (LBL.asetMemuat) return `<div class="tiny faint mb-8">${U.icon("clock", 12)} Memuat aset terdaftar…</div>`;
+    if (!LBL.aset) return "";
+    if (!LBL.aset.length) {
+      return `<div class="tiny faint mb-8">Belum ada aset terdaftar — daftarkan lewat Register BMN.</div>`;
+    }
+    return LBL.asetTotal > LBL.aset.length
+      ? `<div class="tiny faint mb-8">Menampilkan ${LBL.aset.length} dari ${U.num(LBL.asetTotal)} aset terdaftar —
+          gunakan pencarian di Register BMN untuk aset lain di luar daftar ini.</div>`
+      : `<div class="tiny faint mb-8">${U.num(LBL.aset.length)} aset terdaftar.</div>`;
+  }
 
   window.lblOpenFor = function (id) {
     Object.keys(LBL.sel).forEach((k) => delete LBL.sel[k]);
@@ -1119,6 +1211,7 @@
       <div class="lbl-page">
         <div class="col gap-16">
           ${U.card("Pilih Barang", `
+            ${lblCatatanSumber()}
             <div class="tbl-search mb-10">${U.icon("search", 15, "faint")}
               <input placeholder="Cari barang…" oninput="lblFilter(this.value)"></div>
             <div class="row gap-6 mb-10">

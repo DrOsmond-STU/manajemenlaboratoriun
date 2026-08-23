@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AssetAuditController;
 use App\Http\Controllers\Api\AssetController;
 use App\Http\Controllers\Api\AuditController;
 use App\Http\Controllers\Api\AuthController;
@@ -313,6 +314,22 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:aset.ubah')->name('assets.foto.utama');
     Route::delete('assets/{asset}/foto/{foto}', [FotoAsetController::class, 'destroy'])
         ->middleware('can:aset.ubah')->name('assets.foto.destroy');
+
+    // --- Audit Aset (stock opname) -------------------------------------------
+    // Izinnya modul TERSENDIRI (`audit-aset`), bukan `aset` — lihat docblock
+    // MatriksAkses::MODUL. Jangan tertukar dengan `audit` (Jejak Audit di
+    // atas): itu jejak perubahan data yang dicatat OTOMATIS oleh sistem;
+    // ini sesi stock opname yang DIJALANKAN MANUAL oleh staf di lapangan.
+    Route::get('audit-aset', [AssetAuditController::class, 'index'])
+        ->middleware('can:audit-aset.lihat');
+    Route::post('audit-aset', [AssetAuditController::class, 'store'])
+        ->middleware('can:audit-aset.buat');
+    Route::get('audit-aset/{sesi}', [AssetAuditController::class, 'show'])
+        ->middleware('can:audit-aset.lihat');
+    Route::post('audit-aset/{sesi}/scan', [AssetAuditController::class, 'scan'])
+        ->middleware('can:audit-aset.ubah')->name('audit-aset.scan');
+    Route::post('audit-aset/{sesi}/tutup', [AssetAuditController::class, 'tutup'])
+        ->middleware('can:audit-aset.ubah')->name('audit-aset.tutup');
 
     // --- Master kode barang ----------------------------------------------
     // Hanya baca; diperlukan pemilih kode saat mendaftarkan aset, sehingga

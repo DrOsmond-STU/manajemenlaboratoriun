@@ -28,7 +28,8 @@ const SUITES = [
   ['laporanalat', 'Laporan Alat tersambung: kepatuhan kalibrasi (widget baru), alat paling sering dipinjam'],
   ['laporanpenyewaan', 'Laporan Penyewaan tersambung: seluruhnya lewat widget yang sudah ada, tanpa perubahan backend'],
   ['laporanmaintenance', 'Laporan Maintenance tersambung: biaya & jadwal dari widget, panel Vendor gagal anggun tanpa izin'],
-  ['vendor', 'Vendor & Mitra tersambung: CRUD sungguhan, nonaktifkan bukan hapus, Performa Vendor tersambung kembali di Laporan Maintenance']
+  ['vendor', 'Vendor & Mitra tersambung: CRUD sungguhan, nonaktifkan bukan hapus, Performa Vendor tersambung kembali di Laporan Maintenance'],
+  ['assetaudit', 'Audit Aset tersambung: sesi & pemindaian sungguhan, "Belum Diaudit" berganti label "Tidak Ditemukan" saat sesi ditutup']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

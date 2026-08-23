@@ -1648,9 +1648,86 @@
     }
   };
 
+  /* --------------------------------------------------------- audit aset */
+  /*
+     Stock opname: keberadaan fisik aset dibandingkan catatan Register BMN.
+     "Tidak ditemukan" TIDAK disimpan sebagai baris — ia selisih populasi
+     dikurangi yang sudah dipindai (lihat AssetAuditService di server).
+     Selama sesi masih berjalan, selisih itu ditampilkan sebagai "belum
+     diaudit"; begitu sesi ditutup, angka yang SAMA berubah label jadi
+     "tidak ditemukan".
+
+     Layar ini menampilkan SATU sesi "berjalan" saat ini (yang terbaru),
+     bukan pemilih di antara banyak sesi — pola yang sama dengan Laporan
+     Ruangan menampilkan periode berjalan, bukan pemilih periode.
+  */
+
+  function auditAsetDariPurwarupa() {
+    return {
+      id: "demo", nama: "Audit Semester I 2026",
+      mulai: D.shift(-30), target_selesai: D.shift(14),
+      status: { kode: "berjalan", nama: "Berjalan" },
+      selesai_pada: null, pembuat: null, catatan: null,
+      ringkasan: {
+        total_aset: 1284, sudah_diverifikasi: 1147,
+        sesuai: 1118, lokasi_berbeda: 17, kondisi_berbeda: 6,
+        belum_diaudit: 137, tidak_ditemukan: 6,
+        per_gedung: [
+          { gedung: "Gedung A — Riset", persentase: 94 },
+          { gedung: "Gedung B — Perkantoran", persentase: 91 },
+          { gedung: "Gedung C — Auditorium", persentase: 88 },
+          { gedung: "Gedung D — Workshop", persentase: 76 },
+          { gedung: "Gudang Pusat", persentase: 82 }
+        ]
+      },
+      temuan: [
+        { id: 1, aset: { nama: "Laptop Lenovo ThinkPad T14", kode_internal: "AST-IT-0139" },
+          lokasi: { tercatat: "GB-2 / MR-001", ditemukan: "Workshop Servis" },
+          temuan: { kode: "lokasi_berbeda", nama: "Lokasi berbeda" }, auditor: { nama: "Siti Nurhaliza" } },
+        { id: 2, aset: { nama: "Meja Rapat Modular 16 Seat", kode_internal: "AST-FR-0142" },
+          lokasi: { tercatat: "GB-2 / MR-001", ditemukan: "GD-1 / WS-001" },
+          temuan: { kode: "lokasi_berbeda", nama: "Lokasi berbeda" }, auditor: { nama: "Siti Nurhaliza" } },
+        { id: 3, aset: { nama: "Monitor Dell 24\" (2 unit)", kode_internal: "AST-IT-0094" },
+          lokasi: { tercatat: "GA-3 / LAB-006", ditemukan: "GA-3 / LAB-003" },
+          temuan: { kode: "lokasi_berbeda", nama: "Lokasi berbeda" }, auditor: { nama: "Bayu Prakoso" } },
+        { id: 4, aset: { nama: "AC Presisi 5PK Precision", kode_internal: "AST-HV-0135" },
+          lokasi: { tercatat: "GA-3 / LAB-003", ditemukan: "GA-3 / LAB-003" },
+          temuan: { kode: "kondisi_berbeda", nama: "Kondisi berbeda" }, auditor: { nama: "Tommy Saputra" } }
+      ]
+    };
+  }
+
+  const auditAset = {
+    async daftar() {
+      if (!langsungKeApi()) return { data: [auditAsetDariPurwarupa()] };
+      return API.get("/api/audit-aset");
+    },
+
+    async lihat(id) {
+      if (!langsungKeApi()) return auditAsetDariPurwarupa();
+      return API.get("/api/audit-aset/" + encodeURIComponent(id)).then((j) => j.data);
+    },
+
+    mulai(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Memulai sesi audit");
+      return API.post("/api/audit-aset", isi).then((j) => j.data);
+    },
+
+    scan(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mencatat pemindaian");
+      return API.post("/api/audit-aset/" + encodeURIComponent(id) + "/scan", isi).then((j) => j.data);
+    },
+
+    tutup(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Menutup sesi audit");
+      return API.post("/api/audit-aset/" + encodeURIComponent(id) + "/tutup").then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     vendor: vendor,
+    auditAset: auditAset,
     checklist: checklist,
     dashboard: dashboard,
     bsc: bsc,

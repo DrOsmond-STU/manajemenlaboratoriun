@@ -354,45 +354,211 @@
     });
   };
 
+  /* =======================================================================
+     AUDIT ASET — tersambung ke basis data
+
+     "Tidak ditemukan" TIDAK dihitung dari baris tersendiri — ia selisih
+     populasi dikurangi yang sudah dipindai (lihat AssetAuditService di
+     server). Selama sesi masih berjalan, label yang sama disebut "Belum
+     Diaudit"; begitu sesi ditutup, berubah jadi "Tidak Ditemukan" —
+     angkanya sama, hanya maknanya berubah begitu jendela auditnya ditutup.
+
+     Layar ini menampilkan SATU sesi terbaru, bukan pemilih di antara
+     banyak sesi — pola yang sama dengan Laporan Ruangan menampilkan
+     periode berjalan, bukan pemilih periode. "Mode scan QR/RFID" purwarupa
+     DISEDERHANAKAN jadi isian kode manual: tidak ada perangkat pemindai
+     sungguhan yang tersambung ke aplikasi ini, dan kode internal/BMN/
+     nomor seri bisa diketik langsung dari label yang sudah tercetak.
+     ======================================================================= */
+
+  const AUD = { sesi: null, memuat: true, galat: null };
+
+  async function muatAudit() {
+    AUD.memuat = true; AUD.galat = null; isiAudit();
+    try {
+      const daftar = (await Repo.auditAset.daftar()).data;
+      AUD.sesi = daftar.length ? await Repo.auditAset.lihat(daftar[0].id) : null;
+    } catch (e) { AUD.sesi = null; AUD.galat = e; }
+    finally { AUD.memuat = false; isiAudit(); }
+  }
+
+  const TEMUAN_TINT = { sesuai: "green", lokasi_berbeda: "amber", kondisi_berbeda: "amber" };
+
+  function isiAudit() {
+    const w = document.getElementById("audIsi");
+    if (!w) return;
+    if (AUD.memuat) { w.innerHTML = `<div style="padding:60px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (AUD.galat) {
+      w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(AUD.galat.message || "Terjadi kesalahan.")}</span></div></div>`;
+      return;
+    }
+    if (!AUD.sesi) {
+      w.innerHTML = U.emptyState("Belum ada sesi audit", "Mulai sesi audit untuk mencatat stock opname.",
+        Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="audSesiBaruForm()">${U.icon("plus")} Sesi Audit Baru</button>` : "");
+      return;
+    }
+
+    const s = AUD.sesi;
+    const r = s.ringkasan || {};
+    const berjalan = s.status.kode === "berjalan";
+    const selisih = (r.lokasi_berbeda || 0) + (r.kondisi_berbeda || 0);
+    const sisaLabel = berjalan ? "Belum Diaudit" : "Tidak Ditemukan";
+    const sisaNilai = berjalan ? (r.belum_diaudit || 0) : (r.tidak_ditemukan || 0);
+    const persen = r.total_aset ? Math.round(((r.sudah_diverifikasi || 0) / r.total_aset) * 100) : 0;
+
+    w.innerHTML = `
+      <div class="row wrap gap-8 mb-16" style="align-items:center">
+        <div><b>${U.esc(s.nama)}</b><div class="tiny faint">Mulai ${U.fdate(s.mulai, "long")}${s.target_selesai ? " — target selesai " + U.fdate(s.target_selesai, "long") : ""}</div></div>
+        <div class="spacer"></div>
+        ${U.badge(s.status.nama)}
+        ${berjalan && Repo.dapatMenulis() ? `
+          <button class="btn btn-sm" onclick="audScanForm()">${U.icon("qr")} Mulai Scan</button>
+          <button class="btn btn-sm" onclick="audTutupSesi()">${U.icon("check")} Tutup Sesi</button>` : ""}
+      </div>
+      <div class="grid g4 mb-16">
+        ${U.kpi({ label: "Aset Tercatat", value: U.num(r.total_aset || 0), icon: "box", tint: "brand", note: "Populasi audit" })}
+        ${U.kpi({ label: "Sudah Diverifikasi", value: U.num(r.sudah_diverifikasi || 0), icon: "check", tint: "green", note: persen + "% dari total" })}
+        ${U.kpi({ label: "Selisih Ditemukan", value: U.num(selisih), icon: "alert", tint: "amber", note: "Lokasi/kondisi tidak sesuai" })}
+        ${U.kpi({ label: sisaLabel, value: U.num(sisaNilai), icon: "x", tint: "red", note: berjalan ? "Belum dipindai" : "Perlu investigasi" })}
+      </div>
+      <div class="grid g-2-1 mb-16">
+        ${U.card("Progres Audit per Lokasi", (r.per_gedung || []).length ? `<div class="col gap-12">
+          ${r.per_gedung.map((g) => U.meter(`<span class="small">${U.esc(g.gedung)}</span>`, g.persentase,
+            g.persentase > 90 ? "var(--green-500)" : g.persentase > 80 ? "var(--brand-500)" : "var(--amber-500)",
+            g.total != null ? U.num(g.terpindai) + "/" + U.num(g.total) : g.persentase + "%")).join("")}
+        </div>` : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada aset dalam cakupan.</span></div>`)}
+        ${U.card("Ringkasan Temuan", `<div class="col gap-10">
+          ${[["Sesuai catatan", r.sesuai || 0, "green"], ["Lokasi berbeda", r.lokasi_berbeda || 0, "amber"],
+             ["Kondisi berbeda", r.kondisi_berbeda || 0, "amber"], [sisaLabel, sisaNilai, berjalan ? "slate" : "red"]]
+            .map(([k, v, c]) => `<div class="row"><span class="badge ${c}">${U.esc(k)}</span><div class="spacer"></div><b>${U.num(v)}</b></div>`).join("")}
+        </div>`)}
+      </div>
+      ${U.card("Temuan Audit", (s.temuan || []).length ? U.table([
+        { t: "Aset", render: (f) => `<b class="small">${U.esc(f.aset ? f.aset.nama : "—")}</b><div class="tiny faint mono">${U.esc(f.aset ? (f.aset.kode_internal || f.aset.bmn_id || "") : "")}</div>` },
+        { t: "Lokasi Tercatat", render: (f) => U.esc(f.lokasi.tercatat || "Belum ditempatkan") },
+        { t: "Lokasi Ditemukan", render: (f) => U.esc(f.lokasi.ditemukan || "Belum ditempatkan") },
+        { t: "Temuan", render: (f) => `<span class="badge ${TEMUAN_TINT[f.temuan.kode] || "slate"}">${U.esc(f.temuan.nama)}</span>` },
+        { t: "Auditor", render: (f) => `<span class="small">${U.esc(f.auditor ? f.auditor.nama : "—")}</span>` }
+      ], s.temuan) : `<div class="empty" style="padding:20px"><span class="small muted">Belum ada temuan yang menyimpang dari catatan.</span></div>`, { bodyCls: "flush",
+        sub: "Hanya baris yang menyimpang — yang sesuai catatan sudah terhitung di ringkasan" })}`;
+  }
+
   V["assetaudit"] = {
     title: "Audit Aset",
-    sub: "Stock opname berbasis scan QR/RFID dengan rekonsiliasi otomatis.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Mode scan QR/RFID')">${U.icon("qr")} Mulai Scan</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Buat sesi audit baru')">${U.icon("plus")} Sesi Audit Baru</button>`,
-    render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Aset Tercatat", value: U.num(1284), icon: "box", tint: "brand", note: "Populasi audit" })}
-          ${U.kpi({ label: "Sudah Diverifikasi", value: U.num(1147), icon: "check", tint: "green", note: "89,3% dari total" })}
-          ${U.kpi({ label: "Selisih Ditemukan", value: 23, icon: "alert", tint: "amber", note: "Lokasi tidak sesuai" })}
-          ${U.kpi({ label: "Tidak Ditemukan", value: 6, icon: "x", tint: "red", note: "Perlu investigasi" })}
+    sub: "Stock opname aset — rekonsiliasi keberadaan fisik terhadap Register BMN.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="audSesiBaruForm()">${U.icon("plus")} Sesi Audit Baru</button>` : "";
+    },
+    render() { return `<div id="audIsi"></div>`; },
+    mount() { muatAudit(); }
+  };
+
+  window.audScanForm = function () {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Memindai aset hanya bisa setelah masuk dengan akun."); return; }
+    U.drawer({
+      title: "Pindai Aset", sub: AUD.sesi ? AUD.sesi.nama : "",
+      body: `
+        <div id="audScanGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Kode Aset *</span><input class="input" id="audKode" placeholder="Kode internal, BMN, atau nomor seri"></label>
+        <div class="tiny faint mt-4">Kosongkan lokasi/kondisi bila aset ditemukan persis sesuai catatan.</div>
+        <label class="fld mt-8"><span>Lokasi Ditemukan (bila berbeda)</span><input class="input" id="audLokasi" placeholder="mis. Gudang Pusat"></label>
+        <label class="fld mt-8"><span>Kondisi Ditemukan (bila berbeda)</span>
+          <select class="select" id="audKondisi"><option value="">— Sesuai catatan —</option>
+            <option value="B">Baik</option><option value="RR">Rusak Ringan</option><option value="RB">Rusak Berat</option></select></label>
+        <label class="fld mt-8"><span>Catatan</span><textarea class="input" id="audCatatan" rows="2"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Selesai</button>
+             <button class="btn btn-primary" id="audScanSimpanBtn" onclick="audScanSimpan()">Catat & Lanjut</button>`
+    });
+    document.getElementById("audKode").focus();
+  };
+
+  /**
+   * Drawer TETAP TERBUKA setelah berhasil, medan dikosongkan dan fokus
+   * dikembalikan ke kode — auditor di lapangan memindai puluhan aset
+   * berturut-turut, dan membuka ulang formulir untuk setiap satu aset
+   * akan membuat pekerjaan yang seharusnya cepat jadi lambat.
+   */
+  window.audScanSimpan = async function () {
+    const kotak = document.getElementById("audScanGalat");
+    const tombol = document.getElementById("audScanSimpanBtn");
+    kotak.hidden = true;
+
+    const isi = {
+      kode: document.getElementById("audKode").value,
+      lokasi_ditemukan: document.getElementById("audLokasi").value || undefined,
+      kondisi_ditemukan: document.getElementById("audKondisi").value || undefined,
+      catatan: document.getElementById("audCatatan").value || undefined
+    };
+
+    tombol.disabled = true; tombol.textContent = "Mencatat…";
+    try {
+      await Repo.auditAset.scan(AUD.sesi.id, isi);
+      U.toast("Tercatat", "Pemindaian berhasil dicatat.");
+      document.getElementById("audKode").value = "";
+      document.getElementById("audLokasi").value = "";
+      document.getElementById("audKondisi").value = "";
+      document.getElementById("audCatatan").value = "";
+      document.getElementById("audKode").focus();
+      AUD.sesi = await Repo.auditAset.lihat(AUD.sesi.id);
+      isiAudit();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal mencatat pemindaian."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Catat & Lanjut"; }
+  };
+
+  window.audSesiBaruForm = function () {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Memulai sesi audit hanya bisa setelah masuk dengan akun."); return; }
+    U.drawer({
+      title: "Sesi Audit Baru", sub: "Stock opname aset",
+      body: `
+        <div id="audSesiGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama Sesi *</span><input class="input" id="audSesiNama" placeholder="mis. Audit Semester II 2026"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Mulai *</span><input type="date" class="input" id="audSesiMulai" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label class="fld"><span>Target Selesai</span><input type="date" class="input" id="audSesiTarget"></label>
         </div>
-        <div class="grid g-2-1 mb-16">
-          ${U.card("Progres Audit per Lokasi", `<div class="col gap-12">
-            ${[["Gedung A — Riset", 94], ["Gedung B — Perkantoran", 91], ["Gedung C — Auditorium", 88], ["Gedung D — Workshop", 76], ["Gudang Pusat", 82]]
-              .map(([n, v]) => U.meter(`<span class="small">${n}</span>`, v, v > 90 ? "var(--green-500)" : v > 80 ? "var(--brand-500)" : "var(--amber-500)")).join("")}
-          </div>`, { sub: "Audit Semester I 2026 — berakhir " + U.fdate(D.shift(14), "long") })}
-          ${U.card("Ringkasan Temuan", `<div class="col gap-10">
-            ${[["Sesuai catatan", 1118, "green"], ["Lokasi berbeda", 17, "amber"], ["Kondisi berbeda", 6, "amber"], ["Tidak ditemukan", 6, "red"], ["Belum diaudit", 137, "slate"]]
-              .map(([k, v, c]) => `<div class="row"><span class="badge ${c}">${k}</span><div class="spacer"></div><b>${U.num(v)}</b></div>`).join("")}
-          </div>`)}
-        </div>
-        ${U.card("Temuan Audit", U.table([
-          { t: "Kode Aset", render: (r) => `<span class="mono small">${r.c}</span>` },
-          { t: "Nama Aset", render: (r) => `<b>${U.esc(r.n)}</b>` },
-          { t: "Lokasi Tercatat", render: (r) => U.esc(r.l0) },
-          { t: "Lokasi Aktual", render: (r) => r.l1 ? U.esc(r.l1) : `<span style="color:var(--red-500)">Tidak ditemukan</span>` },
-          { t: "Temuan", render: (r) => U.badge(r.t) },
-          { t: "Auditor", render: (r) => `<span class="small">${U.esc(r.a)}</span>` },
-          { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Tindak lanjut temuan')">Tindak Lanjut</button>` }
-        ], [
-          { c: "AST-IT-0139", n: "Laptop Lenovo ThinkPad T14", l0: "GB-2 / MR-001", l1: "Workshop Servis", t: "Lokasi berbeda", a: "Siti Nurhaliza" },
-          { c: "AST-FR-0142", n: "Meja Rapat Modular 16 Seat", l0: "GB-2 / MR-001", l1: "GD-1 / WS-001", t: "Lokasi berbeda", a: "Siti Nurhaliza" },
-          { c: "AST-AV-0118", n: "Microphone Wireless Shure (4 unit)", l0: "GC-1 / AU-001", l1: "", t: "Tidak ditemukan", a: "Fajar Ramadhan" },
-          { c: "AST-IT-0094", n: "Monitor Dell 24\" (2 unit)", l0: "GA-3 / LAB-006", l1: "GA-3 / LAB-003", t: "Lokasi berbeda", a: "Bayu Prakoso" },
-          { c: "AST-HV-0135", n: "AC Presisi 5PK Precision", l0: "GA-3 / LAB-003", l1: "GA-3 / LAB-003", t: "Kondisi berbeda", a: "Tommy Saputra" }
-        ]), { bodyCls: "flush" })}`;
-    }
+        <label class="fld mt-8"><span>Catatan</span><textarea class="input" id="audSesiCatatan" rows="2"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="audSesiSimpanBtn" onclick="audSesiBaruSimpan()">Mulai Sesi</button>`
+    });
+  };
+
+  window.audSesiBaruSimpan = async function () {
+    const kotak = document.getElementById("audSesiGalat");
+    const tombol = document.getElementById("audSesiSimpanBtn");
+    kotak.hidden = true;
+
+    const isi = {
+      nama: document.getElementById("audSesiNama").value,
+      mulai: document.getElementById("audSesiMulai").value,
+      target_selesai: document.getElementById("audSesiTarget").value || undefined,
+      catatan: document.getElementById("audSesiCatatan").value || undefined
+    };
+
+    tombol.disabled = true; tombol.textContent = "Memulai…";
+    try {
+      await Repo.auditAset.mulai(isi);
+      U.closeDrawer();
+      U.toast("Dimulai", "Sesi audit baru dimulai.");
+      muatAudit();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal memulai sesi."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Mulai Sesi"; }
+  };
+
+  window.audTutupSesi = async function () {
+    if (!AUD.sesi || !confirm("Tutup sesi audit ini? Aset yang belum dipindai akan ditandai tidak ditemukan.")) return;
+    try {
+      AUD.sesi = await Repo.auditAset.tutup(AUD.sesi.id);
+      U.toast("Ditutup", "Sesi audit ditutup.");
+      isiAudit();
+    } catch (e) { U.toast("Gagal", e.message || "Tidak dapat menutup sesi.", "err"); }
   };
 
   /* =======================================================================

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-540 uji lulus, 1.600 asersi, 0 gagal — dijalankan di PostgreSQL 16
+556 uji lulus, 1.656 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -571,6 +571,27 @@ Vendor & Mitra — modul baru, plus tautan opsional dari `AssetMaintenance`:
 | **`jumlah_pekerjaan`/`total_biaya` dihitung dari `AssetMaintenance.vendor_id`** | `withCount`/`withSum`, bukan N+1 per baris |
 | Vendor dapat ditautkan saat menjadwalkan pemeliharaan | `POST /api/pemeliharaan` menerima `vendor_id` opsional, `MaintenanceResource` memuatnya |
 | **Vendor dihapus tidak menghalangi riwayat pekerjaan lama** | `nullOnDelete` pada `asset_maintenances.vendor_id` — jaring pengaman seandainya baris vendor benar-benar hilang di masa depan, bukan jalur normal (jalur normal adalah nonaktifkan) |
+
+Audit Aset — stock opname, modul baru:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401` pada seluruh endpoint `audit-aset` |
+| Asset manager dapat memulai sesi | tingkat PENUH, dicerminkan dari `aset` |
+| Lab manager hanya boleh lihat, tidak boleh menulis | tingkat LIHAT — buat sesi dan memindai sama-sama `403` |
+| Employee ditolak sepenuhnya | tingkat `-`, dicerminkan dari `aset` |
+| Pemindaian ditemukan sesuai catatan | `temuan.kode === 'sesuai'`, lokasi/kondisi tercatat dan ditemukan sama |
+| **Pemindaian dapat dicari lewat `bmn_id` ATAU `serial_number`, bukan cuma `kode_internal`** | auditor di lapangan tidak selalu tahu kode mana yang tercetak di label yang mereka pindai |
+| Kode tidak dikenali ditolak | `422`, bukan diam-diam membuat baris pemindaian kosong |
+| Lokasi berbeda terdeteksi | `lokasi_ditemukan` menyimpang dari snapshot `lokasi_tercatat` |
+| Kondisi berbeda terdeteksi | `kondisi_ditemukan` menyimpang dari snapshot `kondisi_tercatat` |
+| **Memindai ulang aset yang sama MEMPERBARUI baris, bukan menggandakan** | indeks unik sesi+aset — hitungan "sudah diverifikasi" tidak boleh mengembang karena kesalahan pindai berulang |
+| Pemindaian pada sesi tertutup ditolak | `422`, sesi yang sudah selesai tidak menerima data baru |
+| Menutup sesi yang sudah tertutup ditolak | `422`, bukan tanpa efek yang tampak berhasil |
+| **`belum_diaudit` berubah jadi `tidak_ditemukan` — angka SAMA — begitu sesi ditutup** | inti dari cara "tidak ditemukan" dihitung: selisih populasi vs yang dipindai, bukan baris tersendiri (lihat catatan di bawah) |
+| **Baris `temuan` hanya memuat yang menyimpang** | yang sesuai catatan sudah terhitung di `ringkasan.sesuai`, tidak perlu digandakan sebagai baris |
+| **Populasi DAN pemindaian sama-sama dibatasi cakupan gedung** | memindai aset di luar gedung yang diampu ditolak `422` "kode tidak dikenali" — persis seperti asetnya tidak ada, bukan pesan otorisasi yang membocorkan keberadaannya |
+| Daftar sesi memuat jumlah pindaian | `withCount('scans')` pada `index()` |
 
 ### 4.2 Catatan rancangan
 
@@ -1424,6 +1445,68 @@ Vendor & Mitra — modul baru, plus tautan opsional dari `AssetMaintenance`:
   super-admin); ia data referensi/kontak sebagaimana master data
   lain, jadi peran yang berhak mengelola master data berhak pula
   mengelola vendor, dengan tingkat yang sama persis.
+
+- **Modul Audit Aset (stock opname) dibangun** — mengisi kembali
+  purwarupa "Audit Aset" yang sebelumnya sepenuhnya berupa angka
+  karangan (1.284 aset tercatat, dsb., seluruhnya literal di JS).
+  Dua tabel baru: `asset_audit_sessions` (sesi audit, status
+  berjalan/selesai) dan `asset_audit_scans` (satu baris = satu aset yang
+  BERHASIL dipindai/ditemukan dalam satu sesi).
+- **"Tidak ditemukan" TIDAK disimpan sebagai baris tersendiri** — ia
+  SELISIH populasi (seluruh aset dalam cakupan) dikurangi yang sudah
+  dipindai, dihitung `AssetAuditService::ringkasan()` setiap kali
+  diminta. Selama sesi masih `berjalan`, selisih itu diberi label
+  "belum diaudit"; begitu sesi `ditutup`, ANGKA YANG SAMA berubah label
+  jadi "tidak ditemukan" — bukan dua definisi terpisah yang bisa
+  menyimpang, dan bukan pula sesuatu yang perlu dihitung ulang atau
+  disinkronkan saat sesi ditutup.
+- **`lokasi_tercatat`/`kondisi_tercatat` adalah SNAPSHOT saat dipindai,
+  bukan dibaca ulang dari `assets` saat laporan dibuka** — tanpa
+  snapshot, temuan "lokasi berbeda" bisa menghilang begitu saja bila
+  asetnya lantas dipindahkan (lewat Asset Movement) setelah dipindai
+  tapi sebelum sesi ditutup, padahal saat dipindai ia memang ditemukan
+  berbeda dari yang tercatat ketika itu.
+- **Kode dicocokkan ke `kode_internal`, `bmn_id`, ATAU `serial_number`
+  sekaligus** — auditor di lapangan memindai label yang tercetak di
+  badan alat, dan tidak selalu tahu format kode mana yang tersimpan di
+  sistem untuk barang tertentu.
+- **Memindai ulang aset yang sama pada sesi yang sama MEMPERBARUI baris
+  yang sudah ada** (indeks unik sesi+aset, `updateOrCreate`) — auditor
+  yang salah pindai dapat memindai ulang tanpa menggandakan hitungan
+  "sudah diverifikasi", pola yang sama dengan alasan `destroy()` Vendor
+  menonaktifkan alih-alih menghapus: mencegah angka mengembang secara
+  keliru lebih penting daripada kemudahan implementasi baris ganda.
+- **Temuan gabungan (lokasi DAN kondisi sama-sama berbeda) diberi SATU
+  kode, bukan dua** — `lokasi_berbeda` menang atas `kondisi_berbeda`
+  pada `AssetAuditScan::temuan()`: aset yang ditemukan di tempat yang
+  salah adalah kegagalan proses yang lebih mendesak untuk ditindak
+  lanjuti daripada catatan kondisi yang perlu diperbarui.
+- **Populasi audit memakai `Asset::dalamCakupan()` yang SAMA dengan
+  Register BMN** — PIC/facility manager gedung tertentu hanya
+  mengaudit dan memindai aset dalam gedung yang diampu; memindai kode
+  aset di luar cakupan ditolak sebagai "kode tidak dikenali", bukan
+  pesan otorisasi yang membocorkan keberadaan aset di gedung lain.
+- **Tingkat izin modul `audit-aset` DICERMINKAN persis dari `aset`** —
+  pola yang sama dengan `vendor` mencerminkan `master-data`: stock
+  opname adalah kegiatan yang MENGUJI kebenaran catatan aset itu
+  sendiri, bukan modul referensi terpisah, jadi siapa pun yang berwenang
+  mengubah data aset berwenang pula mengaudit keberadaannya secara
+  fisik — dengan tingkat kepercayaan yang sama persis, bukan dipikirkan
+  sebagai keputusan baru dari nol. Modul ini SENGAJA diberi kunci
+  `audit-aset`, bukan `audit` — kunci itu sudah dipakai Jejak Audit
+  (`AuditLog`, riwayat perubahan otomatis) sejak awal, dan keduanya
+  adalah konsep yang sama sekali berbeda: satu jejak perubahan data
+  otomatis oleh sistem, satu lagi sesi stock opname yang dijalankan
+  manual oleh staf di lapangan.
+- **Layar menampilkan SATU sesi terbaru, bukan pemilih di antara
+  banyak sesi** — pola yang sama dengan Laporan Ruangan menampilkan
+  periode berjalan, bukan pemilih periode; sebuah pemilih sesi dapat
+  ditambahkan kembali kelak bila kebutuhan riwayat multi-sesi muncul.
+- **"Mode scan QR/RFID" purwarupa DISEDERHANAKAN jadi isian kode
+  manual** — tidak ada perangkat pemindai fisik yang tersambung ke
+  aplikasi web ini; kode internal/BMN/nomor seri yang sudah tercetak di
+  label (dari Studio Label & Barcode) dapat diketik langsung, dan
+  itulah yang benar-benar dapat diimplementasikan.
 
 ---
 

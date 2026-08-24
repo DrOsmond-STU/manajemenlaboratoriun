@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\PersetujuanController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\TarifController;
 use App\Http\Controllers\Api\VendorController;
+use App\Http\Controllers\Api\VisitorController;
 use Illuminate\Support\Facades\Route;
 
 // --- Tanpa autentikasi ---------------------------------------------------
@@ -100,6 +101,21 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:booking-ruangan.buat');
     Route::get('bookings/{booking}', [BookingController::class, 'show'])
         ->middleware('can:booking-ruangan.lihat');
+
+    // --- Manajemen Pengunjung -----------------------------------------------
+    // Izinnya MENCERMINKAN `booking-ruangan` — lihat docblock
+    // MatriksAkses::MODUL. Tamu pada dasarnya datang untuk sebuah booking/
+    // event, sehingga peran yang sama yang mengelola booking ruangan
+    // (room-administrator di lobi, event-manager, PIC/host) wajar mengelola
+    // check-in/out tamu juga.
+    Route::get('pengunjung', [VisitorController::class, 'index'])
+        ->middleware('can:booking-ruangan.lihat');
+    Route::post('pengunjung', [VisitorController::class, 'store'])
+        ->middleware('can:booking-ruangan.buat');
+    Route::post('pengunjung/{pengunjung}/checkin', [VisitorController::class, 'checkIn'])
+        ->middleware('can:booking-ruangan.ubah')->name('pengunjung.checkin');
+    Route::post('pengunjung/{pengunjung}/checkout', [VisitorController::class, 'checkOut'])
+        ->middleware('can:booking-ruangan.ubah')->name('pengunjung.checkout');
 
     // --- Pemilih pengguna --------------------------------------------------
     // Untuk mengisi penanggung jawab, supervisor, dan teknisi pada formulir.

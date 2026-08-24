@@ -34,7 +34,8 @@ const SUITES = [
   ['availability', 'Room Availability tersambung: timeline & KPI dari Repo.ruangan + Repo.booking yang sudah ada, klik blok membuka detail booking sungguhan'],
   ['layout', 'Room Layout Management tersambung: matriks tata_letak dari Repo.ruangan yang sudah ada, kolom Custom dekoratif dijatuhkan, Ruangan Terkait sungguhan'],
   ['facility', 'Fasilitas & Add-on tersambung: Tariff jenis=addon yang sama dengan Daftar Tarif, KPI karangan purwarupa dijatuhkan'],
-  ['pic', 'Penanggung Jawab (PIC) tersambung: agregasi penanggung_jawab dari Ruangan/Laboratorium/Aset yang sudah ada, gagal sebagian tidak mengosongkan gabungan']
+  ['pic', 'Penanggung Jawab (PIC) tersambung: agregasi penanggung_jawab dari Ruangan/Laboratorium/Aset yang sudah ada, gagal sebagian tidak mengosongkan gabungan'],
+  ['visitor', 'Manajemen Pengunjung tersambung: registrasi, check-in/out sungguhan, transisi status ditolak server, Rata-rata Kunjungan dihitung dari data nyata']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-559 uji lulus, 1.674 asersi, 0 gagal — dijalankan di PostgreSQL 16
+571 uji lulus, 1.729 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -595,6 +595,23 @@ Audit Aset — stock opname, modul baru:
 | **Baris `temuan` hanya memuat yang menyimpang** | yang sesuai catatan sudah terhitung di `ringkasan.sesuai`, tidak perlu digandakan sebagai baris |
 | **Populasi DAN pemindaian sama-sama dibatasi cakupan gedung** | memindai aset di luar gedung yang diampu ditolak `422` "kode tidak dikenali" — persis seperti asetnya tidak ada, bukan pesan otorisasi yang membocorkan keberadaannya |
 | Daftar sesi memuat jumlah pindaian | `withCount('scans')` pada `index()` |
+
+Manajemen Pengunjung — registrasi tamu & check-in/out, modul baru:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401` pada seluruh endpoint `pengunjung` |
+| **Room-administrator (PENUH) dapat mendaftar, check-in, dan check-out** | tingkat dicerminkan dari `booking-ruangan` |
+| Event-manager dan PIC (UBAH) dapat check-in/check-out | tingkat dicerminkan dari `booking-ruangan` |
+| Asset-manager/finance/lab-technician/management (LIHAT) hanya boleh melihat | mendaftarkan tamu ditolak `403` |
+| **Employee dan external-user (BUAT) boleh mendaftarkan tamu, tapi tidak boleh check-in** | mendaftar `201`, check-in `403` — mencerminkan employee boleh BUAT booking sendiri tapi tidak mengubahnya |
+| Pendaftaran mencatat pendaftar & status awal | `dibuat_oleh` terisi dari pengguna yang login, status mulai dari `terjadwal` |
+| Daftar dapat dicari dan ditapis status/tanggal | `cari` (ilike nama/instansi), `status` persis, `tanggal` persis |
+| **Check-in tamu yang sudah check-in ditolak** | `422`, pesan menyebut status saat ini — dijaga `VisitorService`, bukan hanya UI |
+| **Check-out tamu yang belum check-in ditolak** | `422` — status harus `di_dalam` |
+| Check-out tamu yang sudah selesai ditolak | `422` — mencegah check-out ganda |
+| Check-in boleh tanpa nomor badge | `badge` nullable, tidak wajib diisi staf lobi |
+| **Tiga tahap CHECK constraint konsisten dengan factory state** | `terjadwal`/`di_dalam`/`selesai` masing-masing berhasil `INSERT` lewat state factory berbeda — kalau migrasinya salah tulis, salah satu gagal di sini |
 
 ### 4.2 Catatan rancangan
 
@@ -1665,6 +1682,51 @@ Audit Aset — stock opname, modul baru:
   Ruangan/Laboratorium/Aset yang sudah tersambung. Membangun jalur
   assignment kedua di layar ini berarti dua tempat mengubah fakta yang
   sama, berisiko saling menyimpang seiring waktu.
+
+- **Manajemen Pengunjung — modul baru, tabel `visitors`.** Tidak ada
+  `->dalamCakupan()` — mencerminkan alasan yang sama dengan Vendor: staf
+  lobi/resepsionis perlu melihat seluruh tamu terlepas dari gedung mana
+  yang mereka ampu, bukan disaring sebagian.
+- **`status` disimpan sebagai kolom, bukan murni turunan dari
+  `masuk_pada`/`keluar_pada`** — supaya dapat difilter langsung dengan
+  `WHERE status = ...` tanpa menghitung ulang tiga kemungkinan tiap
+  baris, dijaga konsisten oleh tiga `CHECK` constraint (`visitors_status_sah`
+  membatasi nilai yang sah; `visitors_masuk_bertanggal` mewajibkan
+  `masuk_pada` begitu status bukan lagi `terjadwal`; `visitors_keluar_bertanggal`
+  mewajibkan `keluar_pada` begitu status `selesai`) — pola yang sama
+  persis dengan `AssetMaintenance.status` vs `dikerjakan_pada`, dan
+  dengan `AssetAuditSession`/`AssetAuditScan`. Transisi antar status
+  (check-in, check-out) tetap dijaga sekali lagi di `VisitorService`,
+  supaya pesan penolakannya berbahasa Indonesia dan menyebut status
+  saat ini — bukan sekadar pesan galat basis data mentah.
+- **Tingkat izin MENCERMINKAN `booking-ruangan` persis di seluruh 12
+  peran** — bukan `master-data` seperti Vendor/Audit Aset. Tamu pada
+  dasarnya datang untuk sebuah booking/event, sehingga peran yang sudah
+  mengelola booking ruangan (room-administrator di lobi dengan tingkat
+  PENUH, event-manager dan PIC dengan UBAH, employee dan external-user
+  dengan BUAT — boleh mendaftarkan tamu sendiri tapi tidak mengubah
+  status check-in/out orang lain) cocok memegang tingkat kepercayaan
+  yang sama untuk pra-registrasi dan check-in/out tamu. Dicocokkan
+  programatis (`booking-ruangan` vs `pengunjung` per peran) sebelum
+  dipakai, pola yang sama dengan pencocokan `aset`↔`audit-aset`.
+- **"Mode Kiosk" (check-in swalayan di lobi) dan "QR Invitation"
+  purwarupa DIJATUHKAN** — MVP ini staf-operasikan: staf lobi/host
+  mendaftarkan dan meng-check-in/out tamu secara manual lewat layar
+  ini, bukan lewat kios sentuh atau tautan undangan yang dipindai
+  sendiri oleh tamu. Membangun alur swalayan berarti permukaan
+  autentikasi/otorisasi baru (siapa pun dengan tautan dapat
+  check-in?) yang di luar cakupan modul ini.
+- **"Rata-rata Kunjungan" TETAP TAMPIL, tapi dihitung SUNGGUHAN** dari
+  selisih `keluar_pada`−`masuk_pada` seluruh kunjungan yang sudah
+  `selesai`, dirata-ratakan di klien — bukan angka purwarupa yang
+  di-hardcode ("1,8 jam" untuk setiap keadaan). Berbeda dari kebanyakan
+  KPI purwarupa lain window ini yang harus dijatuhkan karena tidak
+  dapat dihitung jujur dari data yang ada, KPI ini BISA — sehingga
+  dipertahankan, bukan dibuang mengikuti pola default.
+- **"ID Tamu" (VS-2026-00901, dst.) purwarupa DIJATUHKAN** — `Visitor`
+  tidak menyimpan nomor tiket terpisah, hanya id baris biasa seperti
+  modul-modul baru lain window ini (Vendor pakai `kode` eksplisit
+  karena vendor sungguh punya kode katalog; tamu tidak).
 
 ---
 

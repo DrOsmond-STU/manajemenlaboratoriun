@@ -1732,10 +1732,70 @@
     }
   };
 
+  /* ---------------------------------------------------------- pengunjung */
+  /*
+     Registrasi tamu + check-in/out oleh staf (bukan kios swalayan/QR
+     invitation — lihat docs/BACKEND.md untuk alasan pemangkasan itu).
+     Server menyimpan `status` sebagai kolom (bukan murni turunan) supaya
+     dapat difilter langsung dengan WHERE, dijaga konsisten oleh CHECK
+     constraint + VisitorService — pola yang sama dengan AssetMaintenance
+     dan AssetAuditSession.
+  */
+
+  const STATUS_PENGUNJUNG_NAMA = { terjadwal: "Terjadwal", di_dalam: "Di Dalam", selesai: "Selesai" };
+  const STATUS_PENGUNJUNG_DARI_PURWARUPA = { Terjadwal: "terjadwal", "Di Dalam": "di_dalam", Selesai: "selesai" };
+
+  function pengunjungDariPurwarupa(v) {
+    const kode = STATUS_PENGUNJUNG_DARI_PURWARUPA[v.status] || "terjadwal";
+    return {
+      id: v.id, nama: v.name, instansi: v.org, tujuan: v.purpose,
+      host: v.host ? { id: v.host, nama: DB.personName(v.host) } : null,
+      ruangan: v.room ? { id: v.room, kode: v.room, nama: DB.resName(v.room) } : null,
+      tanggal: v.date,
+      masuk_pada: v.in && v.in !== "-" ? v.date + "T" + v.in + ":00" : null,
+      keluar_pada: v.out && v.out !== "-" ? v.date + "T" + v.out + ":00" : null,
+      badge: v.badge && v.badge !== "-" ? v.badge : null,
+      status: { kode: kode, nama: STATUS_PENGUNJUNG_NAMA[kode] },
+      catatan: null
+    };
+  }
+
+  const pengunjung = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.visitors : []).map(pengunjungDariPurwarupa);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((v) => v.nama.toLowerCase().indexOf(k) !== -1 || (v.instansi || "").toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.status) baris = baris.filter((v) => v.status.kode === tapis.status);
+        if (tapis && tapis.tanggal) baris = baris.filter((v) => v.tanggal === tapis.tanggal);
+        return { data: baris };
+      }
+      return API.get("/api/pengunjung" + qs(tapis));
+    },
+
+    daftarkan(isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Mendaftarkan tamu");
+      return API.post("/api/pengunjung", isi).then((j) => j.data);
+    },
+
+    checkIn(id, isi) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Check-in tamu");
+      return API.post("/api/pengunjung/" + encodeURIComponent(id) + "/checkin", isi || {}).then((j) => j.data);
+    },
+
+    checkOut(id) {
+      if (!langsungKeApi()) return tolakDiModeContoh("Check-out tamu");
+      return API.post("/api/pengunjung/" + encodeURIComponent(id) + "/checkout").then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     vendor: vendor,
     auditAset: auditAset,
+    pengunjung: pengunjung,
     checklist: checklist,
     dashboard: dashboard,
     bsc: bsc,

@@ -1815,35 +1815,224 @@
     }
   };
 
+  /* =======================================================================
+     MANAJEMEN PENGUNJUNG — tersambung ke basis data (`visitors`)
+
+     Izinnya MENCERMINKAN `booking-ruangan` persis di seluruh peran — lihat
+     docblock MatriksAkses::MODUL. Tamu pada dasarnya datang untuk sebuah
+     booking/event, sehingga peran yang sama yang mengelola booking ruangan
+     (room-administrator di lobi, event-manager, PIC/host, employee yang
+     boleh BUAT booking sendiri) wajar mengelola pra-registrasi dan
+     check-in/out tamu dengan tingkat kepercayaan yang sama.
+
+     `status` disimpan sebagai kolom (bukan murni turunan), dijaga
+     konsisten oleh CHECK constraint + VisitorService — pola yang sama
+     dengan AssetMaintenance/AssetAuditSession.
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - "Mode Kiosk" (check-in swalayan di lobi) dan "QR Invitation"
+       DIJATUHKAN — MVP ini staf-operasikan (staf lobi/host mendaftarkan
+       dan meng-check-in/out tamu secara manual), sama seperti seluruh
+       modul lain window ini yang membatasi diri pada apa yang benar-benar
+       tersambung ke server.
+     - "Rata-rata Kunjungan" TETAP ADA tapi dihitung SUNGGUHAN dari selisih
+       keluar_pada−masuk_pada kunjungan yang sudah selesai (bukan angka
+       purwarupa yang di-hardcode) — berbeda dari kebanyakan KPI purwarupa
+       lain yang dijatuhkan karena tidak dapat dihitung jujur, KPI ini BISA.
+     - ID Tamu (VS-2026-00901 dst.) purwarupa DIJATUHKAN — `Visitor` tidak
+       menyimpan nomor tiket terpisah, hanya id baris biasa.
+     ======================================================================= */
+
+  const PGJ = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  async function muatPengunjung() {
+    PGJ.memuat = true; PGJ.galat = null; isiPengunjung();
+    try { PGJ.baris = (await Repo.pengunjung.daftar(PGJ.tapis)).data; }
+    catch (e) { PGJ.baris = []; PGJ.galat = e.message; }
+    finally { PGJ.memuat = false; isiPengunjung(); isiRingkasanPengunjung(); }
+  }
+
+  function isiRingkasanPengunjung() {
+    const w = document.getElementById("pgjKpi");
+    if (!w) return;
+    const b = PGJ.baris;
+    const hariIni = b.filter((v) => v.tanggal === D.shift(0));
+    const selesai = b.filter((v) => v.status.kode === "selesai" && v.masuk_pada && v.keluar_pada);
+    const rataJam = selesai.length
+      ? selesai.reduce((s, v) => s + (new Date(v.keluar_pada) - new Date(v.masuk_pada)), 0) / selesai.length / 3600000
+      : null;
+    w.innerHTML = `
+      ${U.kpi({ label: "Tamu Hari Ini", value: hariIni.length, icon: "users", tint: "brand", note: "Termasuk terjadwal" })}
+      ${U.kpi({ label: "Sedang di Dalam", value: b.filter((v) => v.status.kode === "di_dalam").length, icon: "pin", tint: "green", note: "Belum check-out" })}
+      ${U.kpi({ label: "Pra-Registrasi", value: b.filter((v) => v.status.kode === "terjadwal").length, icon: "calendar", tint: "amber", note: "Belum check-in" })}
+      ${U.kpi({ label: "Rata-rata Kunjungan", value: rataJam === null ? "—" : rataJam.toFixed(1).replace(".", ","), suffix: rataJam === null ? "" : "jam", icon: "clock", tint: "violet", note: selesai.length ? "Dari " + selesai.length + " kunjungan selesai" : "Belum ada kunjungan selesai" })}`;
+  }
+
+  function isiPengunjung() {
+    const w = document.getElementById("pgjTabel");
+    if (!w) return;
+    if (PGJ.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (PGJ.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(PGJ.galat)}</span></div></div>`; return; }
+    if (!PGJ.baris.length) { w.innerHTML = U.emptyState("Belum ada pengunjung terdaftar", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk mendaftarkan tamu."); return; }
+    const jam = (iso) => iso ? new Date(iso).toTimeString().slice(0, 5) : null;
+    w.innerHTML = U.table([
+      { t: "Nama", render: (v) => `<div class="row"><span class="avatar sm">${U.initials(v.nama)}</span><div><b class="small">${U.esc(v.nama)}</b><div class="tiny faint">${U.esc(v.instansi || "—")}</div></div></div>` },
+      { t: "Tujuan", render: (v) => `<span class="small">${U.esc(v.tujuan || "—")}</span>` },
+      { t: "Host / PIC", render: (v) => v.host ? U.esc(v.host.nama) : `<span class="faint">—</span>` },
+      { t: "Ruangan", render: (v) => v.ruangan ? `<span class="small">${U.esc(v.ruangan.nama)}</span>` : `<span class="faint">—</span>` },
+      { t: "Tanggal", cls: "center", render: (v) => U.fdate(v.tanggal, "short") },
+      { t: "Masuk", cls: "center", render: (v) => { const j = jam(v.masuk_pada); return j ? `<b>${j}</b>` : `<span class="faint">—</span>`; } },
+      { t: "Keluar", cls: "center", render: (v) => { const j = jam(v.keluar_pada); return j ? j : `<span class="faint">—</span>`; } },
+      { t: "Badge", cls: "center", render: (v) => v.badge ? `<span class="badge outline">${U.esc(v.badge)}</span>` : `<span class="faint">—</span>` },
+      { t: "Status", render: (v) => U.badge(v.status.nama) },
+      { t: "", cls: "actions", render: (v) => {
+          if (!Repo.dapatMenulis()) return `<button class="icon-btn" onclick="pgjDetail(${JSON.stringify(v.id)})">${U.icon("eye", 15)}</button>`;
+          if (v.status.kode === "terjadwal") return `<button class="btn btn-sm" onclick="pgjCheckIn(${JSON.stringify(v.id)})">Check-in</button>`;
+          if (v.status.kode === "di_dalam") return `<button class="btn btn-sm" onclick="pgjCheckOut(${JSON.stringify(v.id)})">Check-out</button>`;
+          return `<button class="icon-btn" onclick="pgjDetail(${JSON.stringify(v.id)})">${U.icon("eye", 15)}</button>`;
+        } }
+    ], PGJ.baris);
+  }
+
   V["visitor"] = {
     title: "Manajemen Pengunjung",
-    sub: "Registrasi tamu, QR invitation, check-in/out, visitor badge, dan riwayat kunjungan.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Mode kiosk check-in lobby')">${U.icon("qr")} Mode Kiosk</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Form pra-registrasi tamu')">${U.icon("plus")} Pra-Registrasi</button>`,
+    sub: "Registrasi tamu, check-in/out, visitor badge, dan riwayat kunjungan.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="pgjForm()">${U.icon("plus")} Daftarkan Tamu</button>` : "";
+    },
     render() {
       return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Tamu Hari Ini", value: D.visitors.filter((v) => v.date === D.shift(0)).length, icon: "users", tint: "brand", note: "Termasuk terjadwal" })}
-          ${U.kpi({ label: "Sedang di Dalam", value: D.visitors.filter((v) => v.status === "Di Dalam").length, icon: "pin", tint: "green", note: "Belum check-out" })}
-          ${U.kpi({ label: "Pra-Registrasi", value: D.visitors.filter((v) => v.status === "Terjadwal").length, icon: "calendar", tint: "amber", note: "QR sudah dikirim" })}
-          ${U.kpi({ label: "Rata-rata Kunjungan", value: "1,8", suffix: "jam", icon: "clock", tint: "violet", note: "Durasi di area" })}
+        <div class="grid g4 mb-16" id="pgjKpi"></div>
+        <div class="row wrap gap-8" style="padding:12px 16px;border:1px solid var(--border);border-bottom:none;border-radius:12px 12px 0 0;background:var(--surface)">
+          <input class="input" id="pgjCari" placeholder="Cari nama tamu / instansi…" style="max-width:260px" onkeydown="if(event.key==='Enter')pgjTerapkanTapis()">
+          <select class="select" id="pgjFilterStatus" style="max-width:170px">
+            <option value="">Semua Status</option>
+            <option value="terjadwal">Terjadwal</option>
+            <option value="di_dalam">Di Dalam</option>
+            <option value="selesai">Selesai</option>
+          </select>
+          <button class="btn btn-sm" onclick="pgjTerapkanTapis()">Terapkan</button>
         </div>
-        ${U.card("Daftar Pengunjung", U.toolbar({ ph: "Cari nama tamu / instansi…", filters: [["Semua Status", "Di Dalam", "Selesai", "Terjadwal"]] }) +
-          U.table([
-            { t: "ID Tamu", w: "140px", render: (v) => `<span class="mono small">${v.id}</span>` },
-            { t: "Nama", render: (v) => `<div class="row"><span class="avatar sm">${U.initials(v.name)}</span><div><b class="small">${U.esc(v.name)}</b><div class="tiny faint">${U.esc(v.org)}</div></div></div>` },
-            { t: "Tujuan", render: (v) => `<span class="small">${U.esc(v.purpose)}</span>` },
-            { t: "Host / PIC", render: (v) => U.esc(D.personName(v.host)) },
-            { t: "Ruangan", render: (v) => `<span class="small">${U.esc(D.resName(v.room))}</span>` },
-            { t: "Masuk", cls: "center", render: (v) => v.in === "-" ? `<span class="faint">—</span>` : `<b>${v.in}</b>` },
-            { t: "Keluar", cls: "center", render: (v) => v.out === "-" ? `<span class="faint">—</span>` : v.out },
-            { t: "Badge", cls: "center", render: (v) => v.badge === "-" ? `<span class="faint">—</span>` : `<span class="badge outline">${v.badge}</span>` },
-            { t: "Status", render: (v) => U.badge(v.status) },
-            { t: "", cls: "actions", render: (v) => v.status === "Di Dalam"
-                ? `<button class="btn btn-sm" onclick="UI.demo('Check-out tamu')">Check-out</button>`
-                : `<button class="icon-btn" onclick="UI.demo('Detail kunjungan')">${U.icon("eye", 15)}</button>` }
-          ], D.visitors), { bodyCls: "flush" })}`;
+        ${U.card("", `<div id="pgjTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { PGJ.tapis = {}; muatPengunjung(); }
+  };
+
+  window.pgjTerapkanTapis = function () {
+    PGJ.tapis = {
+      cari: document.getElementById("pgjCari").value || undefined,
+      status: document.getElementById("pgjFilterStatus").value || undefined
+    };
+    muatPengunjung();
+  };
+
+  window.pgjDetail = function (id) {
+    const v = PGJ.baris.find((x) => x.id === id);
+    if (!v) return;
+    U.modal({
+      title: v.nama,
+      sub: v.instansi || "Tanpa instansi",
+      body: `<div class="col gap-8 small">
+        <div><b>Tujuan:</b> ${U.esc(v.tujuan || "—")}</div>
+        <div><b>Host / PIC:</b> ${v.host ? U.esc(v.host.nama) : "—"}</div>
+        <div><b>Ruangan:</b> ${v.ruangan ? U.esc(v.ruangan.nama) : "—"}</div>
+        <div><b>Tanggal:</b> ${U.fdate(v.tanggal, "short")}</div>
+        <div><b>Status:</b> ${U.esc(v.status.nama)}</div>
+        <div><b>Badge:</b> ${v.badge ? U.esc(v.badge) : "—"}</div>
+        ${v.catatan ? `<div><b>Catatan:</b> ${U.esc(v.catatan)}</div>` : ""}
+      </div>`
+    });
+  };
+
+  window.pgjForm = function () {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mendaftarkan tamu hanya bisa setelah masuk dengan akun."); return; }
+
+    U.drawer({
+      title: "Daftarkan Tamu",
+      sub: "Isian bertanda * wajib diisi",
+      body: `
+        <div id="pgjFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama Tamu *</span><input class="input" id="pgjNama"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Instansi</span><input class="input" id="pgjInstansi"></label>
+          <label class="fld"><span>Tujuan</span><input class="input" id="pgjTujuan"></label>
+        </div>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Host / PIC (ID pengguna)</span><input class="input" id="pgjHost" placeholder="opsional"></label>
+          <label class="fld"><span>Ruangan (ID ruangan)</span><input class="input" id="pgjRuangan" placeholder="opsional"></label>
+        </div>
+        <label class="fld mt-8"><span>Tanggal Kunjungan *</span><input type="date" class="input" id="pgjTanggal" value="${D.shift(0)}"></label>
+        <label class="fld mt-8"><span>Catatan</span><textarea class="input" id="pgjCatatan" rows="2"></textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="pgjFormSimpan" onclick="pgjFormSimpan()">Daftarkan</button>`
+    });
+  };
+
+  window.pgjFormSimpan = async function () {
+    const kotak = document.getElementById("pgjFormGalat");
+    const tombol = document.getElementById("pgjFormSimpan");
+    kotak.hidden = true;
+
+    const isi = {
+      nama: document.getElementById("pgjNama").value,
+      instansi: document.getElementById("pgjInstansi").value || undefined,
+      tujuan: document.getElementById("pgjTujuan").value || undefined,
+      host_id: document.getElementById("pgjHost").value || undefined,
+      room_id: document.getElementById("pgjRuangan").value || undefined,
+      tanggal: document.getElementById("pgjTanggal").value,
+      catatan: document.getElementById("pgjCatatan").value || undefined
+    };
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.pengunjung.daftarkan(isi);
+      UI.closeDrawer();
+      U.toast("Terdaftar", "Tamu berhasil didaftarkan.");
+      muatPengunjung();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal mendaftarkan tamu."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Daftarkan"; }
+  };
+
+  window.pgjCheckIn = function (id) {
+    const v = PGJ.baris.find((x) => x.id === id);
+    if (!v) return;
+    U.modal({
+      title: "Check-in " + v.nama,
+      body: `<div id="pgjCiGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nomor Badge</span><input class="input" id="pgjCiBadge" placeholder="opsional, mis. V-118"></label>`,
+      foot: `<button class="btn" onclick="UI.closeModal()">Batal</button>
+             <button class="btn btn-primary" id="pgjCiSimpan" onclick="pgjCheckInSimpan(${JSON.stringify(id)})">Check-in</button>`
+    });
+  };
+
+  window.pgjCheckInSimpan = async function (id) {
+    const kotak = document.getElementById("pgjCiGalat");
+    const tombol = document.getElementById("pgjCiSimpan");
+    const badge = document.getElementById("pgjCiBadge").value || undefined;
+    tombol.disabled = true; tombol.textContent = "Memproses…";
+    try {
+      await Repo.pengunjung.checkIn(id, { badge });
+      UI.closeModal();
+      U.toast("Check-in", "Tamu berhasil check-in.");
+      muatPengunjung();
+    } catch (e) {
+      kotak.textContent = e.message || "Gagal check-in.";
+      kotak.hidden = false;
+      tombol.disabled = false; tombol.textContent = "Check-in";
     }
+  };
+
+  window.pgjCheckOut = async function (id) {
+    if (!confirm("Check-out tamu ini sekarang?")) return;
+    try {
+      await Repo.pengunjung.checkOut(id);
+      U.toast("Check-out", "Tamu berhasil check-out.");
+      muatPengunjung();
+    } catch (e) { U.toast("Gagal", e.message || "Tidak dapat check-out tamu.", "err"); }
   };
 
   V["organization"] = {

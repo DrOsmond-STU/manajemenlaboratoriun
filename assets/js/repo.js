@@ -1791,11 +1791,66 @@
     }
   };
 
+  /* -------------------------------------------------------------- acara */
+  /*
+     "Manajemen Event": sebuah event adalah booking ruangan yang lebih
+     kaya (organizer, PIC, jumlah peserta, anggaran perencanaan) — bukan
+     ditagihkan lewat Tariff/Invoice (lihat docblock migrasi `events`).
+     Rundown, distribusi QR undangan, dan progres persiapan purwarupa
+     sengaja tidak ada di sini — lihat docs/BACKEND.md.
+  */
+
+  const STATUS_ACARA_NAMA = { direncanakan: "Direncanakan", terkonfirmasi: "Terkonfirmasi", berlangsung: "Sedang berlangsung", selesai: "Selesai", dibatalkan: "Dibatalkan" };
+  // Purwarupa punya status finansial ("Quotation", "Menunggu Pembayaran")
+  // yang tidak dimodelkan di sini — keduanya dipetakan ke "direncanakan"
+  // (belum dikonfirmasi), bukan diberi status baru yang tidak ditegakkan
+  // di mana pun di server.
+  const STATUS_ACARA_DARI_PURWARUPA = {
+    Persiapan: "direncanakan", Quotation: "direncanakan", "Menunggu Pembayaran": "direncanakan",
+    Terkonfirmasi: "terkonfirmasi", Selesai: "selesai"
+  };
+
+  function acaraDariPurwarupa(e) {
+    const kode = STATUS_ACARA_DARI_PURWARUPA[e.status] || "direncanakan";
+    return {
+      id: e.id, nama: e.name, jenis: e.type, organizer: e.organizer,
+      pic: e.pic ? { id: e.pic, nama: DB.personName(e.pic) } : null,
+      ruangan: e.venue ? { id: e.venue, kode: e.venue, nama: DB.resName(e.venue) } : null,
+      tanggal: e.date, jumlah_peserta: e.people, anggaran: e.budget,
+      status: { kode: kode, nama: STATUS_ACARA_NAMA[kode] },
+      catatan: null
+    };
+  }
+
+  const acara = {
+    async daftar(tapis) {
+      if (!langsungKeApi()) {
+        let baris = (window.DB ? DB.events : []).map(acaraDariPurwarupa);
+        if (tapis && tapis.cari) {
+          const k = tapis.cari.toLowerCase();
+          baris = baris.filter((e) => e.nama.toLowerCase().indexOf(k) !== -1 || (e.organizer || "").toLowerCase().indexOf(k) !== -1);
+        }
+        if (tapis && tapis.status) baris = baris.filter((e) => e.status.kode === tapis.status);
+        if (tapis && tapis.jenis) baris = baris.filter((e) => e.jenis === tapis.jenis);
+        return { data: baris };
+      }
+      return API.get("/api/acara" + qs(tapis));
+    },
+
+    simpan(isi, id) {
+      if (!langsungKeApi()) return tolakDiModeContoh(id ? "Mengubah event" : "Membuat event");
+      return id
+        ? API.put("/api/acara/" + encodeURIComponent(id), isi).then((j) => j.data)
+        : API.post("/api/acara", isi).then((j) => j.data);
+    }
+  };
+
   window.Repo = {
     ruangan: ruangan,
     vendor: vendor,
     auditAset: auditAset,
     pengunjung: pengunjung,
+    acara: acara,
     checklist: checklist,
     dashboard: dashboard,
     bsc: bsc,

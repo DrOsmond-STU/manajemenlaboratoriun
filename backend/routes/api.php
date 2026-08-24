@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\BscController;
 use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
+use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\FotoAsetController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
@@ -116,6 +117,20 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:booking-ruangan.ubah')->name('pengunjung.checkin');
     Route::post('pengunjung/{pengunjung}/checkout', [VisitorController::class, 'checkOut'])
         ->middleware('can:booking-ruangan.ubah')->name('pengunjung.checkout');
+
+    // --- Manajemen Event -----------------------------------------------------
+    // Izinnya JUGA mencerminkan `booking-ruangan` — lihat docblock
+    // MatriksAkses::MODUL. Sebuah event pada dasarnya adalah booking ruangan
+    // yang lebih kaya (organizer, PIC, anggaran perencanaan), sehingga peran
+    // yang sama yang mengelola booking ruangan wajar mengelolanya juga.
+    // Tanpa destroy(): event batal cukup ditandai status=dibatalkan lewat
+    // update, bukan dihapus — riwayat perencanaan tetap tersimpan.
+    Route::get('acara', [EventController::class, 'index'])
+        ->middleware('can:booking-ruangan.lihat');
+    Route::post('acara', [EventController::class, 'store'])
+        ->middleware('can:booking-ruangan.buat');
+    Route::put('acara/{acara}', [EventController::class, 'update'])
+        ->middleware('can:booking-ruangan.ubah');
 
     // --- Pemilih pengguna --------------------------------------------------
     // Untuk mengisi penanggung jawab, supervisor, dan teknisi pada formulir.

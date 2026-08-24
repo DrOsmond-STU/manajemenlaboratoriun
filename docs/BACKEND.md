@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-571 uji lulus, 1.729 asersi, 0 gagal — dijalankan di PostgreSQL 16
+583 uji lulus, 1.779 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -612,6 +612,23 @@ Manajemen Pengunjung — registrasi tamu & check-in/out, modul baru:
 | Check-out tamu yang sudah selesai ditolak | `422` — mencegah check-out ganda |
 | Check-in boleh tanpa nomor badge | `badge` nullable, tidak wajib diisi staf lobi |
 | **Tiga tahap CHECK constraint konsisten dengan factory state** | `terjadwal`/`di_dalam`/`selesai` masing-masing berhasil `INSERT` lewat state factory berbeda — kalau migrasinya salah tulis, salah satu gagal di sini |
+
+Manajemen Event — perencanaan event, modul baru:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401` pada seluruh endpoint `acara` |
+| **Facility-manager dan room-administrator (PENUH) dapat membuat dan mengubah** | tingkat dicerminkan dari `booking-ruangan` |
+| Event-manager dan PIC (UBAH) dapat membuat dan mengubah | tingkat dicerminkan dari `booking-ruangan` |
+| Asset-manager/finance/lab-technician/management (LIHAT) hanya boleh melihat | membuat event ditolak `403` |
+| **Employee dan external-user (BUAT) boleh mengajukan event, tapi tidak boleh mengubah** | buat `201`, ubah `403` — mencerminkan pola yang sama dengan Manajemen Pengunjung |
+| Pendaftaran mencatat pendaftar & status awal | `dibuat_oleh` terisi dari pengguna yang login, status mulai dari `direncanakan` |
+| **Status tidak dapat diatur saat pendaftaran** | `status` yang dikirim klien saat `POST` diabaikan — server selalu memaksa `direncanakan`, sama seperti `VisitorService::daftarkan()` |
+| Daftar dapat dicari dan ditapis status/jenis | `cari` (ilike nama/organizer), `status` persis, `jenis` persis |
+| Anggaran negatif ditolak | `422` dari validasi **dan** `CHECK events_anggaran_tidak_negatif` |
+| Status di luar daftar ditolak | `422`, `Rule::in(Event::STATUS)` |
+| **Event batal ditandai status, bukan dihapus** | tidak ada `destroy()` sama sekali — pembatalan lewat `PUT status=dibatalkan`, riwayat perencanaan tetap tersimpan |
+| Anggaran dapat dikosongkan | `anggaran` nullable — event internal tanpa anggaran tercatat tidak dipaksa mengisi nol |
 
 ### 4.2 Catatan rancangan
 
@@ -1727,6 +1744,65 @@ Manajemen Pengunjung — registrasi tamu & check-in/out, modul baru:
   tidak menyimpan nomor tiket terpisah, hanya id baris biasa seperti
   modul-modul baru lain window ini (Vendor pakai `kode` eksplisit
   karena vendor sungguh punya kode katalog; tamu tidak).
+
+- **Manajemen Event — modul baru, tabel `events`.** Sebuah event pada
+  dasarnya adalah booking ruangan yang lebih kaya: organizer, PIC,
+  jumlah peserta, dan anggaran perencanaan di atas apa yang `bookings`
+  sudah punya. Ditaruh di tabel sendiri (bukan kolom tambahan pada
+  `bookings`) supaya field-field itu tidak memaksa SETIAP booking biasa
+  (rapat internal, dst.) ikut menyimpannya — hanya event yang benar-benar
+  butuh kekayaan itu yang mendapat barisnya sendiri.
+- **`anggaran` SENGAJA TIDAK ditautkan ke `Tariff`/Invoice/Payment** —
+  ini angka PERENCANAAN yang diisi manual oleh penyelenggara, bukan
+  tagihan resmi. Event yang sungguh disewakan dan butuh tagihan tetap
+  lewat jalur Penyewaan yang sudah ada; mengaitkan keduanya berarti
+  menyentuh jalur perhitungan uang yang sudah berjalan demi satu layar
+  perencanaan — risiko yang sama yang membuat "Fasilitas & Add-on"
+  sebelumnya juga tidak memperluas `Tariff::SATUAN`. Dua konsep ini
+  sengaja dibiarkan terpisah untuk saat ini.
+- **Tingkat izin JUGA MENCERMINKAN `booking-ruangan` persis di seluruh
+  12 peran** — alasan yang sama dengan Manajemen Pengunjung: event pada
+  dasarnya adalah booking ruangan yang lebih kaya, bukan konsep terpisah
+  yang butuh tingkat kepercayaannya sendiri. Dicocokkan programatis
+  sebelum dipakai.
+- **`status` TIDAK dapat diisi klien saat pendaftaran** — `POST /api/acara`
+  selalu memaksa `direncanakan` di server, mengabaikan apa pun yang
+  dikirim, sama seperti `VisitorService::daftarkan()` mengabaikan status
+  dari permintaan check-in. Perubahan status hanya lewat `PUT` setelah
+  event tercatat.
+- **Tanpa `destroy()` sama sekali** — event batal ditandai
+  `status=dibatalkan` lewat `update()` biasa, bukan dihapus. Riwayat
+  perencanaan (siapa mengajukan apa, kapan) tetap tersimpan, pola yang
+  sama dengan Vendor menonaktifkan alih-alih menghapus baris.
+- **Kartu preview "Progres Persiapan" (meter persentase yang di-hardcode
+  dari status, bukan dihitung) dan tombol "Rundown" purwarupa
+  DIJATUHKAN** — tidak ada rundown/susunan acara tersimpan di mana pun;
+  angka progres purwarupa selalu sama untuk status yang sama sehingga
+  tidak pernah membawa informasi sungguhan.
+- **KPI "Vendor Terlibat" purwarupa DIJATUHKAN** — angkanya adalah
+  jumlah SELURUH vendor terdaftar di katalog, bukan vendor yang benar-
+  benar terkait event tertentu (tidak ada tabel yang menautkan
+  keduanya). Menampilkan jumlah vendor total pada layar sebuah event
+  adalah non-sequitur yang sudah menyesatkan sejak di purwarupa, bukan
+  sesuatu yang perlu "dijaga tetap ada" seperti Rata-rata Kunjungan
+  pada Manajemen Pengunjung.
+- **Status finansial purwarupa ("Quotation", "Menunggu Pembayaran")
+  DISEDERHANAKAN** — `Event::STATUS` sungguhan hanya lima tahap
+  perencanaan/pelaksanaan (direncanakan/terkonfirmasi/berlangsung/
+  selesai/dibatalkan), TIDAK melacak tahap penagihan; keduanya dipetakan
+  ke "Direncanakan" di mode contoh, konsisten dengan keputusan tidak
+  menautkan `anggaran` ke jalur penagihan di atas.
+- **"Agenda & Kegiatan", "Peserta Event", dan "Laporan Event" purwarupa
+  BELUM disambungkan pada window ini** — ketiganya butuh entitas baru
+  yang jauh lebih luas (peserta/registrasi/QR/absensi untuk Peserta
+  Event; "Agenda" yang purwarupanya mencampur rapat/training/audit/
+  maintenance/inspeksi — jenis kegiatan yang SEBAGIAN BESAR sudah
+  masing-masing tercatat di tabelnya sendiri, `AssetMaintenance` dan
+  `AssetAuditSession`, sehingga sebuah tabel "Agenda" generik berisiko
+  jadi sumber kebenaran kedua yang menyimpang dari yang sudah ada —
+  mirip alasan Kalender Terpadu mengagregasi sumber yang sudah
+  tersambung, bukan menyimpan salinannya sendiri). Disengaja dipisah
+  dari cakupan pass ini, bukan lupa.
 
 ---
 

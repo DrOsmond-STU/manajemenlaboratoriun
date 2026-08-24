@@ -91,6 +91,13 @@ final class MatriksAkses
         // bahkan employee yang boleh BUAT booking sendiri) wajar mengelola
         // pra-registrasi dan check-in/out tamu dengan tingkat yang sama.
         'pengunjung' => 'Manajemen pengunjung',
+
+        // Juga tidak ada di SECURITY.md §4.1. Tingkatnya JUGA MENIRU KOLOM
+        // `booking-ruangan` PERSIS di seluruh peran — alasan yang sama
+        // dengan `pengunjung`: sebuah event pada dasarnya adalah booking
+        // ruangan yang lebih kaya (organizer, PIC, anggaran perencanaan),
+        // bukan konsep berbeda yang butuh tingkat kepercayaan sendiri.
+        'acara' => 'Manajemen event',
     ];
 
     /** @var array<string, string> */
@@ -127,42 +134,42 @@ final class MatriksAkses
             'laboratorium' => 'PENUH', 'aset' => 'PENUH', 'penyewaan' => 'PENUH',
             'pemeliharaan' => 'PENUH', 'kalibrasi' => 'PENUH', 'checklist' => 'PENUH',
             'notifikasi' => 'PENUH', 'master-data' => 'PENUH', 'audit' => 'PENUH',
-            'pengguna' => 'PENUH', 'vendor' => 'PENUH', 'audit-aset' => 'PENUH', 'pengunjung' => 'PENUH',
+            'pengguna' => 'PENUH', 'vendor' => 'PENUH', 'audit-aset' => 'PENUH', 'pengunjung' => 'PENUH', 'acara' => 'PENUH',
         ],
         'facility-manager' => [
             'dashboard' => 'PENUH', 'booking-ruangan' => 'PENUH', 'booking-alat' => 'LIHAT',
             'laboratorium' => 'LIHAT', 'aset' => 'UBAH', 'penyewaan' => 'UBAH',
             'pemeliharaan' => 'PENUH', 'kalibrasi' => 'LIHAT', 'checklist' => 'PENUH',
             'notifikasi' => 'UBAH', 'master-data' => 'UBAH', 'audit' => 'LIHAT',
-            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'UBAH', 'pengunjung' => 'PENUH',
+            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'UBAH', 'pengunjung' => 'PENUH', 'acara' => 'PENUH',
         ],
         'lab-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'PENUH',
             'laboratorium' => 'PENUH', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'PENUH', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH',
+            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH', 'acara' => 'UBAH',
         ],
         'asset-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => 'UBAH',
             'laboratorium' => 'LIHAT', 'aset' => 'PENUH', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'UBAH', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'PENUH', 'pengunjung' => 'LIHAT',
+            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'PENUH', 'pengunjung' => 'LIHAT', 'acara' => 'LIHAT',
         ],
         'finance' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => '-',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'PENUH',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => '-', 'checklist' => '-',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT', 'acara' => 'LIHAT',
         ],
         'employee' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'BUAT', 'booking-alat' => 'BUAT',
             'laboratorium' => 'LIHAT', 'aset' => '-', 'penyewaan' => '-',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => 'BUAT',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => '-', 'pengunjung' => 'BUAT',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => '-', 'pengunjung' => 'BUAT', 'acara' => 'BUAT',
         ],
 
         // ---- PERLU_DIKONFIRMASI: disimpulkan dari PRD §4 ----------------
@@ -171,42 +178,42 @@ final class MatriksAkses
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'UBAH', 'kalibrasi' => 'UBAH', 'checklist' => 'UBAH',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT', 'acara' => 'LIHAT',
         ],
         'room-administrator' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'PENUH', 'booking-alat' => 'LIHAT',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'LIHAT',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => '-', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => 'UBAH', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'LIHAT', 'pengunjung' => 'PENUH',
+            'pengguna' => '-', 'vendor' => 'UBAH', 'audit-aset' => 'LIHAT', 'pengunjung' => 'PENUH', 'acara' => 'PENUH',
         ],
         'event-manager' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'BUAT',
             'laboratorium' => '-', 'aset' => 'LIHAT', 'penyewaan' => 'UBAH',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => 'BUAT',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH', 'acara' => 'UBAH',
         ],
         'pic' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'UBAH', 'booking-alat' => 'UBAH',
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => '-',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => 'LIHAT', 'checklist' => 'UBAH',
             'notifikasi' => 'LIHAT', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => 'LIHAT', 'pengunjung' => 'UBAH', 'acara' => 'UBAH',
         ],
         'external-user' => [
             'dashboard' => '-', 'booking-ruangan' => 'BUAT', 'booking-alat' => '-',
             'laboratorium' => '-', 'aset' => '-', 'penyewaan' => 'BUAT',
             'pemeliharaan' => '-', 'kalibrasi' => '-', 'checklist' => '-',
             'notifikasi' => '-', 'master-data' => '-', 'audit' => '-',
-            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => '-', 'pengunjung' => 'BUAT',
+            'pengguna' => '-', 'vendor' => '-', 'audit-aset' => '-', 'pengunjung' => 'BUAT', 'acara' => 'BUAT',
         ],
         'management' => [
             'dashboard' => 'LIHAT', 'booking-ruangan' => 'LIHAT', 'booking-alat' => 'LIHAT',
             'laboratorium' => 'LIHAT', 'aset' => 'LIHAT', 'penyewaan' => 'LIHAT',
             'pemeliharaan' => 'LIHAT', 'kalibrasi' => 'LIHAT', 'checklist' => 'LIHAT',
             'notifikasi' => 'LIHAT', 'master-data' => 'LIHAT', 'audit' => 'LIHAT',
-            'pengguna' => '-', 'vendor' => 'LIHAT', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT',
+            'pengguna' => '-', 'vendor' => 'LIHAT', 'audit-aset' => 'LIHAT', 'pengunjung' => 'LIHAT', 'acara' => 'LIHAT',
         ],
     ];
 

@@ -1255,52 +1255,194 @@
   };
 
   /* =======================================================================
-     EVENT
+     EVENT — tersambung ke basis data (`events`)
+
+     Sebuah event pada dasarnya adalah booking ruangan yang lebih kaya
+     (organizer, PIC, jumlah peserta, anggaran perencanaan) — lihat
+     docblock migrasi `events`. Izinnya JUGA mencerminkan `booking-ruangan`
+     persis, alasan yang sama dengan Manajemen Pengunjung.
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - Kartu preview 2 event teratas dengan "Progres Persiapan" (meter
+       persentase yang di-hardcode dari status, bukan dihitung) dan
+       tombol "Rundown" DIJATUHKAN — tidak ada rundown/susunan acara
+       tersimpan di mana pun; angka progres purwarupa selalu sama untuk
+       status yang sama, tidak membawa informasi sungguhan.
+     - KPI "Vendor Terlibat" (jumlah SELURUH vendor terdaftar, bukan yang
+       benar-benar terkait event ini) DIJATUHKAN — tidak ada tabel yang
+       menautkan event ke vendor tertentu; menampilkan jumlah vendor
+       total pada layar event adalah non-sequitur yang sudah menyesatkan
+       sejak di purwarupa.
+     - "ID Event" (EV-2026-0042 dst.) DIJATUHKAN — `Event` tidak
+       menyimpan nomor tiket terpisah, hanya id baris biasa.
+     - Status finansial purwarupa ("Quotation", "Menunggu Pembayaran")
+       DISEDERHANAKAN — dipetakan ke "Direncanakan" saat mode contoh;
+       `Event::STATUS` sungguhan hanya lima tahap perencanaan/pelaksanaan,
+       TIDAK melacak tahap penagihan (lihat docblock migrasi `events`
+       dan catatan rancangan di docs/BACKEND.md).
      ======================================================================= */
+
+  const ACR = { baris: [], memuat: true, galat: null, tapis: {} };
+
+  async function muatAcara() {
+    ACR.memuat = true; ACR.galat = null; isiAcara();
+    try { ACR.baris = (await Repo.acara.daftar(ACR.tapis)).data; }
+    catch (e) { ACR.baris = []; ACR.galat = e.message; }
+    finally { ACR.memuat = false; isiAcara(); isiRingkasanAcara(); }
+  }
+
+  function isiRingkasanAcara() {
+    const w = document.getElementById("acrKpi");
+    if (!w) return;
+    const b = ACR.baris;
+    const aktif = b.filter((e) => !["selesai", "dibatalkan"].includes(e.status.kode));
+    w.innerHTML = `
+      ${U.kpi({ label: "Event Aktif", value: aktif.length, icon: "star", tint: "violet", note: "Belum selesai/dibatalkan" })}
+      ${U.kpi({ label: "Total Peserta", value: U.num(b.reduce((a, e) => a + (e.jumlah_peserta || 0), 0)), icon: "users", tint: "brand", note: "Seluruh event terjadwal" })}
+      ${U.kpi({ label: "Total Anggaran", value: U.rpShort(b.reduce((a, e) => a + (e.anggaran || 0), 0)), icon: "money", tint: "amber", note: "Perencanaan, bukan tagihan resmi" })}`;
+  }
+
+  function isiAcara() {
+    const w = document.getElementById("acrTabel");
+    if (!w) return;
+    if (ACR.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (ACR.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(ACR.galat)}</span></div></div>`; return; }
+    if (!ACR.baris.length) { w.innerHTML = U.emptyState("Belum ada event terdaftar", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk membuat event."); return; }
+    w.innerHTML = U.table([
+      { t: "Nama Event", render: (e) => `<b>${U.esc(e.nama)}</b>${e.jenis ? `<div class="tiny faint">${U.esc(e.jenis)}</div>` : ""}` },
+      { t: "Organizer", render: (e) => U.esc(e.organizer || "—") },
+      { t: "PIC", render: (e) => e.pic ? `<span class="small">${U.esc(e.pic.nama)}</span>` : `<span class="faint">—</span>` },
+      { t: "Tanggal", render: (e) => U.fdate(e.tanggal, "short") },
+      { t: "Venue", render: (e) => e.ruangan ? `<span class="small">${U.esc(e.ruangan.nama)}</span>` : `<span class="faint">—</span>` },
+      { t: "Peserta", cls: "center", render: (e) => e.jumlah_peserta == null ? `<span class="faint">—</span>` : U.num(e.jumlah_peserta) },
+      { t: "Anggaran", cls: "right", render: (e) => e.anggaran == null ? `<span class="faint">—</span>` : U.rp(e.anggaran) },
+      { t: "Status", render: (e) => U.badge(e.status.nama) },
+      { t: "", cls: "actions", render: (e) => Repo.dapatMenulis() ? `<button class="icon-btn" onclick="acrForm(${JSON.stringify(e.id)})">${U.icon("edit", 15)}</button>` : "" }
+    ], ACR.baris);
+  }
+
   V["events"] = {
     title: "Manajemen Event",
-    sub: "Perencanaan event: organizer, PIC, peserta, anggaran, vendor, dan dokumentasi.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form event baru')">${U.icon("plus")} Buat Event</button>`,
+    sub: "Perencanaan event: organizer, PIC, peserta, dan anggaran.",
+    get actions() {
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="acrForm()">${U.icon("plus")} Buat Event</button>` : "";
+    },
     render() {
       return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Event Aktif", value: D.events.filter((e) => e.status !== "Selesai").length, icon: "star", tint: "violet", note: "Dalam persiapan" })}
-          ${U.kpi({ label: "Total Peserta", value: U.num(D.events.reduce((a, e) => a + e.people, 0)), icon: "users", tint: "brand", note: "Seluruh event terjadwal" })}
-          ${U.kpi({ label: "Total Anggaran", value: U.rpShort(D.events.reduce((a, e) => a + e.budget, 0)), icon: "money", tint: "amber", note: "Termasuk vendor" })}
-          ${U.kpi({ label: "Vendor Terlibat", value: D.vendors.length, icon: "box", tint: "teal", note: "Kontrak aktif" })}
+        <div class="grid g3 mb-16" id="acrKpi"></div>
+        <div class="row wrap gap-8" style="padding:12px 16px;border:1px solid var(--border);border-bottom:none;border-radius:12px 12px 0 0;background:var(--surface)">
+          <input class="input" id="acrCari" placeholder="Cari nama event / organizer…" style="max-width:260px" onkeydown="if(event.key==='Enter')acrTerapkanTapis()">
+          <select class="select" id="acrFilterStatus" style="max-width:180px">
+            <option value="">Semua Status</option>
+            <option value="direncanakan">Direncanakan</option>
+            <option value="terkonfirmasi">Terkonfirmasi</option>
+            <option value="berlangsung">Sedang berlangsung</option>
+            <option value="selesai">Selesai</option>
+            <option value="dibatalkan">Dibatalkan</option>
+          </select>
+          <input class="input" id="acrFilterJenis" placeholder="Jenis (mis. Konferensi)" style="max-width:200px" onkeydown="if(event.key==='Enter')acrTerapkanTapis()">
+          <button class="btn btn-sm" onclick="acrTerapkanTapis()">Terapkan</button>
         </div>
-        <div class="grid g2 mb-16">
-          ${D.events.filter((e) => e.status !== "Selesai").slice(0, 2).map((e) => `
-            <div class="card"><div class="card-body">
-              <div class="row mb-12"><span class="badge violet">${U.esc(e.type)}</span>${U.badge(e.status)}
-                <div class="spacer"></div><span class="tiny faint mono">${e.id}</span></div>
-              <h3 class="mb-4">${U.esc(e.name)}</h3>
-              <div class="small muted mb-16">${U.esc(e.organizer)} • PIC ${U.esc(D.personName(e.pic))}</div>
-              <div class="grid g4" style="gap:10px">
-                ${[["Tanggal", U.fdate(e.date, "short")], ["Venue", D.resName(e.venue).split(" ").slice(0, 2).join(" ")], ["Peserta", U.num(e.people)], ["Vendor", e.vendors]]
-                  .map(([k, v]) => `<div><div class="tiny faint">${k}</div><b class="small">${v}</b></div>`).join("")}
-              </div>
-              <div class="mt-16">${U.meter(`<span class="small">Progres persiapan</span>`, e.status === "Persiapan" ? 68 : e.status === "Terkonfirmasi" ? 85 : 32, "var(--violet-500)")}</div>
-              <div class="row mt-12" style="padding-top:12px;border-top:1px solid var(--border)">
-                <div><div class="tiny faint">Anggaran</div><b>${U.rp(e.budget)}</b></div>
-                <div class="spacer"></div>
-                <button class="btn btn-sm" onclick="UI.demo('Rundown event')">Rundown</button>
-                <button class="btn btn-sm btn-primary" onclick="UI.demo('Detail event')">Kelola</button></div>
-            </div></div>`).join("")}
+        ${U.card("", `<div id="acrTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { ACR.tapis = {}; muatAcara(); }
+  };
+
+  window.acrTerapkanTapis = function () {
+    ACR.tapis = {
+      cari: document.getElementById("acrCari").value || undefined,
+      status: document.getElementById("acrFilterStatus").value || undefined,
+      jenis: document.getElementById("acrFilterJenis").value || undefined
+    };
+    muatAcara();
+  };
+
+  window.acrForm = async function (id) {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mengelola event hanya bisa setelah masuk dengan akun."); return; }
+    const existing = id ? ACR.baris.find((e) => e.id === id) : null;
+    const v = (x) => (x === null || x === undefined ? "" : U.esc(String(x)));
+
+    // Daftar pengguna dan ruangan diambil sekali di sini, dipakai kedua
+    // pemilih — pola yang sama dengan labForm.
+    let orang = [], ruang = [];
+    try { orang = (await Repo.pengguna.daftar()).data; } catch (e) { orang = []; }
+    try { ruang = (await Repo.ruangan.daftar()).data; } catch (e) { ruang = []; }
+
+    U.drawer({
+      size: "wide",
+      title: existing ? "Ubah Event" : "Buat Event",
+      sub: existing ? existing.nama : "Isian bertanda * wajib diisi",
+      body: `
+        <div id="acrFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama Event *</span><input class="input" id="acrNama" value="${existing ? v(existing.nama) : ""}"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Jenis</span><input class="input" id="acrJenis" value="${existing ? v(existing.jenis) : ""}" placeholder="mis. Konferensi"></label>
+          <label class="fld"><span>Organizer</span><input class="input" id="acrOrganizer" value="${existing ? v(existing.organizer) : ""}"></label>
         </div>
-        ${U.card("Daftar Event", U.toolbar({ ph: "Cari event…", filters: [["Semua Jenis", "Konferensi", "Pelatihan", "Gathering", "Seremonial", "Sosialisasi"], ["Semua Status"]] }) +
-          U.table([
-            { t: "ID", w: "130px", render: (e) => `<span class="mono small">${e.id}</span>` },
-            { t: "Nama Event", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${U.esc(e.type)}</div>` },
-            { t: "Organizer", render: (e) => U.esc(e.organizer) },
-            { t: "PIC", render: (e) => `<span class="small">${U.esc(D.personName(e.pic))}</span>` },
-            { t: "Tanggal", render: (e) => U.fdate(e.date, "short") },
-            { t: "Venue", render: (e) => `<span class="small">${U.esc(D.resName(e.venue))}</span>` },
-            { t: "Peserta", cls: "center", render: (e) => U.num(e.people) },
-            { t: "Anggaran", cls: "right", render: (e) => U.rp(e.budget) },
-            { t: "Status", render: (e) => U.badge(e.status) }
-          ], D.events), { bodyCls: "flush" })}`;
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>PIC</span>
+            <select class="select" id="acrPic">
+              <option value="">— belum ditetapkan —</option>
+              ${orang.map((o) => `<option value="${U.esc(String(o.id))}"${existing && existing.pic && String(existing.pic.id) === String(o.id) ? " selected" : ""}>${U.esc(o.nama)}</option>`).join("")}
+            </select></label>
+          <label class="fld"><span>Venue / Ruangan</span>
+            <select class="select" id="acrRuangan">
+              <option value="">— belum ditetapkan —</option>
+              ${ruang.map((r) => `<option value="${U.esc(String(r.id))}"${existing && existing.ruangan && String(existing.ruangan.id) === String(r.id) ? " selected" : ""}>${U.esc(r.nama)}</option>`).join("")}
+            </select></label>
+        </div>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Tanggal *</span><input type="date" class="input" id="acrTanggal" value="${existing ? existing.tanggal : D.shift(0)}"></label>
+          <label class="fld"><span>Jumlah Peserta</span><input type="number" class="input" id="acrPeserta" value="${existing && existing.jumlah_peserta != null ? existing.jumlah_peserta : ""}"></label>
+        </div>
+        <label class="fld mt-8"><span>Anggaran (Rp)</span><input type="number" class="input" id="acrAnggaran" value="${existing && existing.anggaran != null ? existing.anggaran : ""}"></label>
+        ${existing ? `<label class="fld mt-8"><span>Status</span>
+          <select class="select" id="acrStatus">
+            <option value="direncanakan" ${existing.status.kode === "direncanakan" ? "selected" : ""}>Direncanakan</option>
+            <option value="terkonfirmasi" ${existing.status.kode === "terkonfirmasi" ? "selected" : ""}>Terkonfirmasi</option>
+            <option value="berlangsung" ${existing.status.kode === "berlangsung" ? "selected" : ""}>Sedang berlangsung</option>
+            <option value="selesai" ${existing.status.kode === "selesai" ? "selected" : ""}>Selesai</option>
+            <option value="dibatalkan" ${existing.status.kode === "dibatalkan" ? "selected" : ""}>Dibatalkan</option>
+          </select></label>` : ""}
+        <label class="fld mt-8"><span>Catatan</span><textarea class="input" id="acrCatatan" rows="2">${existing ? v(existing.catatan) : ""}</textarea></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="acrFormSimpan" onclick="acrFormSimpan(${id ? JSON.stringify(id) : "null"})">Simpan</button>`
+    });
+  };
+
+  window.acrFormSimpan = async function (id) {
+    const kotak = document.getElementById("acrFormGalat");
+    const tombol = document.getElementById("acrFormSimpan");
+    kotak.hidden = true;
+
+    const isi = {
+      nama: document.getElementById("acrNama").value,
+      jenis: document.getElementById("acrJenis").value || undefined,
+      organizer: document.getElementById("acrOrganizer").value || undefined,
+      pic_id: document.getElementById("acrPic").value || undefined,
+      room_id: document.getElementById("acrRuangan").value || undefined,
+      tanggal: document.getElementById("acrTanggal").value,
+      jumlah_peserta: document.getElementById("acrPeserta").value ? Number(document.getElementById("acrPeserta").value) : undefined,
+      anggaran: document.getElementById("acrAnggaran").value ? Number(document.getElementById("acrAnggaran").value) : undefined,
+      catatan: document.getElementById("acrCatatan").value || undefined
+    };
+    if (id) {
+      const statusEl = document.getElementById("acrStatus");
+      if (statusEl) isi.status = statusEl.value;
     }
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.acara.simpan(isi, id);
+      UI.closeDrawer();
+      U.toast("Tersimpan", "Event berhasil disimpan.");
+      muatAcara();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal menyimpan."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
   };
 
   V["agenda"] = {

@@ -1633,6 +1633,39 @@ Audit Aset — stock opname, modul baru:
   terpisah) dengan add-on acara — dua konsep berbeda yang kebetulan
   sama-sama disebut "vendor" dalam bahasa sehari-hari.
 
+- **Penanggung Jawab (PIC) disambungkan TANPA SATU PUN perubahan
+  backend, dan bukan entitas baru** — Ruangan, Laboratorium, dan Aset
+  SUDAH masing-masing punya `penanggung_jawab` sendiri (dimuat eager
+  oleh `index()` masing-masing sejak modulnya pertama tersambung).
+  Layar ini murni AGREGASI: mengelompokkan ulang tiga daftar yang
+  sudah tersambung itu per orang di frontend — pola yang sama dengan
+  Kalender Terpadu menggabungkan tiga sumber yang sudah tersambung
+  sendiri-sendiri.
+- **"Alat" vs "Aset" (dua kolom terpisah pada matriks) dipetakan dari
+  SATU tabel `assets` yang sama** — `wajib_kalibrasi=true` dihitung
+  sebagai "Alat", sisanya sebagai "Aset" — pola yang sama dengan
+  Manajemen Alat Laboratorium menyaring populasi yang sama.
+- **Ketiga sumber dimuat TERPISAH, bukan lewat satu `Promise.all` yang
+  gagal total bila satu ditolak** — peran yang berhak melihat Ruangan
+  belum tentu berhak melihat Aset (dan sebaliknya); kegagalan satu
+  sumber tidak boleh mengosongkan agregat dari sumber lain yang
+  berhasil dimuat. Hanya bila KETIGANYA gagal, layar menampilkan pesan
+  tidak berwenang yang jelas — bukan tabel kosong yang tampak seperti
+  bug.
+- **"Unit", "Workload"/"Kapasitas Approval", "Ketersediaan"
+  (Cuti/Aktif), "Delegasi Aktif", dan spanduk "Eskalasi otomatis
+  aktif" purwarupa DIJATUHKAN** — tidak ada kolom/tabel kapasitas
+  approval, cuti, atau delegasi PIC di mana pun dalam skema;
+  `penanggung_jawab` hanya menyimpan SIAPA, bukan beban atau
+  ketersediaannya. Mengarang angka workload/SLA untuk metrik yang
+  tidak pernah ditegakkan sistem dinilai lebih berbahaya daripada
+  tidak menampilkannya sama sekali.
+- **Tombol "Assign PIC"/"Delegasi" purwarupa DIJATUHKAN** — penugasan
+  PIC sudah punya jalur sungguhan: formulir edit masing-masing
+  Ruangan/Laboratorium/Aset yang sudah tersambung. Membangun jalur
+  assignment kedua di layar ini berarti dua tempat mengubah fakta yang
+  sama, berisiko saling menyimpang seiring waktu.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

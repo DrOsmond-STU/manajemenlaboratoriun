@@ -1684,39 +1684,111 @@
     } finally { tombol.disabled = false; tombol.textContent = "Simpan"; }
   };
 
+  /* =======================================================================
+     PENANGGUNG JAWAB (PIC) — tersambung ke basis data
+
+     TANPA SATU PUN perubahan backend — Ruangan, Laboratorium, dan Aset
+     SUDAH masing-masing punya `penanggung_jawab` sendiri (dimuat eager
+     oleh index() masing-masing sejak awal). Layar ini murni AGREGASI:
+     mengelompokkan ulang tiga daftar yang sudah tersambung itu per orang,
+     bukan entitas "penugasan PIC" baru — pola yang sama dengan Kalender
+     Terpadu menggabungkan tiga sumber yang sudah tersambung sendiri.
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - "Unit" (unit kerja PIC), "Workload"/"Kapasitas Approval",
+       "Ketersediaan" (Cuti/Aktif), "Delegasi Aktif", dan spanduk
+       "Eskalasi otomatis aktif" purwarupa DIJATUHKAN — tidak ada
+       kolom/tabel kapasitas approval, cuti, atau delegasi PIC di mana
+       pun; `penanggung_jawab` hanya menyimpan SIAPA, bukan beban atau
+       ketersediaannya. Mengarang angka workload/SLA untuk metrik yang
+       tidak pernah ditegakkan sistem lebih berbahaya daripada tidak
+       menampilkannya sama sekali.
+     - Tombol "Assign PIC"/"Delegasi" purwarupa DIJATUHKAN — penugasan
+       PIC sudah punya jalur sungguhan: formulir edit masing-masing
+       Ruangan/Laboratorium/Aset (yang sudah tersambung). Membangun
+       jalur assignment kedua di sini akan berarti dua tempat mengubah
+       fakta yang sama, berisiko saling menyimpang.
+     - "Alat" vs "Aset" purwarupa (dua kolom terpisah) dipetakan dari
+       SATU tabel `assets` yang sama — `wajib_kalibrasi=true` dihitung
+       sebagai "Alat", sisanya sebagai "Aset" — pola yang sama dengan
+       Manajemen Alat Laboratorium.
+     - Ketiga sumber dimuat TERPISAH (bukan Promise.all yang gagal
+       total bila satu ditolak) — peran yang berhak melihat Ruangan
+       belum tentu berhak melihat Aset, dan sebaliknya; kegagalan satu
+       sumber tidak boleh mengosongkan agregat dari sumber lain.
+     ======================================================================= */
+
+  const PIC = { rooms: null, labs: null, assets: null, galatSemua: false, memuat: true };
+
+  async function muatPic() {
+    PIC.memuat = true; isiPic(); isiRingkasanPic();
+    const ambil = async (fn) => { try { return (await fn()).data || []; } catch (e) { return null; } };
+    const [rooms, labs, assets] = await Promise.all([
+      ambil(() => Repo.ruangan.daftar()),
+      ambil(() => Repo.laboratorium.daftar()),
+      ambil(() => Repo.aset.daftar({ per_halaman: 200 }))
+    ]);
+    PIC.rooms = rooms; PIC.labs = labs; PIC.assets = assets;
+    PIC.galatSemua = rooms === null && labs === null && assets === null;
+    PIC.memuat = false; isiPic(); isiRingkasanPic();
+  }
+
+  function agregasiPic() {
+    const byId = {};
+    const tambah = (pj, field) => {
+      if (!pj) return;
+      if (!byId[pj.id]) byId[pj.id] = { id: pj.id, nama: pj.nama, ruangan: 0, laboratorium: 0, alat: 0, aset: 0 };
+      byId[pj.id][field]++;
+    };
+    (PIC.rooms || []).forEach((r) => tambah(r.penanggung_jawab, "ruangan"));
+    (PIC.labs || []).forEach((l) => tambah(l.penanggung_jawab, "laboratorium"));
+    (PIC.assets || []).forEach((a) => tambah(a.penanggung_jawab, a.wajib_kalibrasi ? "alat" : "aset"));
+    return Object.values(byId).sort((a, b) =>
+      (b.ruangan + b.laboratorium + b.alat + b.aset) - (a.ruangan + a.laboratorium + a.alat + a.aset));
+  }
+
+  function isiRingkasanPic() {
+    const w = document.getElementById("picKpi");
+    if (!w) return;
+    if (PIC.galatSemua) { w.innerHTML = ""; return; }
+    const baris = agregasiPic();
+    const totalResource = (PIC.rooms || []).length + (PIC.labs || []).length + (PIC.assets || []).length;
+    const berPic = (PIC.rooms || []).filter((r) => r.penanggung_jawab).length
+      + (PIC.labs || []).filter((l) => l.penanggung_jawab).length
+      + (PIC.assets || []).filter((a) => a.penanggung_jawab).length;
+    const persen = totalResource ? Math.round((berPic / totalResource) * 100) : 0;
+
+    w.innerHTML = `
+      ${U.kpi({ label: "PIC Aktif", value: baris.length, icon: "users", tint: "brand", note: "Ruangan, laboratorium & aset" })}
+      ${U.kpi({ label: "Resource Ber-PIC", value: persen, suffix: "%", icon: "check", tint: "green", note: (totalResource - berPic) + " belum ditugaskan" })}
+      ${U.kpi({ label: "Total Resource", value: U.num(totalResource), icon: "grid", tint: "slate", note: "Dalam cakupan Anda" })}`;
+  }
+
+  function isiPic() {
+    const w = document.getElementById("picTabel");
+    if (!w) return;
+    if (PIC.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (PIC.galatSemua) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Tidak berwenang.</b><br><span class="small">Anda tidak memiliki akses ke ruangan, laboratorium, maupun aset untuk menyusun matriks ini.</span></div></div>`; return; }
+    const baris = agregasiPic();
+    if (!baris.length) { w.innerHTML = U.emptyState("Belum ada resource dengan penanggung jawab"); return; }
+    w.innerHTML = U.table([
+      { t: "PIC", render: (r) => `<div class="row"><span class="avatar sm">${U.initials(r.nama)}</span><b class="small">${U.esc(r.nama)}</b></div>` },
+      { t: "Ruangan", cls: "center", render: (r) => r.ruangan || `<span class="faint">—</span>` },
+      { t: "Laboratorium", cls: "center", render: (r) => r.laboratorium || `<span class="faint">—</span>` },
+      { t: "Alat", cls: "center", render: (r) => r.alat || `<span class="faint">—</span>` },
+      { t: "Aset", cls: "center", render: (r) => r.aset || `<span class="faint">—</span>` },
+      { t: "Total", cls: "center", render: (r) => `<b>${r.ruangan + r.laboratorium + r.alat + r.aset}</b>` }
+    ], baris);
+  }
+
   V["pic"] = {
     title: "Penanggung Jawab (PIC)",
-    sub: "Assignment PIC untuk laboratorium, ruangan, auditorium, aset, dan alat.",
-    actions: `<button class="btn btn-primary btn-sm" onclick="UI.demo('Form assignment PIC')">${U.icon("plus")} Assign PIC</button>`,
+    sub: "Rekap penanggung jawab ruangan, laboratorium, dan aset — penugasan diubah lewat formulir masing-masing resource.",
     render() {
-      const picRows = D.people.slice(0, 8).map((p, i) => ({
-        p, rooms: [2, 6, 1, 0, 5, 0, 2, 0][i], labs: [0, 3, 2, 0, 0, 0, 0, 0][i],
-        assets: [4, 1, 2, 6, 3, 0, 2, 3][i], eq: [0, 5, 8, 2, 0, 0, 0, 0][i],
-        load: [62, 88, 74, 55, 71, 22, 48, 35][i]
-      }));
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "PIC Aktif", value: 24, icon: "users", tint: "brand", note: "Seluruh jenis resource" })}
-          ${U.kpi({ label: "Resource Ber-PIC", value: "96", suffix: "%", icon: "check", tint: "green", note: "4% belum ditugaskan" })}
-          ${U.kpi({ label: "Beban Tertinggi", value: "Dewi A.", icon: "alert", tint: "amber", note: "88% workload — perlu delegasi" })}
-          ${U.kpi({ label: "Delegasi Aktif", value: 3, icon: "send", tint: "violet", note: "PIC sedang cuti/dinas" })}
-        </div>
-        <div class="alert warn mb-16">${U.icon("alert", 17)}<div><b>Eskalasi otomatis aktif</b>
-          Bila PIC tidak merespons pengajuan dalam SLA, sistem meneruskan ke supervisor atau PIC pengganti.</div></div>
-        ${U.card("Matriks Penugasan PIC", U.table([
-          { t: "PIC", render: (r) => `<div class="row"><span class="avatar sm">${U.initials(r.p.name)}</span>
-            <div><b class="small">${U.esc(r.p.name)}</b><div class="tiny faint">${U.esc(r.p.role)}</div></div></div>` },
-          { t: "Unit", render: (r) => U.esc(r.p.unit) },
-          { t: "Ruangan", cls: "center", render: (r) => r.rooms || `<span class="faint">—</span>` },
-          { t: "Laboratorium", cls: "center", render: (r) => r.labs || `<span class="faint">—</span>` },
-          { t: "Alat", cls: "center", render: (r) => r.eq || `<span class="faint">—</span>` },
-          { t: "Aset", cls: "center", render: (r) => r.assets || `<span class="faint">—</span>` },
-          { t: "Workload", w: "170px", render: (r) => `<div class="bar thin"><i style="width:${r.load}%;background:${r.load > 80 ? "var(--red-500)" : r.load > 60 ? "var(--amber-500)" : "var(--green-500)"}"></i></div>
-            <div class="tiny faint mt-4">${r.load}% kapasitas approval</div>` },
-          { t: "Ketersediaan", render: (r) => U.badge(r.p.status === "Cuti" ? "Cuti" : "Aktif") },
-          { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Atur delegasi PIC')">Delegasi</button>` }
-        ], picRows), { bodyCls: "flush" })}`;
-    }
+      return `<div class="grid g3 mb-16" id="picKpi"></div>
+        ${U.card("Matriks Penugasan PIC", `<div id="picTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatPic(); }
   };
 
   V["technician"] = {

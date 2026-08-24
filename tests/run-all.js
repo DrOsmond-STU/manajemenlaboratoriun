@@ -33,7 +33,8 @@ const SUITES = [
   ['equipment', 'Manajemen Alat Laboratorium tersambung: memakai Aset & BMN yang sama, disaring wajib_kalibrasi, riwayat kalibrasi/maintenance/penggunaan sungguhan'],
   ['availability', 'Room Availability tersambung: timeline & KPI dari Repo.ruangan + Repo.booking yang sudah ada, klik blok membuka detail booking sungguhan'],
   ['layout', 'Room Layout Management tersambung: matriks tata_letak dari Repo.ruangan yang sudah ada, kolom Custom dekoratif dijatuhkan, Ruangan Terkait sungguhan'],
-  ['facility', 'Fasilitas & Add-on tersambung: Tariff jenis=addon yang sama dengan Daftar Tarif, KPI karangan purwarupa dijatuhkan']
+  ['facility', 'Fasilitas & Add-on tersambung: Tariff jenis=addon yang sama dengan Daftar Tarif, KPI karangan purwarupa dijatuhkan'],
+  ['pic', 'Penanggung Jawab (PIC) tersambung: agregasi penanggung_jawab dari Ruangan/Laboratorium/Aset yang sudah ada, gagal sebagian tidak mengosongkan gabungan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

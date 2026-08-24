@@ -1842,6 +1842,48 @@
       return id
         ? API.put("/api/acara/" + encodeURIComponent(id), isi).then((j) => j.data)
         : API.post("/api/acara", isi).then((j) => j.data);
+    },
+
+    /*
+       Peserta Event: sub-resource `acara` — bukan modul terpisah. Tidak
+       ada `D.participants` di purwarupa sama sekali (V["participant"]
+       lama mengarang barisnya dari D.people+D.visitors dan KPI-nya
+       hardcode, sama sekali tidak saling berkaitan) — jadi mode contoh
+       di sini adalah data demo tulisan tangan, pola yang sama dengan
+       auditAsetDariPurwarupa(), bukan pemetaan dari purwarupa yang ada.
+    */
+    peserta: {
+      async daftar(acaraId, tapis) {
+        if (!langsungKeApi()) {
+          let baris = [
+            { id: "demo-1", nama: "Siti Nurhaliza", instansi: "Divisi Pemasaran", email: "siti@internal.co.id", telepon: "0812-1122-330", status: { kode: "hadir", nama: "Hadir" }, hadir_pada: DB.shift(0) + "T08:12:00", catatan: null },
+            { id: "demo-2", nama: "Bayu Prakoso", instansi: "PT Anugerah Sejahtera", email: "bayu@anugerah.co.id", telepon: "0813-2233-441", status: { kode: "terdaftar", nama: "Terdaftar" }, hadir_pada: null, catatan: null },
+            { id: "demo-3", nama: "Tommy Saputra", instansi: "Universitas Teknologi Bangsa", email: "tommy@utb.ac.id", telepon: "0814-3344-552", status: { kode: "tidak_hadir", nama: "Tidak hadir" }, hadir_pada: null, catatan: null }
+          ];
+          if (tapis && tapis.cari) {
+            const k = tapis.cari.toLowerCase();
+            baris = baris.filter((p) => p.nama.toLowerCase().indexOf(k) !== -1 || (p.instansi || "").toLowerCase().indexOf(k) !== -1);
+          }
+          if (tapis && tapis.status) baris = baris.filter((p) => p.status.kode === tapis.status);
+          return { data: baris };
+        }
+        return API.get("/api/acara/" + encodeURIComponent(acaraId) + "/peserta" + qs(tapis));
+      },
+
+      daftarkan(acaraId, isi) {
+        if (!langsungKeApi()) return tolakDiModeContoh("Mendaftarkan peserta");
+        return API.post("/api/acara/" + encodeURIComponent(acaraId) + "/peserta", isi).then((j) => j.data);
+      },
+
+      tandaiHadir(id) {
+        if (!langsungKeApi()) return tolakDiModeContoh("Menandai hadir");
+        return API.post("/api/peserta-event/" + encodeURIComponent(id) + "/hadir").then((j) => j.data);
+      },
+
+      tandaiTidakHadir(id) {
+        if (!langsungKeApi()) return tolakDiModeContoh("Menandai tidak hadir");
+        return API.post("/api/peserta-event/" + encodeURIComponent(id) + "/tidak-hadir").then((j) => j.data);
+      }
     }
   };
 

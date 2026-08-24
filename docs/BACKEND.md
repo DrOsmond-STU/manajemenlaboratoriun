@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-583 uji lulus, 1.779 asersi, 0 gagal — dijalankan di PostgreSQL 16
+595 uji lulus, 1.820 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -629,6 +629,23 @@ Manajemen Event — perencanaan event, modul baru:
 | Status di luar daftar ditolak | `422`, `Rule::in(Event::STATUS)` |
 | **Event batal ditandai status, bukan dihapus** | tidak ada `destroy()` sama sekali — pembatalan lewat `PUT status=dibatalkan`, riwayat perencanaan tetap tersimpan |
 | Anggaran dapat dikosongkan | `anggaran` nullable — event internal tanpa anggaran tercatat tidak dipaksa mengisi nol |
+
+Peserta Event — sub-resource `acara`, modul baru:
+
+| Uji | Yang dijaga |
+|---|---|
+| Tamu ditolak | `401` pada seluruh endpoint `peserta`/`peserta-event` |
+| **Room-administrator (PENUH) dapat daftar, tandai hadir, tandai tidak hadir** | memakai izin `booking-ruangan.*` milik event induk, bukan modul sendiri |
+| Lihat saja asset-manager/finance/lab-technician/management | mendaftarkan peserta ditolak `403` |
+| Employee boleh daftar tapi tidak boleh menandai hadir | daftar `201`, tandai hadir `403` |
+| Pendaftaran selalu mulai `terdaftar` | `hadir_pada` masih `null` di respons |
+| **Daftar hanya memuat peserta event yang bersangkutan** | peserta event lain tidak ikut bocor lewat endpoint `acara/{acara}/peserta` |
+| Tandai hadir yang sudah hadir ditolak | `422` — dijaga `EventParticipantService`, bukan hanya UI |
+| Tandai tidak hadir yang sudah diputuskan ditolak | `422` — keputusan (hadir/tidak hadir) bersifat final, sama seperti Penawaran final tidak dapat diputuskan ulang |
+| Tandai hadir mencatat waktu | `hadir_pada` terisi `now()` |
+| Cari dan tapis status | `cari` (ilike nama/instansi), `status` persis |
+| **Event dihapus ikut menghapus peserta** | `cascadeOnDelete`, BUKAN `nullOnDelete` seperti relasi lain window ini — peserta tanpa event tidak bermakna apa pun |
+| Constraint database konsisten dengan factory state | `terdaftar`/`hadir`/`tidak_hadir` masing-masing berhasil `INSERT` lewat state factory berbeda |
 
 ### 4.2 Catatan rancangan
 
@@ -1792,17 +1809,55 @@ Manajemen Event — perencanaan event, modul baru:
   selesai/dibatalkan), TIDAK melacak tahap penagihan; keduanya dipetakan
   ke "Direncanakan" di mode contoh, konsisten dengan keputusan tidak
   menautkan `anggaran` ke jalur penagihan di atas.
-- **"Agenda & Kegiatan", "Peserta Event", dan "Laporan Event" purwarupa
-  BELUM disambungkan pada window ini** — ketiganya butuh entitas baru
-  yang jauh lebih luas (peserta/registrasi/QR/absensi untuk Peserta
-  Event; "Agenda" yang purwarupanya mencampur rapat/training/audit/
-  maintenance/inspeksi — jenis kegiatan yang SEBAGIAN BESAR sudah
-  masing-masing tercatat di tabelnya sendiri, `AssetMaintenance` dan
-  `AssetAuditSession`, sehingga sebuah tabel "Agenda" generik berisiko
+- **"Agenda & Kegiatan" dan "Laporan Event" purwarupa BELUM disambungkan
+  pada window ini** — "Agenda" purwarupanya mencampur rapat/training/
+  audit/maintenance/inspeksi, jenis kegiatan yang SEBAGIAN BESAR sudah
+  masing-masing tercatat di tabelnya sendiri (`AssetMaintenance`,
+  `AssetAuditSession`), sehingga sebuah tabel "Agenda" generik berisiko
   jadi sumber kebenaran kedua yang menyimpang dari yang sudah ada —
   mirip alasan Kalender Terpadu mengagregasi sumber yang sudah
-  tersambung, bukan menyimpan salinannya sendiri). Disengaja dipisah
-  dari cakupan pass ini, bukan lupa.
+  tersambung, bukan menyimpan salinannya sendiri. "Laporan Event" wajar
+  menyusul setelah "Peserta Event" (di bawah) sungguhan berjalan, supaya
+  ada data kehadiran nyata untuk dilaporkan. Disengaja dipisah dari
+  cakupan pass ini, bukan lupa.
+
+- **Peserta Event — sub-resource `acara`, tabel `event_participants`,
+  BUKAN modul MatriksAkses tersendiri.** Memakai izin `booking-ruangan.*`
+  milik event induknya — pola yang sama dengan `AssetAuditScan` memakai
+  izin `audit-aset.*` milik sesi induknya, bukan izin sendiri. Purwarupa
+  lama SAMA SEKALI tidak punya `D.participants` — `V["participant"]`
+  sebelumnya mengarang barisnya dari `D.people`+`D.visitors` dan
+  KPI-nya hardcode ("380 peserta" untuk SETIAP event, tidak pernah
+  berubah), sehingga mode contoh di sini adalah data demo tulisan
+  tangan (pola yang sama dengan `auditAsetDariPurwarupa()`), bukan
+  pemetaan dari fixture purwarupa yang memang tidak ada.
+- **`event_id` memakai `cascadeOnDelete`, BUKAN `nullOnDelete`** — satu-
+  satunya penyimpangan dari pola `nullOnDelete` yang dipakai seluruh
+  relasi opsional window ini, karena baris peserta memang TIDAK
+  bermakna tanpa event induknya (bukan referensi opsional yang boleh
+  jadi "tidak diketahui").
+- **Layar memilih SATU event lebih dulu** (dari `Repo.acara.daftar()`
+  yang sudah tersambung), lalu mengelola peserta event itu — pola yang
+  sama dengan Audit Aset menampilkan satu sesi terpilih, bukan daftar
+  peserta lintas-event yang menuntut agregasi rumit di klien.
+- **Tombol header "Daftarkan Peserta" TIDAK digerbangi status event
+  terpilih** — `view.actions` dievaluasi SEBELUM `mount()` berjalan
+  (lihat `app.js:route()`), sedangkan event yang terpilih baru diketahui
+  ASYNC di dalam `mount()`; menggerbanginya di `actions` akan membuat
+  tombolnya tidak pernah muncul walau datanya sudah termuat. Kasus
+  "belum ada event" dijaga di dalam `pstForm()` sendiri sebagai gantinya
+  — bug nyata yang tertangkap dan diperbaiki sebelum dikirim, bukan
+  dugaan.
+- **Distribusi QR undangan dan "Impor Peserta" massal purwarupa
+  DIJATUHKAN** — MVP staf/panitia-operasikan: mendaftarkan dan menandai
+  hadir/tidak hadir manual, mengikuti simplifikasi yang sama dengan
+  Manajemen Pengunjung. KPI "Check-in QR" dan "Undangan Terkirim"
+  purwarupa ikut dijatuhkan — tidak ada sistem QR/undangan tersimpan di
+  mana pun.
+- **"Tingkat Kehadiran" DIHITUNG dari peserta yang SUDAH DIPUTUSKAN**
+  (hadir+tidak_hadir), bukan dari seluruh peserta terdaftar — peserta
+  yang belum diputuskan sama sekali tidak boleh menurunkan/menaikkan
+  persentase kehadiran secara semu.
 
 ---
 

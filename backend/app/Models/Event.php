@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Event extends Model
 {
@@ -47,6 +48,11 @@ class Event extends Model
     public function pendaftar(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dibuat_oleh');
+    }
+
+    public function participants(): HasMany
+    {
+        return $this->hasMany(EventParticipant::class);
     }
 
     public function scopeCari(Builder $query, string $kata): Builder

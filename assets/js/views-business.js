@@ -1464,30 +1464,164 @@
     }
   };
 
+  /* =======================================================================
+     PESERTA EVENT — tersambung ke basis data (`event_participants`)
+
+     Sub-resource dari Manajemen Event, BUKAN daftar peserta lintas-event
+     yang berdiri sendiri — purwarupa lama mengarang barisnya dari
+     D.people+D.visitors dan KPI-nya hardcode ("380 peserta" pada SETIAP
+     event, tidak pernah berubah), sama sekali tidak saling berkaitan.
+     Layar ini memilih SATU event lebih dulu (dari Repo.acara.daftar()
+     yang sudah tersambung), lalu mengelola peserta event itu — pola
+     yang sama dengan Audit Aset menampilkan satu sesi terpilih.
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - Distribusi QR undangan dan "Impor Peserta" massal DIJATUHKAN —
+       MVP ini staf/panitia-operasikan: mendaftarkan dan menandai
+       hadir/tidak hadir manual lewat layar ini, mengikuti simplifikasi
+       yang sama dengan Manajemen Pengunjung.
+     - KPI "Check-in QR" dan "Undangan Terkirim" DIJATUHKAN — tidak ada
+       sistem QR/undangan tersimpan di mana pun.
+     ======================================================================= */
+
+  const PST = { acaraList: [], acaraId: null, baris: [], memuat: true, galat: null, tapis: {} };
+
+  async function muatDaftarAcaraUntukPeserta() {
+    try { PST.acaraList = (await Repo.acara.daftar()).data; }
+    catch (e) { PST.acaraList = []; }
+    if (!PST.acaraId && PST.acaraList.length) PST.acaraId = PST.acaraList[0].id;
+    isiPemilihAcaraPeserta();
+    if (PST.acaraId) muatPeserta(); else { PST.memuat = false; isiPeserta(); isiRingkasanPeserta(); }
+  }
+
+  function isiPemilihAcaraPeserta() {
+    const w = document.getElementById("pstPemilihAcara");
+    if (!w) return;
+    if (!PST.acaraList.length) { w.innerHTML = `<span class="small muted">Belum ada event terdaftar — buat event lebih dulu di Manajemen Event.</span>`; return; }
+    w.innerHTML = `<select class="select" id="pstAcaraId" style="max-width:320px" onchange="pstGantiAcara(this.value)">
+      ${PST.acaraList.map((e) => `<option value="${U.esc(String(e.id))}" ${String(e.id) === String(PST.acaraId) ? "selected" : ""}>${U.esc(e.nama)} — ${U.fdate(e.tanggal, "short")}</option>`).join("")}
+    </select>`;
+  }
+
+  window.pstGantiAcara = function (id) {
+    PST.acaraId = id;
+    PST.tapis = {};
+    muatPeserta();
+  };
+
+  async function muatPeserta() {
+    PST.memuat = true; PST.galat = null; isiPeserta();
+    try { PST.baris = (await Repo.acara.peserta.daftar(PST.acaraId, PST.tapis)).data; }
+    catch (e) { PST.baris = []; PST.galat = e.message; }
+    finally { PST.memuat = false; isiPeserta(); isiRingkasanPeserta(); }
+  }
+
+  function isiRingkasanPeserta() {
+    const w = document.getElementById("pstKpi");
+    if (!w) return;
+    const b = PST.baris;
+    const diputuskan = b.filter((p) => p.status.kode !== "terdaftar");
+    const hadir = b.filter((p) => p.status.kode === "hadir");
+    const persenHadir = diputuskan.length ? Math.round((hadir.length / diputuskan.length) * 100) : null;
+    w.innerHTML = `
+      ${U.kpi({ label: "Peserta Terdaftar", value: b.length, icon: "users", tint: "brand", note: "Event terpilih" })}
+      ${U.kpi({ label: "Hadir", value: hadir.length, icon: "check", tint: "green", note: "Sudah ditandai hadir" })}
+      ${U.kpi({ label: "Tingkat Kehadiran", value: persenHadir === null ? "—" : persenHadir, suffix: persenHadir === null ? "" : "%", icon: "chart", tint: "amber", note: diputuskan.length ? "Dari " + diputuskan.length + " yang sudah diputuskan" : "Belum ada yang diputuskan" })}`;
+  }
+
+  function isiPeserta() {
+    const w = document.getElementById("pstTabel");
+    if (!w) return;
+    if (!PST.acaraId) { w.innerHTML = U.emptyState("Pilih event lebih dulu", ""); return; }
+    if (PST.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (PST.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(PST.galat)}</span></div></div>`; return; }
+    if (!PST.baris.length) { w.innerHTML = U.emptyState("Belum ada peserta terdaftar", Repo.dapatMenulis() ? "" : "Masuk dengan akun untuk mendaftarkan peserta."); return; }
+    w.innerHTML = U.table([
+      { t: "Nama", render: (p) => `<div class="row"><span class="avatar sm">${U.initials(p.nama)}</span><div><b class="small">${U.esc(p.nama)}</b><div class="tiny faint">${U.esc(p.email || "—")}</div></div></div>` },
+      { t: "Instansi", render: (p) => U.esc(p.instansi || "—") },
+      { t: "Telepon", render: (p) => U.esc(p.telepon || "—") },
+      { t: "Status", render: (p) => U.badge(p.status.nama) },
+      { t: "", cls: "actions", render: (p) => {
+          if (!Repo.dapatMenulis() || p.status.kode !== "terdaftar") return "";
+          return `<button class="btn btn-sm" onclick="pstTandaiHadir(${JSON.stringify(p.id)})">Hadir</button>
+                  <button class="btn btn-sm" onclick="pstTandaiTidakHadir(${JSON.stringify(p.id)})">Tidak Hadir</button>`;
+        } }
+    ], PST.baris);
+  }
+
   V["participant"] = {
     title: "Peserta Event",
-    sub: "Registrasi, konfirmasi kehadiran, distribusi QR, dan absensi peserta.",
-    actions: `<button class="btn btn-sm" onclick="UI.demo('Kirim undangan QR massal')">${U.icon("send")} Kirim Undangan</button>
-              <button class="btn btn-primary btn-sm" onclick="UI.demo('Impor daftar peserta')">${U.icon("upload")} Impor Peserta</button>`,
+    sub: "Registrasi dan absensi peserta per event.",
+    get actions() {
+      // PST.acaraId dimuat async di mount() — tombol ini dievaluasi SEBELUM
+      // mount() berjalan (lihat app.js:route()), jadi tidak boleh digerbangi
+      // olehnya di sini. Kasus "belum ada event dipilih" dijaga di
+      // pstForm() sendiri, bukan dengan menyembunyikan tombolnya.
+      return Repo.dapatMenulis() ? `<button class="btn btn-primary btn-sm" onclick="pstForm()">${U.icon("plus")} Daftarkan Peserta</button>` : "";
+    },
     render() {
-      const rows = D.people.concat(D.visitors.map((v) => ({ id: v.id, name: v.name, unit: v.org, role: "Peserta Eksternal", email: "-", phone: "-" })));
       return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Peserta Terdaftar", value: 380, icon: "users", tint: "brand", note: "National Tech Summit 2026" })}
-          ${U.kpi({ label: "Konfirmasi Hadir", value: 341, icon: "check", tint: "green", note: "89,7% dari terdaftar" })}
-          ${U.kpi({ label: "Check-in QR", value: 0, icon: "qr", tint: "amber", note: "Dibuka H-1 event" })}
-          ${U.kpi({ label: "Undangan Terkirim", value: 380, icon: "send", tint: "teal", note: "Email & WhatsApp" })}
+        <div class="row wrap gap-8 mb-16" id="pstPemilihAcara"></div>
+        <div class="grid g3 mb-16" id="pstKpi"></div>
+        ${U.card("Daftar Peserta", `<div id="pstTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { PST.tapis = {}; muatDaftarAcaraUntukPeserta(); }
+  };
+
+  window.pstForm = function () {
+    if (!Repo.dapatMenulis()) { U.toast("Tidak tersedia", "Mendaftarkan peserta hanya bisa setelah masuk dengan akun."); return; }
+    if (!PST.acaraId) { U.toast("Belum ada event", "Buat event lebih dulu di Manajemen Event sebelum mendaftarkan peserta."); return; }
+
+    U.drawer({
+      title: "Daftarkan Peserta",
+      sub: "Isian bertanda * wajib diisi",
+      body: `
+        <div id="pstFormGalat" class="alert err mb-16" hidden></div>
+        <label class="fld"><span>Nama *</span><input class="input" id="pstNama"></label>
+        <div class="grid g2 gap-12 mt-8">
+          <label class="fld"><span>Instansi</span><input class="input" id="pstInstansi"></label>
+          <label class="fld"><span>Telepon</span><input class="input" id="pstTelepon"></label>
         </div>
-        ${U.card("Daftar Peserta", U.toolbar({ ph: "Cari peserta…", filters: [["Semua Event"].concat(D.events.map((e) => e.name)), ["Semua Status", "Terdaftar", "Konfirmasi", "Hadir"]] }) +
-          U.table([
-            { t: "Nama", render: (p) => `<div class="row"><span class="avatar sm">${U.initials(p.name)}</span><div><b class="small">${U.esc(p.name)}</b><div class="tiny faint">${U.esc(p.email || "-")}</div></div></div>` },
-            { t: "Instansi / Unit", render: (p) => U.esc(p.unit) },
-            { t: "Kategori", render: (p) => `<span class="badge outline">${p.role.includes("Eksternal") ? "Eksternal" : "Internal"}</span>` },
-            { t: "QR Undangan", cls: "center", render: () => `<span class="badge green">Terkirim</span>` },
-            { t: "Konfirmasi", cls: "center", render: (p, i) => i % 5 === 0 ? U.badge("Terjadwal") : U.badge("Disetujui") },
-            { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Kirim ulang QR')">${U.icon("qr", 12)} QR</button>` }
-          ], rows.slice(0, 12)), { bodyCls: "flush" })}`;
-    }
+        <label class="fld mt-8"><span>Email</span><input class="input" id="pstEmail"></label>`,
+      foot: `<button class="btn" onclick="UI.closeDrawer()">Batal</button>
+             <button class="btn btn-primary" id="pstFormSimpan" onclick="pstFormSimpan()">Daftarkan</button>`
+    });
+  };
+
+  window.pstFormSimpan = async function () {
+    const kotak = document.getElementById("pstFormGalat");
+    const tombol = document.getElementById("pstFormSimpan");
+    kotak.hidden = true;
+
+    const isi = {
+      nama: document.getElementById("pstNama").value,
+      instansi: document.getElementById("pstInstansi").value || undefined,
+      telepon: document.getElementById("pstTelepon").value || undefined,
+      email: document.getElementById("pstEmail").value || undefined
+    };
+
+    tombol.disabled = true; tombol.textContent = "Menyimpan…";
+    try {
+      await Repo.acara.peserta.daftarkan(PST.acaraId, isi);
+      UI.closeDrawer();
+      U.toast("Terdaftar", "Peserta berhasil didaftarkan.");
+      muatPeserta();
+    } catch (e) {
+      if (e.status === 422 && e.perMedan) {
+        kotak.innerHTML = Object.keys(e.perMedan).map((k) => "<div>" + U.esc(e.perMedan[k].join(" ")) + "</div>").join("");
+      } else { kotak.textContent = e.message || "Gagal mendaftarkan peserta."; }
+      kotak.hidden = false;
+    } finally { tombol.disabled = false; tombol.textContent = "Daftarkan"; }
+  };
+
+  window.pstTandaiHadir = async function (id) {
+    try { await Repo.acara.peserta.tandaiHadir(id); U.toast("Ditandai", "Peserta ditandai hadir."); muatPeserta(); }
+    catch (e) { U.toast("Gagal", e.message || "Tidak dapat menandai hadir.", "err"); }
+  };
+
+  window.pstTandaiTidakHadir = async function (id) {
+    try { await Repo.acara.peserta.tandaiTidakHadir(id); U.toast("Ditandai", "Peserta ditandai tidak hadir."); muatPeserta(); }
+    catch (e) { U.toast("Gagal", e.message || "Tidak dapat menandai tidak hadir.", "err"); }
   };
 
   /* =======================================================================

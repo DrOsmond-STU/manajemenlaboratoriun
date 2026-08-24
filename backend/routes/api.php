@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\ChecklistController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EquipmentLoanController;
 use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\EventParticipantController;
 use App\Http\Controllers\Api\FotoAsetController;
 use App\Http\Controllers\Api\LaboratoryController;
 use App\Http\Controllers\Api\MaintenanceController;
@@ -131,6 +132,21 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('can:booking-ruangan.buat');
     Route::put('acara/{acara}', [EventController::class, 'update'])
         ->middleware('can:booking-ruangan.ubah');
+
+    // --- Peserta Event ---------------------------------------------------
+    // Sub-resource `acara`, JADI MEMAKAI IZIN YANG SAMA (booking-ruangan.*),
+    // bukan modul terpisah pada MatriksAkses — pola yang sama dengan
+    // AssetAuditScan memakai izin audit-aset.* milik sesi induknya, bukan
+    // izin sendiri. QR undangan & kios swalayan sengaja tidak dimodelkan —
+    // lihat docblock migrasi `event_participants`.
+    Route::get('acara/{acara}/peserta', [EventParticipantController::class, 'index'])
+        ->middleware('can:booking-ruangan.lihat');
+    Route::post('acara/{acara}/peserta', [EventParticipantController::class, 'store'])
+        ->middleware('can:booking-ruangan.buat');
+    Route::post('peserta-event/{peserta}/hadir', [EventParticipantController::class, 'hadir'])
+        ->middleware('can:booking-ruangan.ubah');
+    Route::post('peserta-event/{peserta}/tidak-hadir', [EventParticipantController::class, 'tidakHadir'])
+        ->middleware('can:booking-ruangan.ubah')->name('peserta-event.tidak-hadir');
 
     // --- Pemilih pengguna --------------------------------------------------
     // Untuk mengisi penanggung jawab, supervisor, dan teknisi pada formulir.

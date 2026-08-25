@@ -297,7 +297,7 @@ backend/
 ### 4.1 Hasil uji
 
 ```
-595 uji lulus, 1.820 asersi, 0 gagal — dijalankan di PostgreSQL 16
+596 uji lulus, 1.825 asersi, 0 gagal — dijalankan di PostgreSQL 16
 ```
 
 `phpunit.xml` sengaja diarahkan ke PostgreSQL, **bukan** SQLite in-memory bawaan
@@ -629,6 +629,7 @@ Manajemen Event — perencanaan event, modul baru:
 | Status di luar daftar ditolak | `422`, `Rule::in(Event::STATUS)` |
 | **Event batal ditandai status, bukan dihapus** | tidak ada `destroy()` sama sekali — pembatalan lewat `PUT status=dibatalkan`, riwayat perencanaan tetap tersimpan |
 | Anggaran dapat dikosongkan | `anggaran` nullable — event internal tanpa anggaran tercatat tidak dipaksa mengisi nol |
+| **`jumlah_peserta_terdaftar`/`jumlah_peserta_hadir` hanya disertakan bila diminta** | `?dengan_peserta=1` — tanpanya, kunci itu sama sekali tidak ada di respons (Manajemen Event sendiri tidak menanggung biaya dua `withCount` tambahan yang tidak ia perlukan) |
 
 Peserta Event — sub-resource `acara`, modul baru:
 
@@ -1858,6 +1859,34 @@ Peserta Event — sub-resource `acara`, modul baru:
   (hadir+tidak_hadir), bukan dari seluruh peserta terdaftar — peserta
   yang belum diputuskan sama sekali tidak boleh menurunkan/menaikkan
   persentase kehadiran secara semu.
+
+- **Laporan Event — TANPA satu pun migrasi baru**, memakai
+  `EventController::index()` yang sudah tersambung, diperkaya
+  `?dengan_peserta=1` (dua `withCount` opsional: total peserta dan
+  peserta berstatus `hadir`). Query tambahan ini HANYA berjalan saat
+  parameter dikirim — Manajemen Event sendiri (yang tidak butuh angka
+  ini pada listing biasa) tidak menanggung biayanya, pola yang sama
+  dengan `wajib_kalibrasi` pada `AssetController`.
+- **`EventResource` memakai `isset($this->resource->...)`, BUKAN
+  `whenCounted()`, untuk kedua count itu** — `whenCounted('participants')`
+  bekerja untuk `withCount('participants')` biasa, tapi count beralias
+  (`'participants as peserta_hadir_count'`) tidak dikenalinya sama
+  sekali. Ini pelajaran yang sama persis dengan bug
+  `AssetAuditSessionResource` yang ditemukan lebih awal window ini:
+  akses `$this->attributes` tidak diproksi `JsonResource` seperti akses
+  nama atribut langsung — jadi dicek langsung lewat `$this->resource`,
+  bukan lewat helper yang asumsinya tidak berlaku di sini.
+- **"Realisasi Anggaran"/"Efisiensi" purwarupa (selalu 94%/6% untuk
+  SEMUA event, tidak pernah berubah) DIJATUHKAN** — tidak ada
+  pencatatan pengeluaran sungguhan di mana pun; `Event.anggaran` adalah
+  angka PERENCANAAN (lihat catatan Manajemen Event), bukan realisasi.
+  Kolom "Anggaran" tetap tampil apa adanya, tanpa perbandingan yang
+  akan mengarang realisasi yang tidak pernah dicatat.
+- **"Skor Kepuasan" (survei pasca-event) DIJATUHKAN** — tidak ada
+  entitas survei di mana pun dalam skema.
+- **Tombol "Laporan PDF" per baris DIJATUHKAN** — tidak ada generator
+  dokumen, sama seperti Dokumen & Berita Acara yang masih belum
+  disambungkan (lihat catatan Manajemen Event di atas).
 
 ---
 

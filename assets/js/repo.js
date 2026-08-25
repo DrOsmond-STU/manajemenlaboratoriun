@@ -1810,9 +1810,9 @@
     Terkonfirmasi: "terkonfirmasi", Selesai: "selesai"
   };
 
-  function acaraDariPurwarupa(e) {
+  function acaraDariPurwarupa(e, denganPeserta) {
     const kode = STATUS_ACARA_DARI_PURWARUPA[e.status] || "direncanakan";
-    return {
+    const dasar = {
       id: e.id, nama: e.name, jenis: e.type, organizer: e.organizer,
       pic: e.pic ? { id: e.pic, nama: DB.personName(e.pic) } : null,
       ruangan: e.venue ? { id: e.venue, kode: e.venue, nama: DB.resName(e.venue) } : null,
@@ -1820,12 +1820,22 @@
       status: { kode: kode, nama: STATUS_ACARA_NAMA[kode] },
       catatan: null
     };
+    // Laporan Event minta ?dengan_peserta=1 — tidak ada tautan sungguhan
+    // antara D.events dan peserta di mode contoh, jadi rasio 87% purwarupa
+    // lama dipakai lagi di sini murni untuk kontinuitas visual angka yang
+    // SUDAH ditampilkan sebelumnya, bukan data yang dihitung.
+    if (denganPeserta) {
+      dasar.jumlah_peserta_terdaftar = e.people;
+      dasar.jumlah_peserta_hadir = Math.round(e.people * 0.87);
+    }
+    return dasar;
   }
 
   const acara = {
     async daftar(tapis) {
       if (!langsungKeApi()) {
-        let baris = (window.DB ? DB.events : []).map(acaraDariPurwarupa);
+        const denganPeserta = !!(tapis && tapis.dengan_peserta);
+        let baris = (window.DB ? DB.events : []).map((e) => acaraDariPurwarupa(e, denganPeserta));
         if (tapis && tapis.cari) {
           const k = tapis.cari.toLowerCase();
           baris = baris.filter((e) => e.nama.toLowerCase().indexOf(k) !== -1 || (e.organizer || "").toLowerCase().indexOf(k) !== -1);

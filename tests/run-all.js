@@ -37,7 +37,8 @@ const SUITES = [
   ['pic', 'Penanggung Jawab (PIC) tersambung: agregasi penanggung_jawab dari Ruangan/Laboratorium/Aset yang sudah ada, gagal sebagian tidak mengosongkan gabungan'],
   ['visitor', 'Manajemen Pengunjung tersambung: registrasi, check-in/out sungguhan, transisi status ditolak server, Rata-rata Kunjungan dihitung dari data nyata'],
   ['events', 'Manajemen Event tersambung: CRUD sungguhan, status selalu mulai Direncanakan, KPI "Vendor Terlibat" non-sequitur dijatuhkan, event batal ditandai status bukan dihapus'],
-  ['participant', 'Peserta Event tersambung: memilih event sungguhan dari Repo.acara, registrasi & absensi per event, Tingkat Kehadiran dihitung nyata bukan dikarang']
+  ['participant', 'Peserta Event tersambung: memilih event sungguhan dari Repo.acara, registrasi & absensi per event, Tingkat Kehadiran dihitung nyata bukan dikarang'],
+  ['laporanevent', 'Laporan Event tersambung: rekap event selesai dengan jumlah peserta sungguhan (dengan_peserta=1), Realisasi Anggaran/Skor Kepuasan karangan purwarupa dijatuhkan']
 ];
 
 /** Menunggu server statis siap menerima permintaan. */

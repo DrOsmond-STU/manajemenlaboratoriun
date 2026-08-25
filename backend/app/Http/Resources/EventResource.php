@@ -33,6 +33,15 @@ class EventResource extends JsonResource
             'anggaran' => $this->anggaran,
             'status' => ['kode' => $this->status, 'nama' => Event::STATUS[$this->status] ?? $this->status],
             'catatan' => $this->catatan,
+
+            // Hanya ada bila diminta lewat ?dengan_peserta=1 (lihat
+            // EventController::index). isset($this->resource->...), BUKAN
+            // whenCounted() — count beralias ('participants as
+            // peserta_hadir_count') tidak dikenali whenCounted(), dan
+            // AssetAuditSessionResource pernah salah pada pola serupa
+            // dengan $this->attributes langsung.
+            'jumlah_peserta_terdaftar' => $this->when(isset($this->resource->participants_count), fn () => $this->resource->participants_count),
+            'jumlah_peserta_hadir' => $this->when(isset($this->resource->peserta_hadir_count), fn () => $this->resource->peserta_hadir_count),
         ];
     }
 }

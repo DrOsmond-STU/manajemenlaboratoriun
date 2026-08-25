@@ -1778,27 +1778,73 @@
     } catch (e) { U.toast("Gagal", e.message || "Tidak dapat menonaktifkan vendor.", "err"); }
   };
 
+  /* =======================================================================
+     LAPORAN EVENT — tersambung ke basis data
+
+     Rekap event SELESAI, dengan jumlah peserta terdaftar/hadir sungguhan
+     lewat GET /api/acara?status=selesai&dengan_peserta=1 (lihat
+     EventController::index — withCount dua kali, hanya dijalankan saat
+     parameter ini dikirim, supaya Manajemen Event sendiri tidak
+     menanggung biaya query tambahan yang tidak ia perlukan).
+
+     PENYEDERHANAAN YANG DISENGAJA:
+     - "Realisasi Anggaran"/"Efisiensi" purwarupa (selalu 94%/6% untuk
+       SEMUA event) DIJATUHKAN — tidak ada pencatatan pengeluaran
+       sungguhan di mana pun; `Event.anggaran` adalah angka perencanaan
+       (lihat docblock migrasi `events`), bukan realisasi. Kolom
+       "Anggaran" tetap tampil (angka yang memang ada), tanpa
+       "Realisasi" di sampingnya yang akan mengarang perbandingan.
+     - "Skor Kepuasan" (survei pasca-event) DIJATUHKAN — tidak ada
+       entitas survei di mana pun.
+     - Tombol "Laporan PDF" per baris DIJATUHKAN — tidak ada generator
+       dokumen (lihat juga penyederhanaan Dokumen & Berita Acara yang
+       masih tertunda).
+     ======================================================================= */
+
+  const EVR = { baris: [], memuat: true, galat: null };
+
+  async function muatLaporanEvent() {
+    EVR.memuat = true; EVR.galat = null; isiLaporanEvent();
+    try { EVR.baris = (await Repo.acara.daftar({ status: 'selesai', dengan_peserta: 1 })).data; }
+    catch (e) { EVR.baris = []; EVR.galat = e.message; }
+    finally { EVR.memuat = false; isiLaporanEvent(); }
+  }
+
+  function isiLaporanEvent() {
+    const w = document.getElementById('evrIsi');
+    if (!w) return;
+    if (EVR.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (EVR.galat) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(EVR.galat)}</span></div></div>`; return; }
+
+    const b = EVR.baris;
+    const totalTerdaftar = b.reduce((s, e) => s + (e.jumlah_peserta_terdaftar || 0), 0);
+    const totalHadir = b.reduce((s, e) => s + (e.jumlah_peserta_hadir || 0), 0);
+    const rataKehadiran = totalTerdaftar ? Math.round((totalHadir / totalTerdaftar) * 100) : null;
+
+    w.innerHTML = `
+      <div class="grid g3 mb-16">
+        ${U.kpi({ label: "Event Terlaksana", value: b.length, icon: "star", tint: "violet", note: "Berstatus selesai" })}
+        ${U.kpi({ label: "Rata-rata Kehadiran", value: rataKehadiran === null ? "—" : rataKehadiran, suffix: rataKehadiran === null ? "" : "%", icon: "users", tint: "green", note: "Hadir dari peserta terdaftar" })}
+        ${U.kpi({ label: "Total Anggaran Terlaksana", value: U.rpShort(b.reduce((s, e) => s + (e.anggaran || 0), 0)), icon: "money", tint: "brand", note: "Perencanaan, bukan realisasi" })}
+      </div>
+      ${b.length ? U.card("Rekap Event Terlaksana", U.table([
+        { t: "Event", render: (e) => `<b>${U.esc(e.nama)}</b><div class="tiny faint">${U.fdate(e.tanggal, "short")}${e.ruangan ? " • " + U.esc(e.ruangan.nama) : ""}</div>` },
+        { t: "Peserta Terdaftar", cls: "center", render: (e) => e.jumlah_peserta_terdaftar == null ? `<span class="faint">—</span>` : U.num(e.jumlah_peserta_terdaftar) },
+        { t: "Hadir", cls: "center", render: (e) => e.jumlah_peserta_hadir == null ? `<span class="faint">—</span>` : U.num(e.jumlah_peserta_hadir) },
+        { t: "Tingkat Kehadiran", cls: "center", render: (e) => {
+            if (!e.jumlah_peserta_terdaftar) return `<span class="faint">—</span>`;
+            return Math.round((e.jumlah_peserta_hadir / e.jumlah_peserta_terdaftar) * 100) + "%";
+          } },
+        { t: "Anggaran", cls: "right", render: (e) => e.anggaran == null ? `<span class="faint">—</span>` : U.rp(e.anggaran) }
+      ], b), { bodyCls: "flush" }) : U.emptyState("Belum ada event yang selesai", "")}`;
+  }
+
   V["eventreport"] = {
     title: "Laporan Event",
-    sub: "Realisasi anggaran, kehadiran, evaluasi, dan dokumentasi pasca-event.",
-    render() {
-      return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Event Terlaksana YTD", value: 18, icon: "star", tint: "violet", delta: 20, note: "12 eksternal" })}
-          ${U.kpi({ label: "Rata-rata Kehadiran", value: "87", suffix: "%", icon: "users", tint: "green", delta: 4, note: "Dari peserta terdaftar" })}
-          ${U.kpi({ label: "Realisasi Anggaran", value: "94", suffix: "%", icon: "money", tint: "brand", note: "Efisiensi 6%" })}
-          ${U.kpi({ label: "Skor Kepuasan", value: "4,6", suffix: "/5", icon: "chart", tint: "amber", delta: 3, note: "Survei pasca-event" })}
-        </div>
-        ${U.card("Rekap Event Terlaksana", U.table([
-          { t: "Event", render: (e) => `<b>${U.esc(e.name)}</b><div class="tiny faint">${U.fdate(e.date, "short")} • ${U.esc(D.resName(e.venue))}</div>` },
-          { t: "Peserta Target", cls: "center", render: (e) => U.num(e.people) },
-          { t: "Hadir", cls: "center", render: (e) => U.num(Math.round(e.people * 0.87)) },
-          { t: "Anggaran", cls: "right", render: (e) => U.rp(e.budget) },
-          { t: "Realisasi", cls: "right", render: (e) => U.rp(Math.round(e.budget * 0.94)) },
-          { t: "Efisiensi", cls: "right", render: () => `<span class="badge green">6%</span>` },
-          { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Unduh laporan event PDF')">${U.icon("download", 12)} Laporan</button>` }
-        ], D.events), { bodyCls: "flush" })}`;
-    }
+    sub: "Rekap peserta dan anggaran perencanaan event yang telah selesai.",
+    actions: `<button class="btn btn-sm" onclick="window.print()">${U.icon("print")} Cetak</button>`,
+    render() { return `<div id="evrIsi"></div>`; },
+    mount() { muatLaporanEvent(); }
   };
 
   /* =======================================================================

@@ -34,6 +34,19 @@ class EventController extends Controller
             $query->where('jenis', $request->string('jenis')->toString());
         }
 
+        // Opsional: Laporan Event butuh jumlah peserta terdaftar/hadir per
+        // baris untuk menghitung tingkat kehadiran. Query TAMBAHAN ini
+        // (dua withCount) hanya dijalankan bila diminta — Manajemen Event
+        // sendiri tidak memerlukannya dan tidak boleh menanggung biayanya.
+        // Pola yang sama dengan AssetController menyertakan `wajib_kalibrasi`
+        // hanya ketika parameternya dikirim.
+        if ($request->boolean('dengan_peserta')) {
+            $query->withCount([
+                'participants',
+                'participants as peserta_hadir_count' => fn ($q) => $q->where('status', 'hadir'),
+            ]);
+        }
+
         return EventResource::collection($query->paginate(50));
     }
 

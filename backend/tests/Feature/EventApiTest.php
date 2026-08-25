@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Event;
+use App\Models\EventParticipant;
 use App\Models\Room;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -186,5 +187,26 @@ class EventApiTest extends TestCase
             ->json('data');
 
         $this->assertNull($data['anggaran']);
+    }
+
+    public function test_jumlah_peserta_hanya_disertakan_bila_diminta(): void
+    {
+        $event = Event::factory()->create();
+        EventParticipant::factory()->for($event)->create();
+        EventParticipant::factory()->hadir()->for($event)->create();
+        EventParticipant::factory()->hadir()->for($event)->create();
+        EventParticipant::factory()->tidakHadir()->for($event)->create();
+
+        $user = $this->penggunaBerperan('facility-manager');
+
+        $tanpaParam = $this->actingAs($user)->getJson('/api/acara')
+            ->assertOk()->json('data.0');
+        $this->assertArrayNotHasKey('jumlah_peserta_terdaftar', $tanpaParam);
+
+        $denganParam = $this->actingAs($user)->getJson('/api/acara?dengan_peserta=1')
+            ->assertOk()->json('data.0');
+
+        $this->assertSame(4, $denganParam['jumlah_peserta_terdaftar']);
+        $this->assertSame(2, $denganParam['jumlah_peserta_hadir']);
     }
 }

@@ -1888,6 +1888,35 @@ Peserta Event — sub-resource `acara`, modul baru:
   dokumen, sama seperti Dokumen & Berita Acara yang masih belum
   disambungkan (lihat catatan Manajemen Event di atas).
 
+- **Teknisi & Operator disambungkan TANPA SATU PUN perubahan backend**
+  — memakai `Repo.pengguna` (endpoint pemilih pengguna yang sudah
+  tersambung sejak Ruangan/Laboratorium/Aset) yang SUDAH mendukung
+  tapisan `?peran=`, dan `Repo.pemeliharaan` yang sudah tersambung.
+  Pola yang sama dengan Penanggung Jawab (PIC): agregasi dari sumber
+  yang sudah ada, bukan entitas baru. Kedua sumber dimuat TERPISAH
+  (bukan satu `Promise.all` yang gagal total) karena `master-data.lihat`
+  dan `pemeliharaan.lihat` adalah dua izin berbeda pada matriks —
+  gagal pada satu sumber tidak boleh mengosongkan yang lain.
+- **Penyederhanaan di layar ini jauh lebih besar dari modul lain window
+  ini.** "Kompetensi/Sertifikasi", "Kontak", dan "Status" (Aktif/Cuti)
+  purwarupa DIJATUHKAN — `PenggunaController::index()` SENGAJA hanya
+  mengirim `id`/`nama`/`unit_kerja` (lihat docblock-nya: surel tidak
+  pernah ikut, demi mengurangi risiko phishing pada endpoint yang
+  dapat diakses hampir semua peran); `User` juga tidak menyimpan
+  kompetensi/sertifikasi/status cuti di mana pun. "Work Order Aktif"
+  PER TEKNISI dan tombol "Jadwal" DIJATUHKAN — `AssetMaintenance` tidak
+  punya kolom penugasan teknisi (siapa mengerjakan apa), hanya
+  `dikerjakan_pada`; KPI "Work Order Berjalan" tetap ADA tapi sebagai
+  AGREGAT seluruh pekerjaan berstatus `berjalan`, bukan per-baris.
+  "Sertifikasi Aktif" dan "Rata-rata Response" purwarupa DIJATUHKAN —
+  tidak ada pencatatan sertifikasi staf maupun waktu respons di mana
+  pun.
+- **"PIC" tidak lagi ikut disaring ke layar ini** — purwarupa
+  mencampur populasinya lewat `/Technician|PIC/`, tapi Penanggung
+  Jawab sudah punya layar sendiri dengan makna berbeda (kepemilikan
+  resource, bukan headcount teknisi); mencampurnya di sini hanya
+  menduplikasi populasi PIC tanpa menambah nilai.
+
 ---
 
 ## 5. Kerangka Kerja Ini Menjawab Kebutuhan yang Sudah Ada

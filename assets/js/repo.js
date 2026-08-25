@@ -235,9 +235,12 @@
      */
     async daftar(tapis) {
       if (!langsungKeApi()) {
-        let baris = (window.DB ? DB.people : []).map((p) => ({
-          id: p.id, nama: p.name, unit_kerja: p.unit || null
-        }));
+        let sumber = window.DB ? DB.people : [];
+        // Purwarupa tidak punya peran spatie sungguhan (lab-technician, dst)
+        // — dicocokkan longgar dari string peran bebasnya sendiri, cukup
+        // untuk kontinuitas visual di mode contoh.
+        if (tapis && tapis.peran === "lab-technician") sumber = sumber.filter((p) => /technician/i.test(p.role || ""));
+        let baris = sumber.map((p) => ({ id: p.id, nama: p.name, unit_kerja: p.unit || null }));
         if (tapis && tapis.cari) {
           const k = tapis.cari.toLowerCase();
           baris = baris.filter((p) => p.nama.toLowerCase().indexOf(k) !== -1);

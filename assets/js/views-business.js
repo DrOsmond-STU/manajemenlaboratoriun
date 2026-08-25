@@ -2113,28 +2113,80 @@
     mount() { muatPic(); }
   };
 
+  /* =======================================================================
+     TEKNISI & OPERATOR — tersambung ke basis data (TANPA satu pun
+     perubahan backend)
+
+     Memakai Repo.pengguna (pemilih pengguna yang sudah tersambung sejak
+     modul Ruangan/Laboratorium/Aset) yang SUDAH mendukung tapisan
+     `?peran=`, dan Repo.pemeliharaan yang sudah tersambung — pola yang
+     sama dengan PIC mengagregasi sumber yang sudah ada, bukan entitas
+     baru. Kedua sumber dimuat TERPISAH (bukan satu Promise.all yang
+     gagal total), karena master-data.lihat dan pemeliharaan.lihat adalah
+     dua izin berbeda pada matriks.
+
+     PENYEDERHANAAN YANG DISENGAJA — jauh lebih besar dari modul lain:
+     - "Kompetensi/Sertifikasi", "Kontak", dan "Status" (Aktif/Cuti)
+       purwarupa DIJATUHKAN — `PenggunaController::index()` SENGAJA
+       hanya mengirim id/nama/unit_kerja (lihat docblock-nya: surel
+       tidak pernah ikut, demi mengurangi risiko phishing pada endpoint
+       yang dapat diakses hampir semua peran); `User` juga tidak
+       menyimpan kompetensi/sertifikasi/status cuti di mana pun.
+     - "Work Order Aktif" PER TEKNISI dan tombol "Jadwal" DIJATUHKAN —
+       `AssetMaintenance` tidak punya kolom penugasan teknisi (siapa
+       mengerjakan apa), hanya `dikerjakan_pada`. KPI "Work Order
+       Berjalan" tetap ADA tapi sebagai AGREGAT (seluruh pekerjaan
+       berstatus `berjalan`), bukan per-baris.
+     - "Sertifikasi Aktif" dan "Rata-rata Response" purwarupa DIJATUHKAN
+       — tidak ada pencatatan sertifikasi staf maupun waktu respons di
+       mana pun.
+     - "PIC" tidak lagi ikut disaring ke sini (purwarupa mencampur
+       `/Technician|PIC/`) — Penanggung Jawab sudah punya layar sendiri
+       dengan makna yang berbeda (kepemilikan resource, bukan headcount
+       teknisi); mencampurnya di sini akan menduplikasi populasi PIC
+       tanpa menambah nilai.
+     ======================================================================= */
+
+  const TEK = { orang: null, wo: null, galatOrang: null, galatWo: null, memuat: true };
+
+  async function muatTeknisi() {
+    TEK.memuat = true; isiTeknisi(); isiRingkasanTeknisi();
+    const ambilOrang = async () => { try { TEK.orang = (await Repo.pengguna.daftar({ peran: "lab-technician" })).data; } catch (e) { TEK.orang = null; TEK.galatOrang = e.message; } };
+    const ambilWo = async () => { try { TEK.wo = (await Repo.pemeliharaan.daftar({ status: "berjalan" })).data; } catch (e) { TEK.wo = null; TEK.galatWo = e.message; } };
+    await Promise.all([ambilOrang(), ambilWo()]);
+    TEK.memuat = false; isiTeknisi(); isiRingkasanTeknisi();
+  }
+
+  function isiRingkasanTeknisi() {
+    const w = document.getElementById("tekKpi");
+    if (!w) return;
+    if (TEK.memuat) { w.innerHTML = ""; return; }
+    w.innerHTML = `
+      ${U.kpi({ label: "Teknisi Aktif", value: TEK.orang === null ? "—" : TEK.orang.length, icon: "wrench", tint: "brand", note: "Peran lab-technician" })}
+      ${U.kpi({ label: "Work Order Berjalan", value: TEK.wo === null ? "—" : TEK.wo.length, icon: "grid", tint: "amber", note: "Seluruh pemeliharaan & kalibrasi, bukan per-teknisi" })}`;
+  }
+
+  function isiTeknisi() {
+    const w = document.getElementById("tekTabel");
+    if (!w) return;
+    if (TEK.memuat) { w.innerHTML = `<div style="padding:32px;text-align:center"><span class="muted">Memuat…</span></div>`; return; }
+    if (TEK.orang === null) { w.innerHTML = `<div class="alert err">${U.icon("alert", 15)}<div><b>Gagal memuat.</b><br><span class="small">${U.esc(TEK.galatOrang)}</span></div></div>`; return; }
+    if (!TEK.orang.length) { w.innerHTML = U.emptyState("Belum ada pengguna berperan lab-technician", ""); return; }
+    w.innerHTML = U.table([
+      { t: "Nama", render: (p) => `<div class="row"><span class="avatar sm">${U.initials(p.nama)}</span><b class="small">${U.esc(p.nama)}</b></div>` },
+      { t: "Unit Kerja", render: (p) => U.esc(p.unit_kerja || "—") }
+    ], TEK.orang);
+  }
+
   V["technician"] = {
     title: "Teknisi & Operator",
-    sub: "Jadwal, kompetensi, sertifikasi, dan beban kerja teknisi serta operator alat.",
+    sub: "Teknisi laboratorium & fasilitas terdaftar.",
     render() {
-      const tech = D.people.filter((p) => /Technician|PIC/.test(p.role));
       return `
-        <div class="grid g4 mb-16">
-          ${U.kpi({ label: "Teknisi Aktif", value: tech.length, icon: "wrench", tint: "brand", note: "Lab & fasilitas" })}
-          ${U.kpi({ label: "Work Order Berjalan", value: D.maintenance.filter((m) => m.status === "In Progress").length, icon: "grid", tint: "amber", note: "Ditangani teknisi" })}
-          ${U.kpi({ label: "Sertifikasi Aktif", value: 11, icon: "shield", tint: "green", note: "2 akan kedaluwarsa" })}
-          ${U.kpi({ label: "Rata-rata Response", value: "3,2", suffix: "jam", icon: "clock", tint: "teal", delta: -12, note: "Target ≤ 4 jam" })}
-        </div>
-        ${U.card("Daftar Teknisi & Operator", U.table([
-          { t: "Nama", render: (p) => `<div class="row"><span class="avatar sm">${U.initials(p.name)}</span><div><b class="small">${U.esc(p.name)}</b><div class="tiny faint">${U.esc(p.unit)}</div></div></div>` },
-          { t: "Peran", render: (p) => `<span class="badge brand">${U.esc(p.role)}</span>` },
-          { t: "Kompetensi / Sertifikasi", render: (p) => `<span class="small">${U.esc(p.comp)}</span>` },
-          { t: "Kontak", render: (p) => `<div class="tiny">${U.esc(p.phone)}</div>` },
-          { t: "Work Order Aktif", cls: "center", render: (p, i) => [2, 1, 3][i % 3] },
-          { t: "Status", render: (p) => U.badge(p.status) },
-          { t: "", cls: "actions", render: () => `<button class="btn btn-sm" onclick="UI.demo('Lihat jadwal teknisi')">Jadwal</button>` }
-        ], tech), { bodyCls: "flush" })}`;
-    }
+        <div class="grid g2 mb-16" id="tekKpi"></div>
+        ${U.card("Daftar Teknisi", `<div id="tekTabel"></div>`, { bodyCls: "flush" })}`;
+    },
+    mount() { muatTeknisi(); }
   };
 
   /* =======================================================================
